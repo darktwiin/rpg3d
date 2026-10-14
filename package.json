@@ -1,7 +1,8 @@
 {
   "name": "rpg3d",
-  "version": "0.0.2",
-  "description": "RPG multijoueur 3D à la 3ème personne (base de déplacement)",
+  "version": "0.0.3",
+  "type": "module",
+  "description": "RPG multijoueur 3D à la 3ème personne (survie et construction)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

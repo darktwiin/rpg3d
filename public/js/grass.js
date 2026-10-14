@@ -13,6 +13,7 @@ uniform float uTime;
 uniform vec2 uCenter;
 uniform vec3 uPlayer;
 uniform vec3 uWind;       // direction x, z + force
+uniform sampler2D uMask;  // zones sans herbe (sols construits)
 varying float vY;
 varying float vRand;
 varying vec3 vWorld;
@@ -24,6 +25,9 @@ void main() {
   float fade = 1.0 - smoothstep(T * 0.3, T * 0.48, dist);
   float s = aOffset.z * fade * (1.0 - smoothstep(0.25, 0.7, dirtAt(wp)));
   s *= 1.0 - step(96.0, max(abs(wp.x), abs(wp.y)));
+  float gh = terrainHeight(wp);
+  s *= smoothstep(5.0, 7.0, abs(wp.y - riverZ(wp.x)));   // pas d'herbe dans la rivière
+  s *= 1.0 - texture2D(uMask, wp / 200.0 + 0.5).r;       // ni sous les constructions
   if (aRand > 0.985) s *= 1.25; // les fleurs dépassent un peu
 
   vec3 p = position;
@@ -40,14 +44,14 @@ void main() {
   // Le joueur écarte l'herbe
   vec2 tp = wp - uPlayer.xz;
   float pd = length(tp);
-  float push = (1.0 - smoothstep(0.2, 1.2, pd)) * (1.0 - step(1.2, abs(uPlayer.y - terrainHeight(wp))));
+  float push = (1.0 - smoothstep(0.2, 1.2, pd)) * (1.0 - step(1.2, abs(uPlayer.y - gh)));
   off += (tp / max(pd, 0.001)) * push * 1.1;
 
   float k = y01 * y01;
   p.xz += off * k * s;
   p.y *= 1.0 - min(length(off), 1.2) * 0.4 * k;
 
-  vec3 world = vec3(wp.x, terrainHeight(wp) - 0.02, wp.y) + p;
+  vec3 world = vec3(wp.x, gh - 0.02, wp.y) + p;
   vY = y01; vRand = aRand; vWorld = world;
   gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
 }`;
@@ -108,6 +112,7 @@ export class Grass {
       uTime: wind.uTime,
       uWind: wind.uWind,
       uCenter: { value: new THREE.Vector2() },
+      uMask: { value: this.makeMask() },
       uPlayer: { value: new THREE.Vector3() },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color(1, 1, 1) },
@@ -121,6 +126,24 @@ export class Grass {
     }));
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
+  }
+
+  makeMask() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    this.maskCtx = c.getContext('2d');
+    this.maskCtx.fillStyle = '#000'; this.maskCtx.fillRect(0, 0, 512, 512);
+    this.maskTex = new THREE.CanvasTexture(c);
+    this.maskTex.flipY = false;
+    return this.maskTex;
+  }
+  // floors : liste de {x, z} (centres de cases de 2 m)
+  setMask(floors) {
+    const ctx = this.maskCtx, k = 512 / 200;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 512, 512);
+    ctx.fillStyle = '#fff';
+    for (const f of floors) ctx.fillRect((f.x - 1.15 + 100) * k, (f.z - 1.15 + 100) * k, 2.3 * k, 2.3 * k);
+    this.maskTex.needsUpdate = true;
   }
 
   update(player, center, sunDir, sunColor, ambient, fog) {

@@ -1,25 +1,46 @@
-# RPG 3D — base multijoueur
+# RPG 3D — Survie multijoueur
 
-RPG multijoueur en 3D à la 3ème personne, jouable dans le navigateur.
-Version actuelle : **ver.0.0.2**
+Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
+Version actuelle : **ver.0.0.3**
 
-## Contrôles
-- **ZQSD / WASD / flèches** : se déplacer · **Maj** : courir · **Espace** : sauter
-- **Souris** : caméra (souris capturée) · **Molette** : zoom
-- **Clic gauche** : coup d'épée (maintenir pour enchaîner)
-  - en visant un **arbre** : coupe de bois → l'arbre tombe au 5ème coup
-  - en visant un **rocher** : casse-pierre → le rocher éclate au 4ème coup
-- **F** : plein écran · **Échap** : libérer la souris
-- **T** (maintenu) : accélérer le temps, pour voir le coucher de soleil et la nuit (test)
+## Le principe
+- **Le jour** (6 min) : récolte du bois (arbres) et de la pierre (rochers), construis des défenses.
+- **La nuit** (3 min) : des monstres arrivent de partout pour détruire **le Joyau**. Ils attaquent les joueurs sur leur route et cassent les murs qui les bloquent.
+- Si le Joyau est détruit, la partie recommence. Au lever du soleil, les monstres brûlent.
+- Le Joyau peut être porté (touche **E**) et posé où vous voulez, par exemple dans votre base.
+
+## Contrôles (modifiables dans Options)
+| Touche | Action |
+|---|---|
+| ZQSD / flèches | Se déplacer |
+| Maj | Courir |
+| Espace | Sauter |
+| Clic gauche | Épée / hache (arbre) / pioche (rocher) |
+| F | Menu de construction (1 Sol · 2 Mur · 3 Toit, clic droit pour démolir) |
+| E | Prendre / poser le Joyau |
+| M | Carte |
+| Entrée | Chat |
+| Échap | Menu pause / options |
+
+## Constructions
+| Pièce | Coût |
+|---|---|
+| Sol | 2 bois + 2 pierre |
+| Mur | 3 bois |
+| Toit | 2 bois + 1 pierre |
+
+## Admin
+Tape `/god` dans le chat (hôte du groupe ou partie solo) : faire apparaître des monstres,
+passer au jour / crépuscule / nuit, invulnérabilité, construction gratuite, téléportation sur la carte.
 
 ## Lancer en local
 ```bash
 npm install
 npm start
 ```
-Puis ouvrir http://localhost:3001 (deux onglets = deux joueurs).
+Puis ouvrir http://localhost:3001
 
-## Lancer / mettre à jour sur le VPS
+## Mettre à jour sur le VPS
 ```bash
 cd ~/rpg3d
 git pull
@@ -28,11 +49,16 @@ pm2 restart rpg3d
 ```
 
 ## Fichiers
-- `server.js` — serveur : envoie le jeu, relaie les joueurs, garde l'état des arbres/rochers (repousse après 90 s)
-- `public/index.html` — page du jeu (menu, viseur, interface)
-- `public/js/main.js` — boucle du jeu, contrôles, caméra, réseau, cycle jour/nuit
-- `public/js/character.js` — personnage articulé, animations, épée, cape
-- `public/js/nature.js` — arbres, rochers, buissons, particules, lucioles
-- `public/js/terrain.js` — relief et sol
-- `public/js/sky.js` — ciel, soleil, lune, étoiles, nuages
-- `public/js/grass.js` — herbe animée
+- `server.js` — serveur : lobby/groupes, cycle jour/nuit, IA des monstres, ressources, constructions, chat, admin
+- `public/index.html`, `public/style.css` — page et interface
+- `public/js/world.js` — règles et géographie partagées entre le serveur et le navigateur
+- `public/js/main.js` — boucle du jeu, contrôles, caméra, réseau, interface
+- `public/js/character.js` — personnage, outils et animations
+- `public/js/monster.js` — le monstre et ses animations
+- `public/js/gem.js` — le Joyau
+- `public/js/buildings.js` — constructions
+- `public/js/audio.js` — musiques et bruitages (générés par le code)
+- `public/js/nature.js` — arbres, rochers, particules
+- `public/js/terrain.js`, `sky.js`, `grass.js` — sol, rivière, ciel, herbe
+- `public/js/map.js` — carte et mini-carte
+- `public/js/settings.js` — options et touches

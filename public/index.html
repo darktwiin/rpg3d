@@ -3,75 +3,166 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RPG 3D</title>
-  <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: system-ui, sans-serif; user-select: none; }
-    canvas { display: block; }
-    #menu {
-      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: radial-gradient(ellipse at center, rgba(10,14,24,0.35), rgba(10,14,24,0.8)); z-index: 10;
-    }
-    #menu .box { background: rgba(22, 28, 42, 0.92); color: #eee; padding: 28px 32px; border-radius: 14px; width: 340px; text-align: center; box-shadow: 0 10px 40px #0008; border: 1px solid #ffffff14; }
-    #menu h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: 1px; }
-    #menu p { margin: 6px 0 16px; color: #9aa4b8; font-size: 14px; }
-    #menu input[type=text], #menu input:not([type]) { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid #3a4560; background: #0f1420; color: #fff; font-size: 16px; }
-    #menu button { margin-top: 12px; width: 100%; padding: 11px; border: 0; border-radius: 8px; background: #4f7cff; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; }
-    #menu button:hover { background: #6a90ff; }
-    #menu select { background: #0f1420; color: #fff; border: 1px solid #3a4560; border-radius: 6px; padding: 4px 6px; }
-    #menu label { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 12px; font-size: 14px; color: #c6cddd; }
-    #menu .keys { margin-top: 16px; font-size: 13px; color: #9aa4b8; line-height: 1.65; text-align: left; }
-    #ui { display: none; }
-    #hud { position: fixed; left: 12px; top: 10px; color: #fff; font-size: 13px; text-shadow: 0 1px 3px #000; pointer-events: none; }
-    #status { position: fixed; right: 12px; top: 10px; color: #fff; font-size: 13px; text-shadow: 0 1px 3px #000; pointer-events: none; }
-    #version { position: fixed; right: 10px; bottom: 8px; color: #fff9; font-size: 12px; pointer-events: none; text-shadow: 0 1px 2px #000; }
-    #help { position: fixed; left: 12px; bottom: 10px; color: #fffb; font-size: 12px; text-shadow: 0 1px 3px #000; pointer-events: none; line-height: 1.5; }
-    /* Viseur */
-    #crosshair { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; pointer-events: none; transition: transform .12s; }
-    #crosshair::before { content: ''; position: absolute; inset: 0; border: 2px solid rgba(255,255,255,0.75); border-radius: 50%; box-shadow: 0 0 3px #0008, inset 0 0 3px #0008; }
-    #crosshair::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: #fff; border-radius: 50%; box-shadow: 0 0 3px #000; }
-    #crosshair.active { transform: scale(1.25); }
-    #crosshair.active::before { border-color: #ffd36b; }
-    #crosshair.active::after { background: #ffd36b; }
-    #target { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: none; pointer-events: none; text-align: center; color: #fff; font-size: 13px; text-shadow: 0 1px 3px #000; }
-    #target .bar { width: 90px; height: 6px; margin: 4px auto 0; background: #0008; border-radius: 3px; overflow: hidden; border: 1px solid #fff4; }
-    #target .fill { height: 100%; background: linear-gradient(90deg, #ffb347, #ffd36b); transition: width .15s; }
-  </style>
+  <title>RPG 3D — Survie</title>
+  <link rel="stylesheet" href="style.css">
   <script type="importmap">
     { "imports": { "three": "./lib/three/build/three.module.js",
                    "three/addons/": "./lib/three/examples/jsm/" } }
   </script>
 </head>
 <body>
-  <div id="menu">
-    <div class="box">
+  <!-- ======================= LOBBY ======================= -->
+  <div id="lobby" class="screen">
+    <div class="panel lobby-panel">
       <h1>RPG 3D</h1>
-      <p>Choisis un nom puis clique sur Jouer</p>
-      <input id="name" maxlength="16" placeholder="Ton pseudo">
-      <label><input type="checkbox" id="fs" checked> Plein écran</label>
-      <label>Graphismes
+      <div class="subtitle">Survie · Construction · Jusqu'à 4 joueurs</div>
+
+      <div id="lobby-home">
+        <label class="field">Ton pseudo
+          <input id="name" maxlength="16" placeholder="Pseudo" autocomplete="off">
+        </label>
+        <button id="btn-solo" class="btn primary">Partie solo</button>
+        <button id="btn-create" class="btn">Créer un groupe</button>
+        <div class="join-row">
+          <input id="join-code" maxlength="4" placeholder="CODE" autocomplete="off">
+          <button id="btn-join" class="btn">Rejoindre</button>
+        </div>
+      </div>
+
+      <div id="lobby-group" hidden>
+        <div class="code-box">
+          <div class="code-label">Code du groupe</div>
+          <div id="group-code" class="code">----</div>
+          <button id="btn-copy" class="btn small">Copier le lien d'invitation</button>
+        </div>
+        <div class="members-title">Joueurs (<span id="member-count">0</span>/4)</div>
+        <ul id="members"></ul>
+        <button id="btn-start" class="btn primary">Lancer la partie</button>
+        <div id="wait-host" class="hint" hidden>En attente que l'hôte lance la partie…</div>
+        <button id="btn-leave" class="btn ghost">Quitter le groupe</button>
+      </div>
+
+      <div id="lobby-error" class="error"></div>
+      <div class="lobby-foot">
+        <button id="btn-lobby-options" class="btn small ghost">⚙ Options</button>
+        <span id="conn-state">Connexion au serveur…</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= INTERFACE EN JEU ======================= -->
+  <div id="ui" hidden>
+    <div id="topbar">
+      <div id="clock">
+        <div class="clock-row"><span id="clock-icon">☀</span><span id="clock-text">Jour 1</span></div>
+        <div class="bar"><div id="clock-fill" class="fill"></div></div>
+      </div>
+      <div id="gem-hp">
+        <div class="gem-row"><span class="gem-icon">◆</span> Joyau <span id="gem-hp-text">600</span></div>
+        <div class="bar"><div id="gem-hp-fill" class="fill"></div></div>
+      </div>
+    </div>
+
+    <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas><div id="minimap-n">N</div></div>
+    <div id="status"></div>
+
+    <div id="bottom-left">
+      <div id="inv">
+        <div class="res"><span class="ico wood"></span><b id="inv-wood">0</b> Bois</div>
+        <div class="res"><span class="ico stone"></span><b id="inv-stone">0</b> Pierre</div>
+      </div>
+      <div id="hp"><div class="hp-label">❤ <span id="hp-text">100</span></div><div class="bar"><div id="hp-fill" class="fill"></div></div></div>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="target"><div class="label"></div><div class="bar"><div class="fill"></div></div></div>
+    <div id="prompt"></div>
+
+    <div id="buildbar" hidden>
+      <div id="build-slots"></div>
+      <div id="build-hint"></div>
+    </div>
+
+    <div id="chat">
+      <div id="chat-log"></div>
+      <input id="chat-input" maxlength="200" autocomplete="off" placeholder="Écris un message… (/god, /aide)" hidden>
+    </div>
+    <div id="popups"></div>
+    <div id="vignette"></div>
+    <div id="banner"></div>
+
+    <div id="death" class="overlay" hidden>
+      <div class="big">Tu es tombé…</div>
+      <div id="death-timer">Réapparition dans 8</div>
+    </div>
+    <div id="gameover" class="overlay" hidden>
+      <div class="big">Le Joyau a été détruit</div>
+      <div id="gameover-text"></div>
+      <div class="hint">Une nouvelle partie va commencer…</div>
+    </div>
+
+    <div id="mapview" class="overlay" hidden>
+      <div class="map-frame">
+        <canvas id="bigmap" width="800" height="800"></canvas>
+        <div id="map-hint"></div>
+      </div>
+    </div>
+
+    <div id="admin" class="panel" hidden>
+      <div class="panel-title">Panneau admin <button id="admin-close" class="x">✕</button></div>
+      <button class="btn small" data-admin="spawn">Faire apparaître un monstre</button>
+      <button class="btn small" data-admin="spawn5">Faire apparaître 5 monstres</button>
+      <div class="row2">
+        <button class="btn small" data-admin="day">☀ Passer au jour</button>
+        <button class="btn small" data-admin="dusk">🌇 Crépuscule</button>
+        <button class="btn small" data-admin="night">🌙 Passer à la nuit</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="admin-invuln"> Invulnérable</label>
+      <label class="toggle"><input type="checkbox" id="admin-free"> Construire sans ressources</label>
+      <button class="btn small" data-admin="tp">📍 Se téléporter (clique sur la carte)</button>
+      <div class="row2">
+        <button class="btn small" data-admin="give">+50 bois et pierre</button>
+        <button class="btn small" data-admin="heal">Soigner le Joyau</button>
+        <button class="btn small" data-admin="kill">Tuer les monstres</button>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay" hidden>
+      <div class="panel pause-panel">
+        <div class="panel-title">Pause</div>
+        <div class="hint">La partie continue pour les autres joueurs</div>
+        <button id="btn-resume" class="btn primary">Reprendre</button>
+        <button id="btn-pause-options" class="btn">Options</button>
+        <button id="btn-quit" class="btn ghost">Quitter la partie</button>
+      </div>
+    </div>
+    <div id="help">Clic : frapper · F : construire · E : Joyau · M : carte · Entrée : chat · Échap : menu</div>
+  </div>
+
+  <!-- ======================= OPTIONS ======================= -->
+  <div id="options" class="overlay" hidden>
+    <div class="panel options-panel">
+      <div class="panel-title">Options <button id="options-close" class="x">✕</button></div>
+      <div class="opt-section">Son</div>
+      <label class="slider">Musique <input type="range" id="vol-music" min="0" max="100"><span></span></label>
+      <label class="slider">Ambiance <input type="range" id="vol-amb" min="0" max="100"><span></span></label>
+      <label class="slider">Effets sonores <input type="range" id="vol-sfx" min="0" max="100"><span></span></label>
+      <div class="opt-section">Jeu</div>
+      <label class="slider">Sensibilité souris <input type="range" id="sens" min="20" max="200"><span></span></label>
+      <label class="select">Graphismes
         <select id="quality">
           <option value="high">Élevés</option>
           <option value="low">Bas (PC moins puissant)</option>
         </select>
       </label>
-      <button id="play">Jouer</button>
-      <div class="keys">
-        <b>ZQSD</b> : se déplacer · <b>Maj</b> : courir · <b>Espace</b> : sauter<br>
-        <b>Souris</b> : caméra · <b>Molette</b> : zoom<br>
-        <b>Clic gauche</b> : coup d'épée (maintenir pour enchaîner)<br>
-        Vise un <b>arbre</b> pour le couper, un <b>rocher</b> pour le casser<br>
-        <b>F</b> : plein écran · <b>Échap</b> : libérer la souris
-      </div>
+      <button id="btn-fullscreen" class="btn small">Plein écran</button>
+      <div class="opt-section">Touches <span class="hint">(clique puis appuie sur une touche)</span></div>
+      <div id="keybinds"></div>
+      <button id="btn-keys-reset" class="btn small ghost">Touches par défaut</button>
     </div>
   </div>
-  <div id="ui">
-    <div id="crosshair"></div>
-    <div id="target"><div class="label"></div><div class="bar"><div class="fill"></div></div></div>
-    <div id="hud"></div>
-    <div id="help">Clic : frapper · Maj : courir · Espace : sauter · F : plein écran</div>
-  </div>
-  <div id="status">Connexion…</div>
-  <div id="version">ver.0.0.2</div>
+
+  <div id="version">ver.0.0.3</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -1,0 +1,44 @@
+// Réglages du joueur (volumes, sensibilité, graphismes, touches), sauvegardés dans le navigateur.
+
+export const ACTIONS = [
+  ['forward', 'Avancer'], ['back', 'Reculer'], ['left', 'Gauche'], ['right', 'Droite'],
+  ['jump', 'Sauter'], ['run', 'Courir'], ['interact', 'Joyau (prendre/poser)'], ['build', 'Construire'],
+  ['map', 'Carte'], ['chat', 'Chat'],
+];
+export const DEFAULT_KEYS = {
+  forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', run: 'ShiftLeft',
+  interact: 'KeyE', build: 'KeyF', map: 'KeyM', chat: 'Enter',
+};
+const DEFAULTS = { music: 60, amb: 70, sfx: 80, sens: 100, quality: 'high', keys: { ...DEFAULT_KEYS } };
+
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
+export const settings = (() => {
+  let s = {};
+  try { s = JSON.parse(lsGet('rpg3d_settings') || '{}'); } catch {}
+  const out = { ...DEFAULTS, ...s, keys: { ...DEFAULT_KEYS, ...(s.keys || {}) } };
+  const legacyQ = lsGet('rpg3d_quality');
+  if (!s.quality && legacyQ) out.quality = legacyQ;
+  return out;
+})();
+export function saveSettings() { lsSet('rpg3d_settings', JSON.stringify(settings)); }
+export { lsGet, lsSet };
+
+// Nom lisible d'une touche (respecte le clavier AZERTY quand le navigateur le permet)
+const SPECIAL = {
+  Space: 'Espace', ShiftLeft: 'Maj G', ShiftRight: 'Maj D', ControlLeft: 'Ctrl G', ControlRight: 'Ctrl D',
+  AltLeft: 'Alt', AltRight: 'Alt Gr', Enter: 'Entrée', Tab: 'Tab', Backspace: 'Retour', CapsLock: 'Verr Maj',
+  ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Escape: 'Échap',
+};
+let layoutMap = null;
+navigator.keyboard?.getLayoutMap?.().then((m) => { layoutMap = m; window.dispatchEvent(new Event('layoutready')); }).catch(() => {});
+export function keyLabel(code) {
+  if (SPECIAL[code]) return SPECIAL[code];
+  const l = layoutMap?.get(code);
+  if (l) return l.toUpperCase();
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return 'Pavé ' + code.slice(6);
+  return code;
+}

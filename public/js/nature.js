@@ -2,10 +2,7 @@
 // Arbres et rochers peuvent être coupés / cassés. Leur état est synchronisé par le serveur.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { heightAt, noise3, seededRandom, WORLD_LIMIT } from './terrain.js';
-
-export const TREE_HP = 5;
-export const ROCK_HP = 4;
+import { heightAt, noise3, seededRandom, WORLD_LIMIT, TREE_HP, ROCK_HP, riverDist, GEM_HOME } from './world.js';
 
 // ---------- Matériaux qui bougent avec le vent ----------
 function windMaterial(params, wind, leaf) {
@@ -192,7 +189,7 @@ function buildBush(rand) {
 }
 
 // ---------- Particules ----------
-class Particles {
+export class Particles {
   constructor(scene) {
     this.scene = scene;
     this.list = [];
@@ -302,33 +299,17 @@ export class Nature {
 
     this.populate();
     this.createMotes();
+    this.stumps = [];
   }
 
+  // Buissons décoratifs (identiques chez tout le monde)
   populate() {
     const rand = seededRandom(42);
-    const placed = [];
-    const free = (x, z, d) => Math.hypot(x, z) > 9 && placed.every((p) => Math.hypot(p.x - x, p.z - z) > d + p.d);
     const L = WORLD_LIMIT - 2;
-    let ti = 0, ri = 0;
-    for (let i = 0; i < 900 && ti < 150; i++) {
-      const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
-      const isPine = rand() < 0.35;
-      if (!free(x, z, 2.2)) continue;
-      placed.push({ x, z, d: 1.6 });
-      const proto = isPine ? this.pines[Math.floor(rand() * 2)] : this.oaks[Math.floor(rand() * 4)];
-      this.addTree('t' + ti++, x, z, proto, isPine, 0.85 + rand() * 0.35);
-    }
-    for (let i = 0; i < 600 && ri < 70; i++) {
-      const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
-      const size = 0.55 + rand() * 1.0;
-      if (!free(x, z, size + 0.8)) continue;
-      placed.push({ x, z, d: size });
-      this.addRock('r' + ri++, x, z, size, this.rockGeos[Math.floor(rand() * 4)], rand() * Math.PI * 2);
-    }
     let bushes = 0;
-    for (let i = 0; i < 400 && bushes < 110; i++) {
+    for (let i = 0; i < 600 && bushes < 120; i++) {
       const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
-      if (!free(x, z, 0.8)) continue;
+      if (Math.hypot(x - GEM_HOME.x, z - GEM_HOME.z) < 10 || riverDist(x, z) < 7) continue;
       bushes++;
       const b = new THREE.Mesh(this.bushGeos[i % 3], this.mat.leaf);
       const s = 0.7 + rand() * 0.6;
@@ -337,6 +318,37 @@ export class Nature {
       b.castShadow = true; b.receiveShadow = true;
       this.scene.add(b);
     }
+  }
+
+  // Reçoit la liste complète envoyée par le serveur (début de partie)
+  load(list) {
+    for (const r of this.list) this.removeMeshes(r);
+    this.resources.clear();
+    this.list = [];
+    this.highlighted = null;
+    for (const res of list) this.add(res, false);
+  }
+
+  add(res, grow) {
+    if (this.resources.has(res.id)) return;
+    if (res.k === 't') {
+      const proto = res.v >= 4 ? this.pines[res.v - 4] : this.oaks[res.v];
+      this.addTree(res.id, res.x, res.z, proto, res.v >= 4, res.s);
+    } else {
+      this.addRock(res.id, res.x, res.z, res.s, this.rockGeos[res.v], res.rot);
+    }
+    const r = this.resources.get(res.id);
+    if (res.hp != null) this.setHp(res.id, res.hp);
+    if (grow) {
+      r.state = 'growing'; r.anim = 0;
+      if (r.kind === 'tree') r.group.scale.setScalar(0.01); else r.mesh.scale.setScalar(0.01);
+      this.fx.puff(new THREE.Vector3(r.x, r.y + 0.3, r.z), 0xcfe8b0, 5, 0.5);
+    }
+  }
+
+  removeMeshes(r) {
+    if (r.kind === 'tree') { this.scene.remove(r.group); this.scene.remove(r.stump); }
+    else this.scene.remove(r.mesh);
   }
 
   addTree(id, x, z, proto, isPine, scale) {
@@ -374,7 +386,7 @@ export class Nature {
     mesh.scale.setScalar(size);
     mesh.castShadow = mesh.receiveShadow = true;
     this.scene.add(mesh);
-    const r = { id, kind: 'rock', x, z, y, size, r: size * 0.9, max: ROCK_HP, hp: ROCK_HP, alive: true, state: 'idle', mesh, shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0 };
+    const r = { id, kind: 'rock', x, z, y, size, r: size * 0.9, scale: size, max: ROCK_HP, hp: ROCK_HP, alive: true, state: 'idle', mesh, shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0 };
     this.resources.set(id, r); this.list.push(r);
   }
 
@@ -403,7 +415,7 @@ export class Nature {
   getTarget(px, pz, fx, fz, reach) {
     let best = null, bestScore = Infinity;
     for (const r of this.list) {
-      if (!r.alive || r.state !== 'idle') continue;
+      if (!r.alive || (r.state !== 'idle' && r.state !== 'growing')) continue;
       const dx = r.x - px, dz = r.z - pz;
       if (Math.abs(dx) > 6 || Math.abs(dz) > 6) continue;
       const d = Math.hypot(dx, dz), edge = d - r.r;
@@ -504,6 +516,8 @@ export class Nature {
       r.axis = new THREE.Vector3(r.fallDir.y, 0, -r.fallDir.x).normalize();
       r.state = 'falling'; r.angle = 0.02; r.angVel = 0.25; r.anim = 0; r.bounced = false;
       r.stump.visible = true;
+      this.audio?.play('treeCreak', new THREE.Vector3(r.x, r.y + 2, r.z));
+      this.stumps.push({ mesh: r.stump, t: 0 });
       for (let i = 0; i < 10; i++) {
         this.fx.spawn({
           geo: this.fx.box, mat: this.fx.mats.wood, pos: new THREE.Vector3(r.x, r.y + 0.5, r.z),
@@ -513,7 +527,8 @@ export class Nature {
       }
     } else {
       r.state = 'dead';
-      r.mesh.visible = false;
+      this.scene.remove(r.mesh);
+      this.forget(r);
       const c = new THREE.Vector3(r.x, r.y + r.size * 0.3, r.z);
       const n = 7 + Math.floor(r.size * 4);
       for (let i = 0; i < n; i++) {
@@ -533,35 +548,25 @@ export class Nature {
         });
       }
       this.fx.puff(c, 0xbab3a6, 6, r.size * 0.5);
+      this.audio?.play('rockBreak', c);
     }
   }
 
-  // Ressource déjà détruite quand on arrive dans la partie
-  setDead(id) {
-    const r = this.resources.get(id);
-    if (!r) return;
-    r.alive = false; r.hp = 0; r.state = 'dead';
-    if (r.kind === 'tree') { r.group.visible = false; r.stump.visible = true; }
-    else r.mesh.visible = false;
-  }
-
-  respawn(id) {
-    const r = this.resources.get(id);
-    if (!r) return;
-    r.alive = true; r.hp = r.max; r.state = 'growing'; r.anim = 0;
-    if (r.kind === 'tree') {
-      r.group.visible = true;
-      r.group.quaternion.identity();
-      r.group.position.set(r.x, r.y, r.z);
-      r.group.scale.setScalar(0.01);
-    } else {
-      r.mesh.visible = true;
-      r.mesh.scale.setScalar(0.01);
-    }
+  forget(r) {
+    this.resources.delete(r.id);
+    const i = this.list.indexOf(r);
+    if (i >= 0) this.list.splice(i, 1);
   }
 
   update(dt, time, windVec, player, night) {
-    for (const r of this.list) {
+    // Les souches s'enfoncent et disparaissent au bout d'un moment
+    for (let i = this.stumps.length - 1; i >= 0; i--) {
+      const st = this.stumps[i];
+      st.t += dt;
+      if (st.t > 60) st.mesh.position.y -= dt * 0.3;
+      if (st.t > 63) { this.scene.remove(st.mesh); this.stumps.splice(i, 1); }
+    }
+    for (const r of [...this.list]) {
       if (r.state === 'idle' && r.shakeT < 1.5) {
         r.shakeT += dt;
         const amp = Math.exp(-r.shakeT * 7) * Math.sin(r.shakeT * 38);
@@ -576,6 +581,7 @@ export class Nature {
             r.angle = 1.5; r.angVel = -r.angVel * 0.18; r.bounced = true; r.anim = 0;
             const top = new THREE.Vector3(r.x + r.fallDir.x * r.canopyY, r.y + 0.6, r.z + r.fallDir.y * r.canopyY);
             this.fx.puff(top, 0xcfc6b0, 7, 0.7);
+            this.audio?.play('treeFall', top);
             for (let i = 0; i < 18; i++) {
               this.fx.spawn({
                 geo: this.fx.leaf, mat: r.isPine ? this.fx.mats.leafPine : r.autumn ? this.fx.mats.leafAutumn : this.fx.mats.leaf,
@@ -590,7 +596,7 @@ export class Nature {
           r.angle = Math.min(1.5, r.angle + r.angVel * dt);
           if (r.anim > 4) r.group.position.y -= dt * 1.2;
           if (r.anim > 4) r.group.scale.setScalar(r.scale * Math.max(0.01, 1 - (r.anim - 4) / 1.5));
-          if (r.anim > 5.5) { r.state = 'dead'; r.group.visible = false; }
+          if (r.anim > 5.5) { r.state = 'dead'; this.scene.remove(r.group); this.forget(r); }
         }
         r.group.quaternion.setFromAxisAngle(r.axis, r.angle);
       } else if (r.state === 'growing') {

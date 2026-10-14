@@ -1,0 +1,362 @@
+// Constructions : sol (bois + pierre), mur (bois), toit (bois + pierre).
+// Aperçu fantôme, aimantation sur une grille de 2 m, animation de construction, collisions.
+import * as THREE from 'three';
+import {
+  heightAt, GRID, WALL_H, BUILD_TIME, BUILD_RANGE, PIECES, wallBox, pieceTop, distToBox, slotKey, resourceRadius,
+} from './world.js';
+
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function canvasTex(w, h, draw, repeat = [1, 1]) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(...repeat);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function plankTexture() {
+  return canvasTex(256, 256, (ctx, w, h) => {
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      const shade = 0.85 + Math.random() * 0.25;
+      ctx.fillStyle = `rgb(${150 * shade | 0},${102 * shade | 0},${62 * shade | 0})`;
+      ctx.fillRect(i * w / n, 0, w / n, h);
+      for (let k = 0; k < 14; k++) {
+        ctx.strokeStyle = `rgba(80,50,25,${0.15 + Math.random() * 0.25})`;
+        ctx.lineWidth = 1;
+        const x = i * w / n + Math.random() * w / n;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.bezierCurveTo(x + 4, h * 0.3, x - 4, h * 0.6, x + 2, h); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(40,24,12,0.9)';
+      ctx.fillRect(i * w / n, 0, 3, h);
+      const ny = Math.random() * h;
+      ctx.fillStyle = 'rgba(60,35,18,0.8)';
+      ctx.beginPath(); ctx.ellipse(i * w / n + w / n / 2, ny, 3, 6, 0, 0, Math.PI * 2); ctx.fill();
+      // clous
+      ctx.fillStyle = '#2b2b2b';
+      for (const y of [12, h - 12]) { ctx.fillRect(i * w / n + 10, y, 4, 4); ctx.fillRect(i * w / n + w / n - 14, y, 4, 4); }
+    }
+  });
+}
+function stoneTexture() {
+  return canvasTex(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#5d5a55'; ctx.fillRect(0, 0, w, h);
+    const rows = 5;
+    for (let r = 0; r < rows; r++) {
+      const off = (r % 2) * 25;
+      for (let x = -50; x < w; x += 50 + Math.random() * 10) {
+        const g = 120 + Math.random() * 40;
+        ctx.fillStyle = `rgb(${g},${g - 4},${g - 10})`;
+        const bw = 46 + Math.random() * 8, bh = h / rows - 5;
+        ctx.beginPath();
+        ctx.roundRect(x + off + 2, r * h / rows + 2, bw, bh, 6);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(x + off + 4, r * h / rows + 4, bw - 6, 4);
+      }
+    }
+  });
+}
+function shingleTexture() {
+  return canvasTex(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#4b4a48'; ctx.fillRect(0, 0, w, h);
+    const rows = 8;
+    for (let r = 0; r < rows; r++) {
+      const off = (r % 2) * 16;
+      for (let x = -32; x < w; x += 32) {
+        const g = 95 + Math.random() * 35;
+        ctx.fillStyle = `rgb(${g + 12},${g},${g - 8})`;
+        ctx.beginPath(); ctx.roundRect(x + off + 1, r * h / rows, 30, h / rows + 6, [0, 0, 8, 8]); ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(x + off + 1, r * h / rows + h / rows + 2, 30, 3);
+      }
+    }
+  });
+}
+
+export class Buildings {
+  constructor(scene, fx, audio) {
+    this.scene = scene;
+    this.fx = fx;
+    this.audio = audio;
+    this.map = new Map();
+    const planks = plankTexture(), stone = stoneTexture(), shingles = shingleTexture();
+    this.mats = {
+      planks: new THREE.MeshStandardMaterial({ map: planks, roughness: 0.85 }),
+      planksDark: new THREE.MeshStandardMaterial({ map: planks, color: '#a07a5a', roughness: 0.9 }),
+      log: new THREE.MeshStandardMaterial({ color: '#6a4528', roughness: 0.9 }),
+      stone: new THREE.MeshStandardMaterial({ map: stone, roughness: 0.95 }),
+      shingles: new THREE.MeshStandardMaterial({ map: shingles, roughness: 0.9 }),
+    };
+    this.blueprint = new THREE.MeshStandardMaterial({ color: '#9fd0ff', emissive: '#2a5a90', transparent: true, opacity: 0.45, depthWrite: false });
+    this.ghostOk = new THREE.MeshBasicMaterial({ color: '#6dff8a', transparent: true, opacity: 0.38, depthWrite: false });
+    this.ghostBad = new THREE.MeshBasicMaterial({ color: '#ff5a4a', transparent: true, opacity: 0.38, depthWrite: false });
+    this.ghost = null;
+    this.ghostKey = '';
+    this.version = 0;
+  }
+
+  // ----- Création des modèles -----
+  makeMesh(type, drop, matOverride) {
+    const g = new THREE.Group();
+    const m = (name) => matOverride || this.mats[name];
+    const add = (geo, mat, x, y, z) => {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = !matOverride; mesh.receiveShadow = !matOverride;
+      g.add(mesh);
+      return mesh;
+    };
+    if (type === 'floor') {
+      add(new THREE.BoxGeometry(2, 0.14, 2), m('planks'), 0, -0.07, 0);
+      const fh = Math.max(0.2, drop + 0.3);
+      add(new THREE.BoxGeometry(1.9, fh, 1.9), m('stone'), 0, -0.14 - fh / 2, 0);
+      for (const sx of [-1, 1]) add(new THREE.BoxGeometry(2.02, 0.08, 0.12), m('log'), 0, -0.04, sx * 0.95);
+    } else if (type === 'wall') {
+      const dh = Math.max(0, drop);
+      add(new THREE.BoxGeometry(1.8, WALL_H - 0.2, 0.16), m('planks'), 0, WALL_H / 2, 0);
+      for (const sx of [-1, 1]) {
+        const post = new THREE.CylinderGeometry(0.11, 0.12, WALL_H + dh + 0.1, 8);
+        add(post, m('log'), sx * 0.95, (WALL_H - dh) / 2, 0);
+      }
+      for (const y of [0.12, WALL_H - 0.1]) add(new THREE.BoxGeometry(1.9, 0.14, 0.22), m('log'), 0, y, 0);
+      // Croix de renfort
+      for (const s of [1, -1]) {
+        const b = add(new THREE.BoxGeometry(0.1, 2.5, 0.06), m('planksDark'), 0, WALL_H / 2, 0.1);
+        b.rotation.z = s * 0.62;
+      }
+      if (dh > 0.05) add(new THREE.BoxGeometry(1.8, dh + 0.2, 0.2), m('stone'), 0, -dh / 2, 0);
+    } else if (type === 'roof') {
+      add(new THREE.BoxGeometry(2.1, 0.12, 2.1), m('planks'), 0, 0.06, 0);
+      for (let i = 0; i < 4; i++) {
+        const row = add(new THREE.BoxGeometry(2.14, 0.07, 0.6), m('shingles'), 0, 0.15 + i * 0.045, -0.78 + i * 0.52);
+        row.rotation.x = -0.1;
+      }
+      for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.12, 0.14, 2.14), m('log'), sx * 1.0, 0.13, 0);
+    }
+    return g;
+  }
+
+  clear() {
+    for (const b of this.map.values()) this.scene.remove(b.mesh);
+    this.map.clear();
+    this.version++;
+  }
+
+  add(b, quiet) {
+    if (this.map.has(b.id)) return;
+    const drop = this.dropFor(b);
+    const mesh = this.makeMesh(b.type, drop);
+    mesh.position.set(b.x, b.y, b.z);
+    if (b.type === 'wall' && b.rot) mesh.rotation.y = Math.PI / 2;
+    this.scene.add(mesh);
+    const e = { ...b, mesh, drop, anim: b.state === 'done' ? 9 : 0, shake: 9, box: b.type === 'wall' ? wallBox(b) : { x: b.x, z: b.z, hx: 1, hz: 1 } };
+    this.map.set(b.id, e);
+    if (b.state !== 'done') this.setBlueprint(e, true);
+    if (!quiet) {
+      this.audio?.play('buildPlace', mesh.position);
+      this.dust(e, 3, 0.3);
+    }
+    this.version++;
+  }
+
+  setBlueprint(e, on) {
+    e.mesh.traverse((o) => {
+      if (!o.isMesh) return;
+      if (on) { o.userData.mat = o.material; o.material = this.blueprint; }
+      else if (o.userData.mat) o.material = o.userData.mat;
+    });
+  }
+
+  done(id) {
+    const e = this.map.get(id);
+    if (!e) return;
+    e.state = 'done';
+    e.anim = 9;
+    e.mesh.scale.set(1, 1, 1);
+    this.setBlueprint(e, false);
+    this.dust(e, 4, 0.3);
+    this.audio?.play('buildDone', e.mesh.position);
+  }
+
+  hit(id, hp) {
+    const e = this.map.get(id);
+    if (!e) return;
+    e.hp = hp;
+    e.shake = 0;
+    this.chips(e, 6);
+    this.audio?.play('woodHit', e.mesh.position);
+  }
+
+  remove(id, broken) {
+    const e = this.map.get(id);
+    if (!e) return;
+    this.scene.remove(e.mesh);
+    this.map.delete(id);
+    if (broken) {
+      this.chips(e, 22);
+      this.dust(e, 10);
+      this.audio?.play('buildBreak', e.mesh.position);
+    }
+    this.version++;
+  }
+
+  dust(e, n, size = 0.4) {
+    const p = e.mesh.position;
+    for (let i = 0; i < n; i++) this.fx.puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 2, p.y + (e.type === 'wall' ? Math.random() * 1.5 : 0.1), p.z + (Math.random() - 0.5) * 2), 0xcdbfa6, 1, size);
+  }
+  chips(e, n) {
+    const p = e.mesh.position;
+    for (let i = 0; i < n; i++) {
+      this.fx.spawn({
+        geo: this.fx.box, mat: i % 3 ? this.fx.mats.wood : this.fx.mats.bark,
+        pos: new THREE.Vector3(p.x + (Math.random() - 0.5) * 1.6, p.y + (e.type === 'wall' ? 0.3 + Math.random() * 2 : 0.2), p.z + (Math.random() - 0.5) * 1.6),
+        vel: new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5),
+        size: 0.06 + Math.random() * 0.1, life: 1.6, gravity: 15,
+      });
+    }
+  }
+
+  // Profondeur à combler sous la pièce jusqu'au terrain
+  dropFor(b) {
+    let minH = Infinity;
+    const pts = b.type === 'wall'
+      ? (b.rot ? [[0, -1], [0, 0], [0, 1]] : [[-1, 0], [0, 0], [1, 0]])
+      : [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]];
+    for (const [dx, dz] of pts) minH = Math.min(minH, heightAt(b.x + dx, b.z + dz));
+    return b.y - minH;
+  }
+
+  floors() { return [...this.map.values()].filter((b) => b.type === 'floor'); }
+
+  // ----- Collisions -----
+  // Hauteur du sol sous les pieds (terrain ou plancher / toit sur lequel on peut monter)
+  groundAt(x, z, feetY, terrainY) {
+    let g = terrainY;
+    for (const b of this.map.values()) {
+      if (b.type === 'wall') continue;
+      if (Math.abs(x - b.x) > 1.05 || Math.abs(z - b.z) > 1.05) continue;
+      const top = pieceTop(b);
+      if (top <= feetY + 0.55 && top > g) g = top;
+    }
+    return g;
+  }
+
+  // Pousse le joueur hors des murs ; renvoie true s'il a touché
+  collide(pos, radius) {
+    let hit = false;
+    for (const b of this.map.values()) {
+      if (b.type !== 'wall') continue;
+      if (pos.y > b.y + WALL_H - 0.1 || pos.y + 1.7 < b.y - b.drop - 0.2) continue;
+      const box = b.box;
+      const dx = pos.x - box.x, dz = pos.z - box.z;
+      const px = box.hx + radius - Math.abs(dx), pz = box.hz + radius - Math.abs(dz);
+      if (px > 0 && pz > 0) {
+        if (px < pz) pos.x += Math.sign(dx || 1) * px; else pos.z += Math.sign(dz || 1) * pz;
+        hit = true;
+      }
+    }
+    // Plafond : on ne traverse pas un toit en sautant
+    return hit;
+  }
+
+  // ----- Placement -----
+  // aim : point visé au sol ; renvoie une proposition { type, x, z, rot, y, ok, reason }
+  plan(type, aim, player, resources, inv, free) {
+    const cx = Math.round(aim.x / GRID) * GRID, cz = Math.round(aim.z / GRID) * GRID;
+    let x = cx, z = cz, rot = 0, y;
+    if (type === 'wall') {
+      const dx = aim.x - cx, dz = aim.z - cz;
+      if (Math.abs(dx) > Math.abs(dz)) { x = cx + Math.sign(dx || 1) * GRID / 2; rot = 1; }
+      else { z = cz + Math.sign(dz || 1) * GRID / 2; rot = 0; }
+      // posé sur un plancher voisin si possible
+      let base = -Infinity;
+      for (const b of this.map.values()) {
+        if (b.type !== 'floor') continue;
+        const nx = rot ? [x - 1, x + 1] : [x, x];
+        const nz = rot ? [z, z] : [z - 1, z + 1];
+        for (let i = 0; i < 2; i++) if (Math.abs(b.x - nx[i]) < 0.1 && Math.abs(b.z - nz[i]) < 0.1) base = Math.max(base, b.y);
+      }
+      if (base === -Infinity) {
+        const pts = rot ? [[0, -0.9], [0, 0], [0, 0.9]] : [[-0.9, 0], [0, 0], [0.9, 0]];
+        base = Math.max(...pts.map(([a, c]) => heightAt(x + a, z + c))) + 0.02;
+      }
+      y = base;
+    } else if (type === 'floor') {
+      y = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c))) + 0.15;
+    } else {
+      // Toit : sur les murs autour, sinon au-dessus du plancher / terrain
+      let top = -Infinity;
+      for (const b of this.map.values()) {
+        if (b.type === 'wall' && distToBox(x, z, { x: b.x, z: b.z, hx: 1.05, hz: 1.05 }) === 0
+          && (Math.abs(b.x - x) > 0.9 || Math.abs(b.z - z) > 0.9)) top = Math.max(top, b.y + WALL_H);
+        if (b.type === 'floor' && Math.abs(b.x - x) < 0.1 && Math.abs(b.z - z) < 0.1) top = Math.max(top, b.y + WALL_H);
+      }
+      if (top === -Infinity) top = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, c]) => heightAt(x + a, z + c))) + WALL_H;
+      y = top;
+    }
+    const plan = { type, x, z, rot, y: +y.toFixed(2), ok: true, reason: '' };
+    const key = slotKey(type, x, z, rot);
+    for (const b of this.map.values()) if (slotKey(b.type, b.x, b.z, b.rot) === key) { plan.ok = false; plan.reason = 'Emplacement occupé'; }
+    if (plan.ok && Math.hypot(x - player.x, z - player.z) > BUILD_RANGE + 1) { plan.ok = false; plan.reason = 'Trop loin'; }
+    if (plan.ok && type !== 'roof') {
+      const box = type === 'wall' ? wallBox(plan) : { x, z, hx: 1, hz: 1 };
+      for (const r of resources) {
+        if (!r.alive) continue;
+        if (distToBox(r.x, r.z, box) < r.r * 0.9) { plan.ok = false; plan.reason = r.kind === 'tree' ? 'Un arbre gêne' : 'Un rocher gêne'; break; }
+      }
+    }
+    if (plan.ok && !free) {
+      const c = PIECES[type].cost;
+      if (inv.wood < c.wood || inv.stone < c.stone) { plan.ok = false; plan.reason = 'Pas assez de matériaux'; }
+    }
+    return plan;
+  }
+
+  showGhost(plan) {
+    if (!plan) { if (this.ghost) this.ghost.visible = false; return; }
+    const drop = this.dropFor(plan);
+    const key = plan.type + ':' + plan.ok + ':' + drop.toFixed(1);
+    if (key !== this.ghostKey) {
+      if (this.ghost) this.scene.remove(this.ghost);
+      this.ghost = this.makeMesh(plan.type, drop, plan.ok ? this.ghostOk : this.ghostBad);
+      this.ghost.renderOrder = 5;
+      this.scene.add(this.ghost);
+      this.ghostKey = key;
+    }
+    this.ghost.visible = true;
+    this.ghost.position.set(plan.x, plan.y, plan.z);
+    this.ghost.rotation.y = plan.type === 'wall' && plan.rot ? Math.PI / 2 : 0;
+  }
+
+  // Pièce visée (pour démolir)
+  pick(aim) {
+    let best = null, bd = 1.3;
+    for (const b of this.map.values()) {
+      const d = distToBox(aim.x, aim.z, b.box) + (b.type === 'roof' ? 0.3 : 0);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
+  update(dt) {
+    for (const e of this.map.values()) {
+      if (e.state !== 'done') {
+        e.anim += dt;
+        const k = clamp(e.anim / BUILD_TIME, 0, 1);
+        e.mesh.scale.set(1, 0.15 + 0.85 * k, 1);
+        this.blueprint.opacity = 0.35 + Math.sin(e.anim * 8) * 0.1;
+        // Bruit de marteau pendant la construction
+        if (Math.floor((e.anim - dt) / 0.45) !== Math.floor(e.anim / 0.45) && e.anim < BUILD_TIME) this.audio?.play('hammerTap', e.mesh.position);
+      }
+      if (e.shake < 0.4) {
+        e.shake += dt;
+        const a = Math.sin(e.shake * 60) * (0.4 - e.shake) * 0.08;
+        e.mesh.position.x = e.x + a; e.mesh.position.z = e.z + a * 0.5;
+      }
+    }
+  }
+}
