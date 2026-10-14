@@ -1,0 +1,634 @@
+// Arbres, rochers, buissons, particules et ambiance (feuilles au vent, pollen / lucioles).
+// Arbres et rochers peuvent être coupés / cassés. Leur état est synchronisé par le serveur.
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { heightAt, noise3, seededRandom, WORLD_LIMIT } from './terrain.js';
+
+export const TREE_HP = 5;
+export const ROCK_HP = 4;
+
+// ---------- Matériaux qui bougent avec le vent ----------
+function windMaterial(params, wind, leaf) {
+  const m = new THREE.MeshStandardMaterial(params);
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = wind.uTime;
+    shader.uniforms.uWind = wind.uWind;
+    shader.vertexShader = 'uniform float uTime;\nuniform vec3 uWind;\n' + shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      vec3 wO = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+      float hh = max(position.y, 0.0);
+      float kk = hh * hh * 0.006 * uWind.z;
+      float sw = sin(uTime * 1.1 + wO.x * 0.21 + wO.z * 0.17) * 0.7 + sin(uTime * 2.3 + wO.z * 0.5) * 0.3;
+      float gust = smoothstep(-0.2, 1.0, sin(uTime * 0.7 - dot(wO.xz, uWind.xy) * 0.09));
+      transformed.xz += uWind.xy * kk * (0.5 + sw * 0.45 + gust * 0.9);
+      ${leaf ? 'transformed += normal * sin(uTime * 6.0 + position.x * 3.1 + position.y * 2.3 + position.z * 2.7) * 0.04 * uWind.z;' : ''}`
+    );
+  };
+  m.customProgramCacheKey = () => 'wind' + (leaf ? 'L' : 'T');
+  return m;
+}
+
+// ---------- Textures dessinées par le code ----------
+function makeBarkTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#6e4d31'; ctx.fillRect(0, 0, 64, 256);
+  for (let i = 0; i < 70; i++) {
+    const x = Math.random() * 64;
+    ctx.strokeStyle = Math.random() < 0.7 ? `rgba(40,25,14,${0.3 + Math.random() * 0.4})` : `rgba(160,120,85,${0.25 + Math.random() * 0.3})`;
+    ctx.lineWidth = 1 + Math.random() * 3;
+    ctx.beginPath(); ctx.moveTo(x, 0);
+    for (let y = 0; y <= 256; y += 16) ctx.lineTo(x + Math.sin(y * 0.05 + i) * 3, y);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 5; i++) { // nœuds
+    ctx.fillStyle = 'rgba(35,22,12,0.6)';
+    ctx.beginPath(); ctx.ellipse(Math.random() * 64, Math.random() * 256, 3, 6, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 1);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function makeRingsTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d9b27a'; ctx.fillRect(0, 0, 128, 128);
+  for (let r = 6; r < 64; r += 5 + Math.random() * 3) {
+    ctx.strokeStyle = `rgba(140,95,50,${0.4 + Math.random() * 0.3})`; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(64 + Math.random() * 2, 64 + Math.random() * 2, r, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.strokeStyle = '#5a3c22'; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.arc(64, 64, 62, 0, Math.PI * 2); ctx.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// ---------- Outils de géométrie ----------
+function displace(geo, freq, amp, seed, center = new THREE.Vector3()) {
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i).sub(center);
+    const n = noise3(v.x * freq + seed, v.y * freq, v.z * freq) * amp
+      + noise3(v.x * freq * 3 + seed, v.y * freq * 3, v.z * freq * 3) * amp * 0.3;
+    v.multiplyScalar(1 + n).add(center);
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+}
+function colorFaces(geo, palette, rand, under = 0.55, mossCol = null) {
+  geo.computeVertexNormals();
+  const n = geo.attributes.position.count, nor = geo.attributes.normal, pos = geo.attributes.position;
+  const col = new Float32Array(n * 3), c = new THREE.Color();
+  for (let f = 0; f < n; f += 3) {
+    c.copy(palette[Math.floor(rand() * palette.length)]);
+    let s = 0.85 + rand() * 0.3;
+    const ny = nor.getY(f);
+    if (ny < -0.2) s *= under; else if (ny > 0.5) s *= 1.12;
+    c.multiplyScalar(s);
+    if (mossCol && ny > 0.5 && noise3(pos.getX(f) * 2, pos.getY(f) * 2, pos.getZ(f) * 2) > -0.2) c.lerp(mossCol, 0.75);
+    for (let k = 0; k < 3; k++) { col[(f + k) * 3] = c.r; col[(f + k) * 3 + 1] = c.g; col[(f + k) * 3 + 2] = c.b; }
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+}
+const pal = (...hex) => hex.map((h) => new THREE.Color(h));
+const PAL = {
+  oak: pal('#3f7a2a', '#4d8c30', '#5c9a35', '#356b24', '#467f2b'),
+  autumn: pal('#c8641e', '#d98a24', '#b84a1c', '#e0a832', '#9c3d18'),
+  pine: pal('#2b5a2e', '#24502a', '#336636', '#1f4626'),
+  bush: pal('#3d7a2c', '#4b8a31', '#2f6524', '#5a9637'),
+  rock: pal('#8d8a85', '#7c7a76', '#9a958d', '#6f6d6a', '#858079'),
+  moss: new THREE.Color('#4f7d2c'),
+};
+
+function blobCanopy(rand, count, cy, spreadH, spreadV, rMin, rMax, palette) {
+  const parts = [];
+  for (let i = 0; i < count; i++) {
+    const r = rMin + rand() * (rMax - rMin);
+    const g = new THREE.IcosahedronGeometry(r, 1);
+    g.deleteAttribute('uv');
+    displace(g, 1.3, 0.28, rand() * 50);
+    const a = rand() * Math.PI * 2, d = i === 0 ? 0 : spreadH * (0.4 + rand() * 0.6);
+    g.translate(Math.cos(a) * d, cy + (rand() - 0.5) * spreadV * 2 + (i === 0 ? 0.2 : 0), Math.sin(a) * d);
+    parts.push(g);
+  }
+  const geo = mergeGeometries(parts);
+  colorFaces(geo, palette, rand);
+  return geo;
+}
+
+function buildOak(rand, autumn) {
+  const H = 2.6 + rand() * 1.0;
+  const trunk = new THREE.CylinderGeometry(0.2, 0.34, H, 10, 8);
+  trunk.translate(0, H / 2, 0);
+  const p = trunk.attributes.position, ph = rand() * 6;
+  for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    if (y < 0.5) { const f = 1 + (0.5 - y) * 0.9; x *= f; z *= f; } // racines
+    const t = y / H;
+    x += Math.sin(t * 2.5 + ph) * 0.15 * t; z += Math.cos(t * 2 + ph) * 0.1 * t;
+    p.setXYZ(i, x, y, z);
+  }
+  const parts = [trunk];
+  const nb = 3 + Math.floor(rand() * 2);
+  for (let i = 0; i < nb; i++) {
+    const len = 1.1 + rand() * 0.7;
+    const b = new THREE.CylinderGeometry(0.05, 0.11, len, 6);
+    b.translate(0, len / 2, 0);
+    b.rotateZ(0.6 + rand() * 0.4);
+    b.rotateY((i / nb) * Math.PI * 2 + rand());
+    b.translate(0, H * 0.72 + rand() * 0.3, 0);
+    parts.push(b);
+  }
+  const trunkGeo = mergeGeometries(parts);
+  trunkGeo.computeVertexNormals();
+  const cy = H + 0.9;
+  const leaves = blobCanopy(rand, 7, cy, 1.25, 0.45, 0.85, 1.4, autumn ? PAL.autumn : PAL.oak);
+  return { trunk: trunkGeo, leaves, canopyY: cy, canopyR: 1.7, height: cy + 1.4 };
+}
+
+function buildPine(rand) {
+  const H = 4.5 + rand() * 1.5;
+  const trunk = new THREE.CylinderGeometry(0.1, 0.25, H, 8, 4);
+  trunk.translate(0, H / 2, 0);
+  trunk.computeVertexNormals();
+  const parts = [];
+  const layers = 4 + (rand() < 0.5 ? 1 : 0);
+  for (let i = 0; i < layers; i++) {
+    const t = i / layers;
+    const r = 1.9 * (1 - t * 0.72), h = 1.8 - t * 0.4;
+    const c = new THREE.ConeGeometry(r, h, 9, 2).toNonIndexed();
+    c.deleteAttribute('uv');
+    c.rotateY(rand() * Math.PI);
+    c.translate(0, 1.5 + i * (H - 1.3) / layers + h / 2, 0);
+    parts.push(c);
+  }
+  const leaves = mergeGeometries(parts);
+  displace(leaves, 0.9, 0.12, rand() * 50, new THREE.Vector3(0, H * 0.5, 0));
+  colorFaces(leaves, PAL.pine, rand, 0.5);
+  return { trunk, leaves, canopyY: H * 0.55, canopyR: 1.5, height: H + 1 };
+}
+
+function buildRock(rand) {
+  const g = new THREE.IcosahedronGeometry(1, 2);
+  g.deleteAttribute('uv');
+  displace(g, 1.4, 0.32, rand() * 100);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    let y = p.getY(i) * 0.65;
+    if (y < -0.25) y = -0.25;
+    p.setY(i, y);
+  }
+  colorFaces(g, PAL.rock, rand, 0.7, PAL.moss);
+  return g;
+}
+
+function buildBush(rand) {
+  return blobCanopy(rand, 3 + Math.floor(rand() * 2), 0.45, 0.55, 0.15, 0.4, 0.7, PAL.bush);
+}
+
+// ---------- Particules ----------
+class Particles {
+  constructor(scene) {
+    this.scene = scene;
+    this.list = [];
+    this.box = new THREE.BoxGeometry(1, 1, 1);
+    this.leaf = new THREE.PlaneGeometry(1, 0.6);
+    this.sphere = new THREE.IcosahedronGeometry(1, 1);
+    this.mats = {
+      wood: new THREE.MeshStandardMaterial({ color: '#d4a96a', roughness: 0.9 }),
+      bark: new THREE.MeshStandardMaterial({ color: '#5a3c22', roughness: 1 }),
+      stone: new THREE.MeshStandardMaterial({ color: '#8a8680', roughness: 0.9, flatShading: true }),
+      leaf: new THREE.MeshStandardMaterial({ color: '#4d8c30', side: THREE.DoubleSide }),
+      leafAutumn: new THREE.MeshStandardMaterial({ color: '#d98a24', side: THREE.DoubleSide }),
+      leafPine: new THREE.MeshStandardMaterial({ color: '#2b5a2e', side: THREE.DoubleSide }),
+    };
+    this.fragMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
+    const r = seededRandom(7);
+    this.fragGeos = [0, 1, 2, 3].map(() => { const g = new THREE.IcosahedronGeometry(1, 0); displace(g, 1.5, 0.35, r() * 50); colorFaces(g, PAL.rock, r, 0.7); return g; });
+  }
+  spawn(o) {
+    const mesh = new THREE.Mesh(o.geo, o.mat);
+    mesh.position.copy(o.pos);
+    mesh.scale.setScalar(o.size);
+    mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+    mesh.castShadow = !!o.shadow;
+    this.scene.add(mesh);
+    this.list.push({
+      mesh, vel: o.vel.clone(), life: o.life, max: o.life, size: o.size,
+      gravity: o.gravity ?? 15, drag: o.drag ?? 0.5, spin: o.spin ?? 6, flutter: o.flutter ?? 0,
+      bounce: o.bounce ?? 0.3, puff: !!o.puff, windK: o.windK ?? 0,
+      av: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(o.spin ?? 6),
+    });
+  }
+  puff(pos, color = 0xd8cfc0, count = 4, size = 0.4) {
+    for (let i = 0; i < count; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false });
+      this.spawn({
+        geo: this.sphere, mat, pos: pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.6, Math.random() * 0.3, (Math.random() - 0.5) * 0.6)),
+        vel: new THREE.Vector3((Math.random() - 0.5) * 1.5, 0.6 + Math.random(), (Math.random() - 0.5) * 1.5),
+        size: size * (0.6 + Math.random() * 0.6), life: 0.9 + Math.random() * 0.5, gravity: 0, drag: 2, spin: 0, puff: true,
+      });
+    }
+  }
+  update(dt, wind) {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const p = this.list[i];
+      p.life -= dt;
+      const m = p.mesh;
+      if (p.life <= 0) {
+        this.scene.remove(m);
+        if (p.puff) m.material.dispose();
+        this.list.splice(i, 1);
+        continue;
+      }
+      p.vel.y -= p.gravity * dt;
+      p.vel.multiplyScalar(Math.exp(-p.drag * dt));
+      if (p.windK) { p.vel.x += wind.x * wind.z * p.windK * dt; p.vel.z += wind.y * wind.z * p.windK * dt; }
+      if (p.flutter) { p.vel.x += Math.sin(p.life * 7 + i) * p.flutter * dt; p.vel.z += Math.cos(p.life * 5 + i) * p.flutter * dt; }
+      m.position.addScaledVector(p.vel, dt);
+      const gy = heightAt(m.position.x, m.position.z) + p.size * 0.4;
+      if (m.position.y < gy) {
+        m.position.y = gy;
+        if (p.vel.y < 0) p.vel.y *= -p.bounce;
+        p.vel.x *= 0.6; p.vel.z *= 0.6; p.av.multiplyScalar(0.6);
+      }
+      m.rotation.x += p.av.x * dt; m.rotation.y += p.av.y * dt; m.rotation.z += p.av.z * dt;
+      const k = p.life / p.max;
+      if (p.puff) { m.scale.setScalar(p.size * (1 + (1 - k) * 2)); m.material.opacity = 0.45 * k; }
+      else if (k < 0.25) m.scale.setScalar(p.size * (k / 0.25));
+    }
+  }
+}
+
+// ---------- Le monde naturel ----------
+export class Nature {
+  constructor(scene, wind) {
+    this.scene = scene;
+    this.wind = wind;
+    this.fx = new Particles(scene);
+    this.resources = new Map();
+    this.list = [];
+    this.highlighted = null;
+    this.ambientT = 0;
+
+    const bark = makeBarkTexture();
+    const mk = (emissive) => ({
+      bark: windMaterial({ map: bark, roughness: 0.95, emissive }, wind, false),
+      pineBark: windMaterial({ map: bark, color: '#8a7466', roughness: 0.95, emissive }, wind, false),
+      leaf: windMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, emissive }, wind, true),
+      rock: new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, emissive }),
+    });
+    this.mat = mk(0x000000);
+    this.hiMat = mk(0x16120a);
+    this.stumpSide = new THREE.MeshStandardMaterial({ map: bark, roughness: 1 });
+    this.stumpTop = new THREE.MeshStandardMaterial({ map: makeRingsTexture(), roughness: 0.9 });
+
+    // Modèles (identiques chez tous les joueurs grâce à la graine fixe)
+    const r = seededRandom(1234);
+    this.oaks = [buildOak(r, false), buildOak(r, false), buildOak(r, false), buildOak(r, true)];
+    this.pines = [buildPine(r), buildPine(r)];
+    this.rockGeos = [buildRock(r), buildRock(r), buildRock(r), buildRock(r)];
+    this.bushGeos = [buildBush(r), buildBush(r), buildBush(r)];
+    this.stumpGeo = new THREE.CylinderGeometry(0.24, 0.34, 0.45, 10);
+    this.stumpGeo.translate(0, 0.2, 0);
+    this.stumpTopGeo = new THREE.CircleGeometry(0.24, 16);
+    this.stumpTopGeo.rotateX(-Math.PI / 2);
+    this.stumpTopGeo.translate(0, 0.43, 0);
+
+    this.populate();
+    this.createMotes();
+  }
+
+  populate() {
+    const rand = seededRandom(42);
+    const placed = [];
+    const free = (x, z, d) => Math.hypot(x, z) > 9 && placed.every((p) => Math.hypot(p.x - x, p.z - z) > d + p.d);
+    const L = WORLD_LIMIT - 2;
+    let ti = 0, ri = 0;
+    for (let i = 0; i < 900 && ti < 150; i++) {
+      const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
+      const isPine = rand() < 0.35;
+      if (!free(x, z, 2.2)) continue;
+      placed.push({ x, z, d: 1.6 });
+      const proto = isPine ? this.pines[Math.floor(rand() * 2)] : this.oaks[Math.floor(rand() * 4)];
+      this.addTree('t' + ti++, x, z, proto, isPine, 0.85 + rand() * 0.35);
+    }
+    for (let i = 0; i < 600 && ri < 70; i++) {
+      const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
+      const size = 0.55 + rand() * 1.0;
+      if (!free(x, z, size + 0.8)) continue;
+      placed.push({ x, z, d: size });
+      this.addRock('r' + ri++, x, z, size, this.rockGeos[Math.floor(rand() * 4)], rand() * Math.PI * 2);
+    }
+    let bushes = 0;
+    for (let i = 0; i < 400 && bushes < 110; i++) {
+      const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
+      if (!free(x, z, 0.8)) continue;
+      bushes++;
+      const b = new THREE.Mesh(this.bushGeos[i % 3], this.mat.leaf);
+      const s = 0.7 + rand() * 0.6;
+      b.scale.set(s, s * (0.8 + rand() * 0.3), s);
+      b.position.set(x, heightAt(x, z) - 0.1, z);
+      b.castShadow = true; b.receiveShadow = true;
+      this.scene.add(b);
+    }
+  }
+
+  addTree(id, x, z, proto, isPine, scale) {
+    const group = new THREE.Group();
+    const y = heightAt(x, z) - 0.12;
+    group.position.set(x, y, z);
+    group.scale.setScalar(scale);
+    const trunk = new THREE.Mesh(proto.trunk, isPine ? this.mat.pineBark : this.mat.bark);
+    const leaves = new THREE.Mesh(proto.leaves, this.mat.leaf);
+    trunk.castShadow = leaves.castShadow = true;
+    trunk.receiveShadow = leaves.receiveShadow = true;
+    group.add(trunk, leaves);
+    this.scene.add(group);
+    const stump = new THREE.Group();
+    stump.add(new THREE.Mesh(this.stumpGeo, this.stumpSide), new THREE.Mesh(this.stumpTopGeo, this.stumpTop));
+    stump.position.set(x, y, z);
+    stump.scale.setScalar(scale);
+    stump.visible = false;
+    stump.children.forEach((m) => { m.castShadow = true; });
+    this.scene.add(stump);
+    const t = {
+      id, kind: 'tree', x, z, y, r: 0.45 * scale, max: TREE_HP, hp: TREE_HP, alive: true, state: 'idle',
+      group, trunk, leaves, stump, isPine, autumn: proto === this.oaks[3], scale,
+      canopyY: proto.canopyY * scale, canopyR: proto.canopyR * scale, height: proto.height * scale,
+      shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0,
+    };
+    this.resources.set(id, t); this.list.push(t);
+  }
+
+  addRock(id, x, z, size, geo, rot) {
+    const mesh = new THREE.Mesh(geo, this.mat.rock);
+    const y = heightAt(x, z) + 0.12 * size;
+    mesh.position.set(x, y, z);
+    mesh.rotation.y = rot;
+    mesh.scale.setScalar(size);
+    mesh.castShadow = mesh.receiveShadow = true;
+    this.scene.add(mesh);
+    const r = { id, kind: 'rock', x, z, y, size, r: size * 0.9, max: ROCK_HP, hp: ROCK_HP, alive: true, state: 'idle', mesh, shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0 };
+    this.resources.set(id, r); this.list.push(r);
+  }
+
+  createMotes() {
+    const N = 350;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N * 3; i++) pos[i] = (Math.random() - 0.5) * 40;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    // Petit point lumineux rond et doux
+    const c = document.createElement('canvas');
+    c.width = c.height = 32;
+    const ctx = c.getContext('2d');
+    const grd = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.35, 'rgba(255,255,255,0.6)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, 32, 32);
+    this.motes = new THREE.Points(g, new THREE.PointsMaterial({
+      color: 0xfff3c4, size: 0.12, map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    this.motes.frustumCulled = false;
+    this.moteSeeds = Float32Array.from({ length: N }, () => Math.random() * 100);
+    this.scene.add(this.motes);
+  }
+
+  // ----- Interaction -----
+  getTarget(px, pz, fx, fz, reach) {
+    let best = null, bestScore = Infinity;
+    for (const r of this.list) {
+      if (!r.alive || r.state !== 'idle') continue;
+      const dx = r.x - px, dz = r.z - pz;
+      if (Math.abs(dx) > 6 || Math.abs(dz) > 6) continue;
+      const d = Math.hypot(dx, dz), edge = d - r.r;
+      if (edge > reach) continue;
+      const dot = (dx * fx + dz * fz) / Math.max(d, 0.01);
+      if (dot < 0.3 && edge > 0.4) continue;
+      const score = edge - dot * 1.5;
+      if (score < bestScore) { bestScore = score; best = r; }
+    }
+    return best;
+  }
+
+  collide(pos, radius) {
+    for (const r of this.list) {
+      if (!r.alive || r.state === 'falling') continue;
+      const dx = pos.x - r.x, dz = pos.z - r.z;
+      const min = r.r + radius;
+      if (Math.abs(dx) > min || Math.abs(dz) > min) continue;
+      const d = Math.hypot(dx, dz);
+      if (d < min && d > 0.0001) { pos.x = r.x + dx / d * min; pos.z = r.z + dz / d * min; }
+    }
+  }
+
+  setHighlight(r) {
+    if (this.highlighted === r) return;
+    const apply = (res, set) => {
+      if (!res) return;
+      if (res.kind === 'tree') {
+        res.trunk.material = res.isPine ? set.pineBark : set.bark;
+        res.leaves.material = set.leaf;
+      } else res.mesh.material = set.rock;
+    };
+    apply(this.highlighted, this.mat);
+    apply(r, this.hiMat);
+    this.highlighted = r;
+  }
+
+  impactPoint(r, fromX, fromZ) {
+    const dx = fromX - r.x, dz = fromZ - r.z, d = Math.hypot(dx, dz) || 1;
+    const k = r.r * (r.kind === 'rock' ? 0.8 : 1);
+    return new THREE.Vector3(r.x + dx / d * k, r.y + (r.kind === 'tree' ? 1.0 : r.size * 0.45), r.z + dz / d * k);
+  }
+
+  // Coup reçu (effets visuels)
+  hit(id, fromX, fromZ) {
+    const r = this.resources.get(id);
+    if (!r || !r.alive) return;
+    const p = this.impactPoint(r, fromX, fromZ);
+    const out = new THREE.Vector3(fromX - r.x, 0, fromZ - r.z).normalize();
+    r.shakeT = 0;
+    r.shakeDir.set(-out.x, -out.z);
+    if (r.kind === 'tree') {
+      for (let i = 0; i < 8; i++) {
+        this.fx.spawn({
+          geo: this.fx.box, mat: i % 3 ? this.fx.mats.wood : this.fx.mats.bark, pos: p,
+          vel: out.clone().multiplyScalar(2 + Math.random() * 3).add(new THREE.Vector3((Math.random() - 0.5) * 3, 2 + Math.random() * 3, (Math.random() - 0.5) * 3)),
+          size: 0.05 + Math.random() * 0.07, life: 1.5 + Math.random(), gravity: 14, shadow: false,
+        });
+      }
+      for (let i = 0; i < 5; i++) this.spawnLeaf(r, true);
+    } else {
+      for (let i = 0; i < 10; i++) {
+        this.fx.spawn({
+          geo: this.fx.box, mat: this.fx.mats.stone, pos: p,
+          vel: out.clone().multiplyScalar(2 + Math.random() * 3).add(new THREE.Vector3((Math.random() - 0.5) * 3, 2 + Math.random() * 4, (Math.random() - 0.5) * 3)),
+          size: 0.05 + Math.random() * 0.08, life: 1.2 + Math.random(), gravity: 18,
+        });
+      }
+      this.fx.puff(p, 0xbab3a6, 2, 0.25);
+    }
+  }
+
+  setHp(id, hp) {
+    const r = this.resources.get(id);
+    if (!r) return;
+    r.hp = hp;
+    if (r.kind === 'rock') r.mesh.scale.setScalar(r.size * (0.75 + 0.25 * Math.max(0, hp) / r.max));
+  }
+
+  spawnLeaf(t, burst) {
+    const a = Math.random() * Math.PI * 2, d = Math.random() * t.canopyR;
+    const pos = new THREE.Vector3(t.x + Math.cos(a) * d, t.y + t.canopyY + (Math.random() - 0.5) * 1.2, t.z + Math.sin(a) * d);
+    this.fx.spawn({
+      geo: this.fx.leaf, mat: t.isPine ? this.fx.mats.leafPine : t.autumn ? this.fx.mats.leafAutumn : this.fx.mats.leaf, pos,
+      vel: new THREE.Vector3((Math.random() - 0.5) * (burst ? 3 : 0.5), burst ? Math.random() * 2 : 0, (Math.random() - 0.5) * (burst ? 3 : 0.5)),
+      size: 0.12 + Math.random() * 0.06, life: 5 + Math.random() * 3, gravity: 0.9, drag: 1.8, spin: 4, flutter: 3, windK: 2.2, bounce: 0,
+    });
+  }
+
+  destroy(id, dx, dz) {
+    const r = this.resources.get(id);
+    if (!r || !r.alive) return;
+    r.alive = false; r.hp = 0;
+    if (this.highlighted === r) this.setHighlight(null);
+    if (r.kind === 'tree') {
+      const d = Math.hypot(dx, dz) || 1;
+      r.fallDir = new THREE.Vector2(dx / d, dz / d);
+      r.axis = new THREE.Vector3(r.fallDir.y, 0, -r.fallDir.x).normalize();
+      r.state = 'falling'; r.angle = 0.02; r.angVel = 0.25; r.anim = 0; r.bounced = false;
+      r.stump.visible = true;
+      for (let i = 0; i < 10; i++) {
+        this.fx.spawn({
+          geo: this.fx.box, mat: this.fx.mats.wood, pos: new THREE.Vector3(r.x, r.y + 0.5, r.z),
+          vel: new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5),
+          size: 0.06 + Math.random() * 0.08, life: 2, gravity: 14,
+        });
+      }
+    } else {
+      r.state = 'dead';
+      r.mesh.visible = false;
+      const c = new THREE.Vector3(r.x, r.y + r.size * 0.3, r.z);
+      const n = 7 + Math.floor(r.size * 4);
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3;
+        this.fx.spawn({
+          geo: this.fx.fragGeos[i % 4], mat: this.fx.fragMat,
+          pos: c.clone().add(new THREE.Vector3(Math.cos(a) * r.size * 0.4, Math.random() * r.size * 0.4, Math.sin(a) * r.size * 0.4)),
+          vel: new THREE.Vector3(Math.cos(a) * sp, 3 + Math.random() * 4, Math.sin(a) * sp),
+          size: r.size * (0.14 + Math.random() * 0.16), life: 3.5 + Math.random(), gravity: 18, bounce: 0.35, spin: 8, shadow: true,
+        });
+      }
+      for (let i = 0; i < 14; i++) {
+        this.fx.spawn({
+          geo: this.fx.box, mat: this.fx.mats.stone, pos: c,
+          vel: new THREE.Vector3((Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7),
+          size: 0.05 + Math.random() * 0.08, life: 1.5 + Math.random(), gravity: 18,
+        });
+      }
+      this.fx.puff(c, 0xbab3a6, 6, r.size * 0.5);
+    }
+  }
+
+  // Ressource déjà détruite quand on arrive dans la partie
+  setDead(id) {
+    const r = this.resources.get(id);
+    if (!r) return;
+    r.alive = false; r.hp = 0; r.state = 'dead';
+    if (r.kind === 'tree') { r.group.visible = false; r.stump.visible = true; }
+    else r.mesh.visible = false;
+  }
+
+  respawn(id) {
+    const r = this.resources.get(id);
+    if (!r) return;
+    r.alive = true; r.hp = r.max; r.state = 'growing'; r.anim = 0;
+    if (r.kind === 'tree') {
+      r.group.visible = true;
+      r.group.quaternion.identity();
+      r.group.position.set(r.x, r.y, r.z);
+      r.group.scale.setScalar(0.01);
+    } else {
+      r.mesh.visible = true;
+      r.mesh.scale.setScalar(0.01);
+    }
+  }
+
+  update(dt, time, windVec, player, night) {
+    for (const r of this.list) {
+      if (r.state === 'idle' && r.shakeT < 1.5) {
+        r.shakeT += dt;
+        const amp = Math.exp(-r.shakeT * 7) * Math.sin(r.shakeT * 38);
+        if (r.kind === 'tree') r.group.rotation.set(r.shakeDir.y * amp * 0.05, 0, -r.shakeDir.x * amp * 0.05);
+        else { r.mesh.position.x = r.x + r.shakeDir.x * amp * 0.04; r.mesh.position.z = r.z + r.shakeDir.y * amp * 0.04; }
+      } else if (r.state === 'falling') {
+        r.anim += dt;
+        if (!r.bounced) {
+          r.angVel += (2.4 * Math.sin(r.angle) + 0.4) * dt;
+          r.angle += r.angVel * dt;
+          if (r.angle >= 1.5) {
+            r.angle = 1.5; r.angVel = -r.angVel * 0.18; r.bounced = true; r.anim = 0;
+            const top = new THREE.Vector3(r.x + r.fallDir.x * r.canopyY, r.y + 0.6, r.z + r.fallDir.y * r.canopyY);
+            this.fx.puff(top, 0xcfc6b0, 7, 0.7);
+            for (let i = 0; i < 18; i++) {
+              this.fx.spawn({
+                geo: this.fx.leaf, mat: r.isPine ? this.fx.mats.leafPine : r.autumn ? this.fx.mats.leafAutumn : this.fx.mats.leaf,
+                pos: top.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.5, (Math.random() - 0.5) * 2)),
+                vel: new THREE.Vector3((Math.random() - 0.5) * 4, 1 + Math.random() * 3, (Math.random() - 0.5) * 4),
+                size: 0.13, life: 4 + Math.random() * 2, gravity: 1.2, drag: 1.6, flutter: 3, windK: 2,
+              });
+            }
+          }
+        } else {
+          r.angVel += 3 * dt;
+          r.angle = Math.min(1.5, r.angle + r.angVel * dt);
+          if (r.anim > 4) r.group.position.y -= dt * 1.2;
+          if (r.anim > 4) r.group.scale.setScalar(r.scale * Math.max(0.01, 1 - (r.anim - 4) / 1.5));
+          if (r.anim > 5.5) { r.state = 'dead'; r.group.visible = false; }
+        }
+        r.group.quaternion.setFromAxisAngle(r.axis, r.angle);
+      } else if (r.state === 'growing') {
+        r.anim += dt;
+        const t = Math.min(1, r.anim / 1.4);
+        const s = 1 + 2.7 * Math.pow(t - 1, 3) + 1.7 * Math.pow(t - 1, 2); // "easeOutBack"
+        if (r.kind === 'tree') { r.group.scale.setScalar(r.scale * Math.max(0.01, s)); if (t > 0.3) r.stump.visible = false; }
+        else r.mesh.scale.setScalar(r.size * Math.max(0.01, s));
+        if (t >= 1) { r.state = 'idle'; r.shakeT = 9; if (r.kind === 'tree') r.group.rotation.set(0, 0, 0); }
+      }
+    }
+
+    // Feuilles emportées par le vent
+    this.ambientT -= dt;
+    if (this.ambientT <= 0) {
+      this.ambientT = 0.35 / Math.max(0.3, windVec.z);
+      const near = this.list.filter((r) => r.kind === 'tree' && r.alive && r.state === 'idle' && Math.abs(r.x - player.x) < 25 && Math.abs(r.z - player.z) < 25);
+      if (near.length) this.spawnLeaf(near[Math.floor(Math.random() * near.length)], false);
+    }
+    this.fx.update(dt, windVec);
+
+    // Pollen le jour, lucioles la nuit
+    const pos = this.motes.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const s = this.moteSeeds[i];
+      let x = pos.getX(i) + (windVec.x * windVec.z * 0.6 + Math.sin(time * 0.7 + s) * 0.3) * dt;
+      let y = pos.getY(i) + Math.sin(time * 1.3 + s * 2) * 0.25 * dt;
+      let z = pos.getZ(i) + (windVec.y * windVec.z * 0.6 + Math.cos(time * 0.6 + s) * 0.3) * dt;
+      if (x - player.x > 20) x -= 40; if (x - player.x < -20) x += 40;
+      if (z - player.z > 20) z -= 40; if (z - player.z < -20) z += 40;
+      const gy = heightAt(x, z);
+      if (y < gy + 0.3) y = gy + 4; if (y > gy + 5) y = gy + 0.4;
+      pos.setXYZ(i, x, y, z);
+    }
+    pos.needsUpdate = true;
+    const m = this.motes.material;
+    m.color.setRGB(1, 0.95, 0.75).lerp(new THREE.Color(0.75, 1, 0.3), night);
+    m.size = 0.1 + night * 0.12;
+    m.opacity = 0.35 + night * 0.6;
+  }
+}

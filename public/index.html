@@ -5,27 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RPG 3D</title>
   <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: system-ui, sans-serif; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: system-ui, sans-serif; user-select: none; }
     canvas { display: block; }
     #menu {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: rgba(10, 14, 24, 0.75); z-index: 10;
+      background: radial-gradient(ellipse at center, rgba(10,14,24,0.35), rgba(10,14,24,0.8)); z-index: 10;
     }
-    #menu .box { background: #1b2233; color: #eee; padding: 28px 32px; border-radius: 12px; width: 320px; text-align: center; box-shadow: 0 10px 40px #0008; }
-    #menu h1 { margin: 0 0 6px; font-size: 26px; }
+    #menu .box { background: rgba(22, 28, 42, 0.92); color: #eee; padding: 28px 32px; border-radius: 14px; width: 340px; text-align: center; box-shadow: 0 10px 40px #0008; border: 1px solid #ffffff14; }
+    #menu h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: 1px; }
     #menu p { margin: 6px 0 16px; color: #9aa4b8; font-size: 14px; }
-    #menu input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid #3a4560; background: #0f1420; color: #fff; font-size: 16px; }
+    #menu input[type=text], #menu input:not([type]) { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid #3a4560; background: #0f1420; color: #fff; font-size: 16px; }
     #menu button { margin-top: 12px; width: 100%; padding: 11px; border: 0; border-radius: 8px; background: #4f7cff; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; }
     #menu button:hover { background: #6a90ff; }
+    #menu select { background: #0f1420; color: #fff; border: 1px solid #3a4560; border-radius: 6px; padding: 4px 6px; }
     #menu label { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 12px; font-size: 14px; color: #c6cddd; }
-    #menu .keys { margin-top: 16px; font-size: 13px; color: #9aa4b8; line-height: 1.6; text-align: left; }
+    #menu .keys { margin-top: 16px; font-size: 13px; color: #9aa4b8; line-height: 1.65; text-align: left; }
+    #ui { display: none; }
     #hud { position: fixed; left: 12px; top: 10px; color: #fff; font-size: 13px; text-shadow: 0 1px 3px #000; pointer-events: none; }
-    #version { position: fixed; right: 10px; bottom: 8px; color: #fff9; font-size: 12px; pointer-events: none; }
     #status { position: fixed; right: 12px; top: 10px; color: #fff; font-size: 13px; text-shadow: 0 1px 3px #000; pointer-events: none; }
+    #version { position: fixed; right: 10px; bottom: 8px; color: #fff9; font-size: 12px; pointer-events: none; text-shadow: 0 1px 2px #000; }
+    #help { position: fixed; left: 12px; bottom: 10px; color: #fffb; font-size: 12px; text-shadow: 0 1px 3px #000; pointer-events: none; line-height: 1.5; }
+    /* Viseur */
+    #crosshair { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; pointer-events: none; transition: transform .12s; }
+    #crosshair::before { content: ''; position: absolute; inset: 0; border: 2px solid rgba(255,255,255,0.75); border-radius: 50%; box-shadow: 0 0 3px #0008, inset 0 0 3px #0008; }
+    #crosshair::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: #fff; border-radius: 50%; box-shadow: 0 0 3px #000; }
+    #crosshair.active { transform: scale(1.25); }
+    #crosshair.active::before { border-color: #ffd36b; }
+    #crosshair.active::after { background: #ffd36b; }
+    #target { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: none; pointer-events: none; text-align: center; color: #fff; font-size: 13px; text-shadow: 0 1px 3px #000; }
+    #target .bar { width: 90px; height: 6px; margin: 4px auto 0; background: #0008; border-radius: 3px; overflow: hidden; border: 1px solid #fff4; }
+    #target .fill { height: 100%; background: linear-gradient(90deg, #ffb347, #ffd36b); transition: width .15s; }
   </style>
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+    { "imports": { "three": "./lib/three/build/three.module.js",
+                   "three/addons/": "./lib/three/examples/jsm/" } }
   </script>
 </head>
 <body>
@@ -35,18 +48,30 @@
       <p>Choisis un nom puis clique sur Jouer</p>
       <input id="name" maxlength="16" placeholder="Ton pseudo">
       <label><input type="checkbox" id="fs" checked> Plein écran</label>
+      <label>Graphismes
+        <select id="quality">
+          <option value="high">Élevés</option>
+          <option value="low">Bas (PC moins puissant)</option>
+        </select>
+      </label>
       <button id="play">Jouer</button>
       <div class="keys">
-        <b>ZQSD / WASD</b> : se déplacer<br>
-        <b>Souris</b> : tourner la caméra · <b>Molette</b> : zoom<br>
-        <b>Espace</b> : sauter · <b>Maj</b> : courir<br>
-        <b>Échap</b> : libérer la souris (re-clique pour reprendre)
+        <b>ZQSD</b> : se déplacer · <b>Maj</b> : courir · <b>Espace</b> : sauter<br>
+        <b>Souris</b> : caméra · <b>Molette</b> : zoom<br>
+        <b>Clic gauche</b> : coup d'épée (maintenir pour enchaîner)<br>
+        Vise un <b>arbre</b> pour le couper, un <b>rocher</b> pour le casser<br>
+        <b>F</b> : plein écran · <b>Échap</b> : libérer la souris
       </div>
     </div>
   </div>
-  <div id="hud"></div>
+  <div id="ui">
+    <div id="crosshair"></div>
+    <div id="target"><div class="label"></div><div class="bar"><div class="fill"></div></div></div>
+    <div id="hud"></div>
+    <div id="help">Clic : frapper · Maj : courir · Espace : sauter · F : plein écran</div>
+  </div>
   <div id="status">Connexion…</div>
-  <div id="version">ver.0.0.1</div>
-  <script type="module" src="game.js"></script>
+  <div id="version">ver.0.0.2</div>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
