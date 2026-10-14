@@ -87,12 +87,13 @@ export class WorldMap {
     for (const r of d.resources) {
       if (!r.alive) continue;
       if (r.kind === 'tree') dot(r.x, r.z, Math.max(1.5, 1.3 * k * scale * 0.6), r.isPine ? '#1f4a24' : r.autumn ? '#b4621e' : '#2e6b28');
+      else if (r.kind === 'bush') dot(r.x, r.z, Math.max(1.2, 0.5 * k * scale), '#3f7a2c');
       else dot(r.x, r.z, Math.max(1.5, r.size * k * 0.7), '#9a958d', '#555');
     }
     for (const b of d.buildings) {
       const [a, c] = P(b.x, b.z);
-      ctx.fillStyle = b.type === 'roof' ? 'rgba(90,80,70,0.85)' : b.type === 'floor' ? 'rgba(170,120,70,0.9)' : '#5a3a1a';
-      if (b.type === 'wall') {
+      ctx.fillStyle = b.type === 'roof' ? 'rgba(90,80,70,0.85)' : b.type === 'floor' || b.type === 'stairs' ? 'rgba(170,120,70,0.9)' : b.type === 'stonewall' ? '#b8b2a8' : b.type === 'spikes' ? '#c49a6a' : '#5a3a1a';
+      if (b.type === 'wall' || b.type === 'door' || b.type === 'stonewall') {
         const w = b.rot ? 0.35 * k : 2 * k, h = b.rot ? 2 * k : 0.35 * k;
         ctx.fillRect(a - w / 2, c - h / 2, Math.max(w, 2), Math.max(h, 2));
       } else ctx.fillRect(a - k, c - k, 2 * k, 2 * k);
@@ -108,7 +109,7 @@ export class WorldMap {
       ctx.fill(); ctx.stroke();
       ctx.restore();
     }
-    for (const m of d.monsters) dot(m.x, m.z, 3.5 * scale, '#e0332a', '#300');
+    for (const m of d.monsters) dot(m.x, m.z, (m.kind === 'runner' ? 2.6 : 3.5) * scale, m.kind === 'spitter' ? '#7aff30' : m.kind === 'runner' ? '#ff8a2a' : '#e0332a', '#300');
     const arrow = (x, z, ry, color, size, name) => {
       const [a, b] = P(x, z);
       ctx.save(); ctx.translate(a, b);

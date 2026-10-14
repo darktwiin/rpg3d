@@ -2,7 +2,8 @@
 // Aperçu fantôme, aimantation sur une grille de 2 m, animation de construction, collisions.
 import * as THREE from 'three';
 import {
-  heightAt, GRID, WALL_H, BUILD_TIME, BUILD_RANGE, PIECES, wallBox, pieceTop, distToBox, slotKey, resourceRadius,
+  heightAt, GRID, WALL_H, BUILD_TIME, BUILD_RANGE, PIECES, wallBox, pieceTop, distToBox, slotKey,
+  isWallType, stairsHeight, pieceCost, pieceUnlocked,
 } from './world.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -17,7 +18,7 @@ function canvasTex(w, h, draw, repeat = [1, 1]) {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-function plankTexture() {
+export function plankTexture() {
   return canvasTex(256, 256, (ctx, w, h) => {
     const n = 6;
     for (let i = 0; i < n; i++) {
@@ -41,7 +42,7 @@ function plankTexture() {
     }
   });
 }
-function stoneTexture() {
+export function stoneTexture() {
   return canvasTex(256, 256, (ctx, w, h) => {
     ctx.fillStyle = '#5d5a55'; ctx.fillRect(0, 0, w, h);
     const rows = 5;
@@ -60,7 +61,7 @@ function stoneTexture() {
     }
   });
 }
-function shingleTexture() {
+export function shingleTexture() {
   return canvasTex(256, 256, (ctx, w, h) => {
     ctx.fillStyle = '#4b4a48'; ctx.fillRect(0, 0, w, h);
     const rows = 8;
@@ -90,6 +91,9 @@ export class Buildings {
       log: new THREE.MeshStandardMaterial({ color: '#6a4528', roughness: 0.9 }),
       stone: new THREE.MeshStandardMaterial({ map: stone, roughness: 0.95 }),
       shingles: new THREE.MeshStandardMaterial({ map: shingles, roughness: 0.9 }),
+      stoneWall: new THREE.MeshStandardMaterial({ map: stone, color: '#d8d2c8', roughness: 0.95 }),
+      iron: new THREE.MeshStandardMaterial({ color: '#555a60', metalness: 0.6, roughness: 0.45 }),
+      stake: new THREE.MeshStandardMaterial({ color: '#c49a6a', roughness: 0.8 }),
     };
     this.blueprint = new THREE.MeshStandardMaterial({ color: '#9fd0ff', emissive: '#2a5a90', transparent: true, opacity: 0.45, depthWrite: false });
     this.ghostOk = new THREE.MeshBasicMaterial({ color: '#6dff8a', transparent: true, opacity: 0.38, depthWrite: false });
@@ -136,6 +140,53 @@ export class Buildings {
         row.rotation.x = -0.1;
       }
       for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.12, 0.14, 2.14), m('log'), sx * 1.0, 0.13, 0);
+    } else if (type === 'stairs') {
+      // Marches qui montent vers +z (la rotation est appliquée au groupe)
+      const N = 6;
+      for (let i = 0; i < N; i++) {
+        const h = (i + 1) * WALL_H / N;
+        add(new THREE.BoxGeometry(1.7, 0.12, 2 / N + 0.02), m('planks'), 0, h - 0.06, -1 + (i + 0.5) * 2 / N);
+        add(new THREE.BoxGeometry(1.6, h, 0.05), m('planksDark'), 0, h / 2, -1 + i * 2 / N + 0.03);
+      }
+      for (const sx of [-1, 1]) {
+        const side = add(new THREE.BoxGeometry(0.12, 0.25, 3.25), m('log'), sx * 0.9, WALL_H / 2, 0);
+        side.rotation.x = -Math.atan2(WALL_H, 2);
+        add(new THREE.CylinderGeometry(0.08, 0.09, WALL_H + Math.max(0, drop) + 0.3, 8), m('log'), sx * 0.9, (WALL_H - Math.max(0, drop)) / 2, 0.95);
+      }
+    } else if (type === 'door') {
+      const dh = Math.max(0, drop);
+      for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.11, 0.12, WALL_H + dh + 0.1, 8), m('log'), sx * 0.95, (WALL_H - dh) / 2, 0);
+      add(new THREE.BoxGeometry(1.9, 0.3, 0.24), m('log'), 0, WALL_H - 0.15, 0);
+      // Battant qui pivote (charnière à gauche)
+      const hinge = new THREE.Group();
+      hinge.position.set(-0.82, 0, 0);
+      g.add(hinge);
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.64, WALL_H - 0.35, 0.1), m('planksDark'));
+      leaf.position.set(0.82, (WALL_H - 0.35) / 2 + 0.02, 0);
+      leaf.castShadow = !matOverride;
+      hinge.add(leaf);
+      for (const y of [0.5, WALL_H - 0.7]) {
+        const band = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 0.13), m('iron'));
+        band.position.set(0.82, y, 0);
+        hinge.add(band);
+      }
+      const handle = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.015, 6, 10), m('iron'));
+      handle.position.set(1.45, 1.05, 0.08);
+      hinge.add(handle);
+      g.userData.hinge = hinge;
+      if (dh > 0.05) add(new THREE.BoxGeometry(1.8, dh + 0.2, 0.2), m('stone'), 0, -dh / 2, 0);
+    } else if (type === 'stonewall') {
+      const dh = Math.max(0, drop);
+      add(new THREE.BoxGeometry(2.04, WALL_H + dh, 0.42), m('stoneWall'), 0, (WALL_H - dh) / 2, 0);
+      // Créneaux
+      for (let i = 0; i < 3; i++) add(new THREE.BoxGeometry(0.5, 0.35, 0.46), m('stoneWall'), -0.75 + i * 0.75, WALL_H + 0.17, 0);
+    } else if (type === 'spikes') {
+      add(new THREE.BoxGeometry(1.9, 0.1, 1.9), m('planksDark'), 0, 0.03, 0);
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+        const stake = new THREE.ConeGeometry(0.07, 0.65, 5);
+        const st = add(stake, m('stake'), -0.7 + i * 0.47 + (j % 2) * 0.12, 0.35, -0.7 + j * 0.47);
+        st.rotation.set((j - 1.5) * 0.12, 0, (i - 1.5) * -0.12);
+      }
     }
     return g;
   }
@@ -151,9 +202,11 @@ export class Buildings {
     const drop = this.dropFor(b);
     const mesh = this.makeMesh(b.type, drop);
     mesh.position.set(b.x, b.y, b.z);
-    if (b.type === 'wall' && b.rot) mesh.rotation.y = Math.PI / 2;
+    mesh.rotation.y = this.rotY(b);
     this.scene.add(mesh);
-    const e = { ...b, mesh, drop, anim: b.state === 'done' ? 9 : 0, shake: 9, box: b.type === 'wall' ? wallBox(b) : { x: b.x, z: b.z, hx: 1, hz: 1 } };
+    const box = isWallType(b.type) ? wallBox(b) : { x: b.x, z: b.z, hx: 1, hz: 1 };
+    if (b.type === 'stonewall') { if (b.rot) box.hx = 0.24; else box.hz = 0.24; }
+    const e = { ...b, mesh, drop, anim: b.state === 'done' ? 9 : 0, shake: 9, box, dur: b.dur || BUILD_TIME, open: 0 };
     this.map.set(b.id, e);
     if (b.state !== 'done') this.setBlueprint(e, true);
     if (!quiet) {
@@ -161,6 +214,12 @@ export class Buildings {
       this.dust(e, 3, 0.3);
     }
     this.version++;
+  }
+
+  rotY(b) {
+    if (isWallType(b.type)) return b.rot ? Math.PI / 2 : 0;
+    if (b.type === 'stairs') return [0, Math.PI / 2, Math.PI, -Math.PI / 2][b.rot & 3];
+    return 0;
   }
 
   setBlueprint(e, on) {
@@ -206,14 +265,14 @@ export class Buildings {
 
   dust(e, n, size = 0.4) {
     const p = e.mesh.position;
-    for (let i = 0; i < n; i++) this.fx.puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 2, p.y + (e.type === 'wall' ? Math.random() * 1.5 : 0.1), p.z + (Math.random() - 0.5) * 2), 0xcdbfa6, 1, size);
+    for (let i = 0; i < n; i++) this.fx.puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 2, p.y + (isWallType(e.type) ? Math.random() * 1.5 : 0.1), p.z + (Math.random() - 0.5) * 2), 0xcdbfa6, 1, size);
   }
   chips(e, n) {
     const p = e.mesh.position;
     for (let i = 0; i < n; i++) {
       this.fx.spawn({
         geo: this.fx.box, mat: i % 3 ? this.fx.mats.wood : this.fx.mats.bark,
-        pos: new THREE.Vector3(p.x + (Math.random() - 0.5) * 1.6, p.y + (e.type === 'wall' ? 0.3 + Math.random() * 2 : 0.2), p.z + (Math.random() - 0.5) * 1.6),
+        pos: new THREE.Vector3(p.x + (Math.random() - 0.5) * 1.6, p.y + (isWallType(e.type) ? 0.3 + Math.random() * 2 : 0.2), p.z + (Math.random() - 0.5) * 1.6),
         vel: new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5),
         size: 0.06 + Math.random() * 0.1, life: 1.6, gravity: 15,
       });
@@ -223,7 +282,7 @@ export class Buildings {
   // Profondeur à combler sous la pièce jusqu'au terrain
   dropFor(b) {
     let minH = Infinity;
-    const pts = b.type === 'wall'
+    const pts = isWallType(b.type)
       ? (b.rot ? [[0, -1], [0, 0], [0, 1]] : [[-1, 0], [0, 0], [1, 0]])
       : [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]];
     for (const [dx, dz] of pts) minH = Math.min(minH, heightAt(b.x + dx, b.z + dz));
@@ -237,9 +296,9 @@ export class Buildings {
   groundAt(x, z, feetY, terrainY) {
     let g = terrainY;
     for (const b of this.map.values()) {
-      if (b.type === 'wall') continue;
+      if (isWallType(b.type) || b.type === 'spikes') continue;
       if (Math.abs(x - b.x) > 1.05 || Math.abs(z - b.z) > 1.05) continue;
-      const top = pieceTop(b);
+      const top = b.type === 'stairs' ? stairsHeight(b, clamp(x, b.x - 1, b.x + 1), clamp(z, b.z - 1, b.z + 1)) : pieceTop(b);
       if (top <= feetY + 0.55 && top > g) g = top;
     }
     return g;
@@ -249,7 +308,7 @@ export class Buildings {
   collide(pos, radius) {
     let hit = false;
     for (const b of this.map.values()) {
-      if (b.type !== 'wall') continue;
+      if (b.type !== 'wall' && b.type !== 'stonewall') continue; // les portes laissent passer les joueurs
       if (pos.y > b.y + WALL_H - 0.1 || pos.y + 1.7 < b.y - b.drop - 0.2) continue;
       const box = b.box;
       const dx = pos.x - box.x, dz = pos.z - box.z;
@@ -265,10 +324,10 @@ export class Buildings {
 
   // ----- Placement -----
   // aim : point visé au sol ; renvoie une proposition { type, x, z, rot, y, ok, reason }
-  plan(type, aim, player, resources, inv, free) {
+  plan(type, aim, player, resources, inv, free, mods, camYaw = 0) {
     const cx = Math.round(aim.x / GRID) * GRID, cz = Math.round(aim.z / GRID) * GRID;
     let x = cx, z = cz, rot = 0, y;
-    if (type === 'wall') {
+    if (isWallType(type)) {
       const dx = aim.x - cx, dz = aim.z - cz;
       if (Math.abs(dx) > Math.abs(dz)) { x = cx + Math.sign(dx || 1) * GRID / 2; rot = 1; }
       else { z = cz + Math.sign(dz || 1) * GRID / 2; rot = 0; }
@@ -287,11 +346,19 @@ export class Buildings {
       y = base;
     } else if (type === 'floor') {
       y = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c))) + 0.15;
+    } else if (type === 'stairs' || type === 'spikes') {
+      // posé sur un plancher s'il y en a un à cet endroit, sinon sur le terrain
+      let base = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c))) + (type === 'spikes' ? 0.02 : 0.05);
+      for (const b of this.map.values()) if (b.type === 'floor' && Math.abs(b.x - x) < 0.1 && Math.abs(b.z - z) < 0.1) base = b.y;
+      y = base;
+      // l'escalier monte dans la direction où regarde la caméra
+      const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
+      rot = Math.abs(fz) > Math.abs(fx) ? (fz > 0 ? 0 : 2) : (fx > 0 ? 1 : 3);
     } else {
       // Toit : sur les murs autour, sinon au-dessus du plancher / terrain
       let top = -Infinity;
       for (const b of this.map.values()) {
-        if (b.type === 'wall' && distToBox(x, z, { x: b.x, z: b.z, hx: 1.05, hz: 1.05 }) === 0
+        if (isWallType(b.type) && distToBox(x, z, { x: b.x, z: b.z, hx: 1.05, hz: 1.05 }) === 0
           && (Math.abs(b.x - x) > 0.9 || Math.abs(b.z - z) > 0.9)) top = Math.max(top, b.y + WALL_H);
         if (b.type === 'floor' && Math.abs(b.x - x) < 0.1 && Math.abs(b.z - z) < 0.1) top = Math.max(top, b.y + WALL_H);
       }
@@ -303,14 +370,15 @@ export class Buildings {
     for (const b of this.map.values()) if (slotKey(b.type, b.x, b.z, b.rot) === key) { plan.ok = false; plan.reason = 'Emplacement occupé'; }
     if (plan.ok && Math.hypot(x - player.x, z - player.z) > BUILD_RANGE + 1) { plan.ok = false; plan.reason = 'Trop loin'; }
     if (plan.ok && type !== 'roof') {
-      const box = type === 'wall' ? wallBox(plan) : { x, z, hx: 1, hz: 1 };
+      const box = isWallType(type) ? wallBox(plan) : { x, z, hx: 1, hz: 1 };
       for (const r of resources) {
         if (!r.alive) continue;
-        if (distToBox(r.x, r.z, box) < r.r * 0.9) { plan.ok = false; plan.reason = r.kind === 'tree' ? 'Un arbre gêne' : 'Un rocher gêne'; break; }
+        if (distToBox(r.x, r.z, box) < r.r * 0.9) { plan.ok = false; plan.reason = r.kind === 'tree' ? 'Un arbre gêne' : r.kind === 'bush' ? 'Un buisson gêne' : 'Un rocher gêne'; break; }
       }
     }
+    if (!free && !pieceUnlocked(type, mods)) { plan.ok = false; plan.reason = 'À débloquer à la forge du village'; }
     if (plan.ok && !free) {
-      const c = PIECES[type].cost;
+      const c = pieceCost(type, mods);
       if (inv.wood < c.wood || inv.stone < c.stone) { plan.ok = false; plan.reason = 'Pas assez de matériaux'; }
     }
     return plan;
@@ -329,7 +397,7 @@ export class Buildings {
     }
     this.ghost.visible = true;
     this.ghost.position.set(plan.x, plan.y, plan.z);
-    this.ghost.rotation.y = plan.type === 'wall' && plan.rot ? Math.PI / 2 : 0;
+    this.ghost.rotation.y = this.rotY(plan);
   }
 
   // Pièce visée (pour démolir)
@@ -342,15 +410,23 @@ export class Buildings {
     return best;
   }
 
-  update(dt) {
+  // players : positions des joueurs (pour ouvrir les portes)
+  update(dt, players = []) {
     for (const e of this.map.values()) {
+      if (e.type === 'door') {
+        const near = players.some((p) => Math.abs(p.x - e.x) < 1.7 && Math.abs(p.z - e.z) < 1.7 && Math.abs(p.y - e.y) < 2);
+        e.open += ((near ? 1 : 0) - e.open) * Math.min(1, dt * 6);
+        const h = e.mesh.userData.hinge;
+        if (h) h.rotation.y = -e.open * 1.45;
+        if (near !== e.wasOpen) { e.wasOpen = near; if (e.state === 'done') this.audio?.play('door', e.mesh.position); }
+      }
       if (e.state !== 'done') {
         e.anim += dt;
-        const k = clamp(e.anim / BUILD_TIME, 0, 1);
+        const k = clamp(e.anim / e.dur, 0, 1);
         e.mesh.scale.set(1, 0.15 + 0.85 * k, 1);
         this.blueprint.opacity = 0.35 + Math.sin(e.anim * 8) * 0.1;
         // Bruit de marteau pendant la construction
-        if (Math.floor((e.anim - dt) / 0.45) !== Math.floor(e.anim / 0.45) && e.anim < BUILD_TIME) this.audio?.play('hammerTap', e.mesh.position);
+        if (Math.floor((e.anim - dt) / 0.45) !== Math.floor(e.anim / 0.45) && e.anim < e.dur) this.audio?.play('hammerTap', e.mesh.position);
       }
       if (e.shake < 0.4) {
         e.shake += dt;

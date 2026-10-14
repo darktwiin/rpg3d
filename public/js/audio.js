@@ -708,6 +708,86 @@ export class AudioEngine {
       self.noise(t, 1.3, f);
       g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.9); g.gain.linearRampToValueAtTime(0.0001, t + 1.3);
     }; S.monsterSpawn.range = 16; S.monsterSpawn.verb = 0.5;
+    S.runnerGrowl = function (t, out) {
+      const dur = rnd(0.4, 0.7), f0 = rnd(180, 260);
+      const g = self.gain(0, out);
+      const o = self.osc('sawtooth', f0, t, dur, self.filter('bandpass', 1400, 2, g));
+      const m = self.ctx.createOscillator(); m.frequency.value = rnd(30, 45);
+      const mg = self.gain(f0 * 0.4); m.connect(mg); mg.connect(o.frequency); m.start(t); m.stop(t + dur);
+      o.frequency.linearRampToValueAtTime(f0 * 1.4, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.05); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    }; S.runnerGrowl.range = 10; S.runnerGrowl.verb = 0.2;
+    S.runnerAttack = function (t, out) {
+      const g = self.gain(0, out);
+      const o = self.osc('sawtooth', 300, t, 0.3, self.filter('bandpass', 1800, 2, g));
+      o.frequency.exponentialRampToValueAtTime(520, t + 0.15);
+      self.env(g, t, 0.3, 0.01, 0.25);
+      S.swing.call(self, t + 0.15, out);
+    }; S.runnerAttack.range = 10;
+    S.spitCharge = function (t, out) {
+      const g = self.gain(0, out);
+      const f = self.filter('bandpass', 300, 4, g);
+      f.frequency.exponentialRampToValueAtTime(1800, t + 0.9);
+      self.noise(t, 1, f, 0.8);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.35, t + 0.85); g.gain.linearRampToValueAtTime(0.0001, t + 1);
+      const g2 = self.gain(0, out);
+      const o = self.osc('sine', 90, t, 1, g2); o.frequency.linearRampToValueAtTime(220, t + 0.9);
+      g2.gain.setValueAtTime(0.0001, t); g2.gain.linearRampToValueAtTime(0.25, t + 0.8); g2.gain.linearRampToValueAtTime(0.0001, t + 1);
+    }; S.spitCharge.range = 14;
+    S.spit = function (t, out) {
+      burst(t, out, 'bandpass', 900, 1.2, 0.25, 0.6, 0.005);
+      const g = self.gain(0, out);
+      const o = self.osc('sine', 500, t, 0.3, g); o.frequency.exponentialRampToValueAtTime(150, t + 0.25);
+      self.env(g, t, 0.3, 0.005, 0.25);
+    }; S.spit.range = 16;
+    S.spitHit = function (t, out) {
+      burst(t, out, 'lowpass', 1500, 0.8, 0.4, 0.6, 0.005);
+      for (let i = 0; i < 5; i++) {
+        const g = self.gain(0, out), f0 = rnd(300, 900), tt = t + rnd(0, 0.2);
+        const o = self.osc('sine', f0, tt, 0.08, g); o.frequency.exponentialRampToValueAtTime(f0 * 2, tt + 0.06);
+        self.env(g, tt, 0.12, 0.003, 0.07);
+      }
+      burst(t, out, 'highpass', 3000, 0.5, 0.5, 0.2, 0.02);
+    }; S.spitHit.range = 14;
+    S.collect = function (t, out) {
+      const g = self.gain(0, out);
+      const f0 = rnd(900, 1300);
+      const o = self.osc('triangle', f0, t, 0.08, g);
+      o.frequency.exponentialRampToValueAtTime(f0 * 1.5, t + 0.05);
+      self.env(g, t, 0.06, 0.003, 0.07);
+    }; S.collect.verb = 0;
+    S.bushHit = function (t, out) {
+      burst(t, out, 'bandpass', 2500, 0.8, 0.18, 0.4, 0.005, 1.2);
+      burst(t, out, 'lowpass', 600, 0.8, 0.1, 0.2);
+    };
+    S.levelUp = function (t, out) {
+      [60, 67, 72, 76, 79, 84].forEach((n, i) => {
+        const g = self.gain(0, out);
+        self.osc('triangle', mtof(n), t + i * 0.06, 0.6, g);
+        self.osc('sine', mtof(n + 12), t + i * 0.06, 0.4, self.gain(0.3, g));
+        self.env(g, t + i * 0.06, 0.09, 0.005, 0.5);
+      });
+      thump(t, out, 120, 60, 0.3, 0.4);
+    }; S.levelUp.verb = 0.6;
+    S.anvil = function (t, out) {
+      ring(t, out, [[1250, 1], [2640, 0.6], [3900, 0.35], [5200, 0.2]], 0.9, 0.12);
+      burst(t, out, 'highpass', 3000, 0.6, 0.05, 0.4);
+    }; S.anvil.range = 14; S.anvil.verb = 0.4;
+    S.portal = function (t, out) {
+      const g = self.gain(0, out);
+      const f = self.filter('bandpass', 400, 3, g);
+      f.frequency.exponentialRampToValueAtTime(3000, t + 1.5);
+      self.noise(t, 1.6, f, 0.7);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.4, t + 1.2); g.gain.linearRampToValueAtTime(0.0001, t + 1.6);
+      [72, 79, 84, 91].forEach((n, i) => { const g2 = self.gain(0, out); self.osc('sine', mtof(n), t + 0.6 + i * 0.1, 1.2, g2); self.env(g2, t + 0.6 + i * 0.1, 0.06, 0.01, 1); });
+    }; S.portal.verb = 0.7;
+    S.door = function (t, out) {
+      const g = self.gain(0, out);
+      const o = self.osc('sawtooth', 140, t, 0.45, self.filter('bandpass', 700, 8, g));
+      o.frequency.linearRampToValueAtTime(220, t + 0.4);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.12, t + 0.1); g.gain.linearRampToValueAtTime(0.0001, t + 0.45);
+      thump(t + 0.35, out, 150, 80, 0.1, 0.2);
+    }; S.door.range = 8;
     S.monsterStep = function (t, out) {
       thump(t, out, 75, 40, 0.12, 0.35);
       burst(t, out, 'lowpass', 300, 0.8, 0.08, 0.2);

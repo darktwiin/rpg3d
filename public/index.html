@@ -11,132 +11,172 @@
   </script>
 </head>
 <body>
-  <!-- ======================= LOBBY ======================= -->
-  <div id="lobby" class="screen">
+  <!-- ======================= ÉCRAN TITRE ======================= -->
+  <div id="title" class="screen">
     <div class="panel lobby-panel">
       <h1>RPG 3D</h1>
       <div class="subtitle">Survie · Construction · Jusqu'à 4 joueurs</div>
-
-      <div id="lobby-home">
-        <label class="field">Ton pseudo
-          <input id="name" maxlength="16" placeholder="Pseudo" autocomplete="off">
-        </label>
-        <button id="btn-solo" class="btn primary">Partie solo</button>
-        <button id="btn-create" class="btn">Créer un groupe</button>
-        <div class="join-row">
-          <input id="join-code" maxlength="4" placeholder="CODE" autocomplete="off">
-          <button id="btn-join" class="btn">Rejoindre</button>
-        </div>
-      </div>
-
-      <div id="lobby-group" hidden>
-        <div class="code-box">
-          <div class="code-label">Code du groupe</div>
-          <div id="group-code" class="code">----</div>
-          <button id="btn-copy" class="btn small">Copier le lien d'invitation</button>
-        </div>
-        <div class="members-title">Joueurs (<span id="member-count">0</span>/4)</div>
-        <ul id="members"></ul>
-        <button id="btn-start" class="btn primary">Lancer la partie</button>
-        <div id="wait-host" class="hint" hidden>En attente que l'hôte lance la partie…</div>
-        <button id="btn-leave" class="btn ghost">Quitter le groupe</button>
-      </div>
-
-      <div id="lobby-error" class="error"></div>
+      <label class="field">Ton pseudo
+        <input id="name" maxlength="16" placeholder="Pseudo" autocomplete="off">
+      </label>
+      <button id="btn-enter" class="btn primary">Entrer au village</button>
+      <div id="title-error" class="error"></div>
       <div class="lobby-foot">
-        <button id="btn-lobby-options" class="btn small ghost">⚙ Options</button>
+        <button id="btn-title-options" class="btn small ghost">⚙ Options</button>
         <span id="conn-state">Connexion au serveur…</span>
       </div>
     </div>
   </div>
 
-  <!-- ======================= INTERFACE EN JEU ======================= -->
+  <!-- ======================= INTERFACE ======================= -->
   <div id="ui" hidden>
-    <div id="topbar">
-      <div id="clock">
-        <div class="clock-row"><span id="clock-icon">☀</span><span id="clock-text">Jour 1</span></div>
-        <div class="bar"><div id="clock-fill" class="fill"></div></div>
+    <!-- ----- Village ----- -->
+    <div id="hud-hub">
+      <div id="shards"><span class="shard-ico">◆</span> <b id="shards-n">0</b> éclats</div>
+      <div id="party">
+        <div class="party-title">Groupe</div>
+        <ul id="party-list"></ul>
+        <button id="btn-party-leave" class="btn small ghost" hidden>Quitter le groupe</button>
       </div>
-      <div id="gem-hp">
-        <div class="gem-row"><span class="gem-icon">◆</span> Joyau <span id="gem-hp-text">600</span></div>
-        <div class="bar"><div id="gem-hp-fill" class="fill"></div></div>
+      <div id="hub-help">Approche-toi de la <b>forge</b>, du <b>classement</b> ou du <b>portail</b> · <span class="kbd">Tab</span> liste des joueurs</div>
+    </div>
+
+    <!-- ----- Partie ----- -->
+    <div id="hud-game">
+      <div id="topbar">
+        <div id="clock">
+          <div class="clock-row"><span id="clock-icon">☀</span><span id="clock-text">Jour 1</span></div>
+          <div class="bar"><div id="clock-fill" class="fill"></div></div>
+        </div>
+        <div id="gem-hp">
+          <div class="gem-row"><span class="gem-icon">◆</span> Joyau <span id="gem-hp-text">600</span></div>
+          <div class="bar"><div id="gem-hp-fill" class="fill"></div></div>
+        </div>
+      </div>
+      <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas><div id="minimap-n">N</div></div>
+      <div id="status"></div>
+      <div id="bottom-left">
+        <div id="inv">
+          <div class="res"><span class="ico wood"></span><b id="inv-wood">0</b> Bois</div>
+          <div class="res"><span class="ico stone"></span><b id="inv-stone">0</b> Pierre</div>
+        </div>
+        <div id="hp"><div class="hp-label">❤ <span id="hp-text">100</span></div><div class="bar"><div id="hp-fill" class="fill"></div></div></div>
+      </div>
+      <div id="buildbar" hidden>
+        <div id="build-slots"></div>
+        <div id="build-hint"></div>
+      </div>
+      <div id="death" class="overlay" hidden>
+        <div class="big">Tu es tombé…</div>
+        <div id="death-timer">Réapparition dans 8</div>
+      </div>
+      <div id="gameover" class="overlay" hidden>
+        <div class="big">Le Joyau a été détruit</div>
+        <div id="gameover-text"></div>
+        <div id="gameover-shards"></div>
+        <div class="hint">Retour au village dans quelques secondes…</div>
+      </div>
+      <div id="mapview" class="overlay" hidden>
+        <div class="map-frame">
+          <canvas id="bigmap" width="800" height="800"></canvas>
+          <div id="map-hint"></div>
+        </div>
+      </div>
+      <div id="admin" class="panel" hidden>
+        <div class="panel-title">Panneau admin <button id="admin-close" class="x">✕</button></div>
+        <div class="row2">
+          <button class="btn small" data-admin="spawn">+1 Rôdeur</button>
+          <button class="btn small" data-admin="spawn5">+5 Rôdeurs</button>
+        </div>
+        <div class="row2">
+          <button class="btn small" data-admin="runner">+1 Griffu</button>
+          <button class="btn small" data-admin="spitter">+1 Cracheur</button>
+        </div>
+        <div class="row2">
+          <button class="btn small" data-admin="day">☀ Jour</button>
+          <button class="btn small" data-admin="dusk">🌇 Crépuscule</button>
+          <button class="btn small" data-admin="night">🌙 Nuit</button>
+        </div>
+        <label class="toggle"><input type="checkbox" id="admin-invuln"> Invulnérable</label>
+        <label class="toggle"><input type="checkbox" id="admin-free"> Construire sans ressources (tout débloqué)</label>
+        <button class="btn small" data-admin="tp">📍 Se téléporter (clique sur la carte)</button>
+        <div class="row2">
+          <button class="btn small" data-admin="give">+50 bois et pierre</button>
+          <button class="btn small" data-admin="heal">Soigner le Joyau</button>
+          <button class="btn small" data-admin="kill">Tuer les monstres</button>
+        </div>
+        <div class="hint">Une partie avec /god ne rapporte ni éclats ni classement.</div>
       </div>
     </div>
 
-    <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas><div id="minimap-n">N</div></div>
-    <div id="status"></div>
-
-    <div id="bottom-left">
-      <div id="inv">
-        <div class="res"><span class="ico wood"></span><b id="inv-wood">0</b> Bois</div>
-        <div class="res"><span class="ico stone"></span><b id="inv-stone">0</b> Pierre</div>
-      </div>
-      <div id="hp"><div class="hp-label">❤ <span id="hp-text">100</span></div><div class="bar"><div id="hp-fill" class="fill"></div></div></div>
-    </div>
-
+    <!-- ----- Commun ----- -->
     <div id="crosshair"></div>
     <div id="target"><div class="label"></div><div class="bar"><div class="fill"></div></div></div>
     <div id="prompt"></div>
-
-    <div id="buildbar" hidden>
-      <div id="build-slots"></div>
-      <div id="build-hint"></div>
-    </div>
-
     <div id="chat">
       <div id="chat-log"></div>
-      <input id="chat-input" maxlength="200" autocomplete="off" placeholder="Écris un message… (/god, /aide)" hidden>
+      <input id="chat-input" maxlength="200" autocomplete="off" placeholder="Écris un message…" hidden>
     </div>
     <div id="popups"></div>
+    <div id="toasts"></div>
     <div id="vignette"></div>
     <div id="banner"></div>
+    <div id="help"></div>
 
-    <div id="death" class="overlay" hidden>
-      <div class="big">Tu es tombé…</div>
-      <div id="death-timer">Réapparition dans 8</div>
-    </div>
-    <div id="gameover" class="overlay" hidden>
-      <div class="big">Le Joyau a été détruit</div>
-      <div id="gameover-text"></div>
-      <div class="hint">Une nouvelle partie va commencer…</div>
-    </div>
-
-    <div id="mapview" class="overlay" hidden>
-      <div class="map-frame">
-        <canvas id="bigmap" width="800" height="800"></canvas>
-        <div id="map-hint"></div>
+    <!-- Invitation reçue -->
+    <div id="invite" class="panel" hidden>
+      <div id="invite-text"></div>
+      <div class="row2">
+        <button id="invite-yes" class="btn small primary">Accepter <span class="kbd">Y</span></button>
+        <button id="invite-no" class="btn small">Refuser <span class="kbd">N</span></button>
       </div>
     </div>
 
-    <div id="admin" class="panel" hidden>
-      <div class="panel-title">Panneau admin <button id="admin-close" class="x">✕</button></div>
-      <button class="btn small" data-admin="spawn">Faire apparaître un monstre</button>
-      <button class="btn small" data-admin="spawn5">Faire apparaître 5 monstres</button>
-      <div class="row2">
-        <button class="btn small" data-admin="day">☀ Passer au jour</button>
-        <button class="btn small" data-admin="dusk">🌇 Crépuscule</button>
-        <button class="btn small" data-admin="night">🌙 Passer à la nuit</button>
+    <!-- Forge : compétences -->
+    <div id="skills" class="overlay" hidden>
+      <div class="panel skills-panel">
+        <div class="panel-title">La Forge — compétences <span class="shards-inline">◆ <b id="skills-shards">0</b> éclats</span><button class="x" data-close>✕</button></div>
+        <div class="hint left">Les éclats se gagnent en survivant aux nuits (1 la première nuit, puis de plus en plus). Les compétences sont permanentes.</div>
+        <div id="skill-trees"></div>
       </div>
-      <label class="toggle"><input type="checkbox" id="admin-invuln"> Invulnérable</label>
-      <label class="toggle"><input type="checkbox" id="admin-free"> Construire sans ressources</label>
-      <button class="btn small" data-admin="tp">📍 Se téléporter (clique sur la carte)</button>
-      <div class="row2">
-        <button class="btn small" data-admin="give">+50 bois et pierre</button>
-        <button class="btn small" data-admin="heal">Soigner le Joyau</button>
-        <button class="btn small" data-admin="kill">Tuer les monstres</button>
+    </div>
+
+    <!-- Classement -->
+    <div id="board" class="overlay" hidden>
+      <div class="panel board-panel">
+        <div class="panel-title">Classement — nuits survécues <button class="x" data-close>✕</button></div>
+        <div id="board-tabs" class="tabs"></div>
+        <ol id="board-list"></ol>
+      </div>
+    </div>
+
+    <!-- Portail : lancer -->
+    <div id="launch" class="overlay" hidden>
+      <div class="panel launch-panel">
+        <div class="panel-title">Le Portail <button class="x" data-close>✕</button></div>
+        <div id="launch-members"></div>
+        <button id="btn-launch" class="btn primary">Partir</button>
+        <div id="launch-wait" class="hint" hidden>Seul le chef du groupe peut lancer la partie.</div>
+        <div class="hint">Pour jouer à plusieurs : approche-toi d'un joueur et appuie sur <span class="kbd" id="launch-key">E</span>, ou ouvre la liste avec <span class="kbd">Tab</span>.</div>
+      </div>
+    </div>
+
+    <!-- Liste des joueurs du village -->
+    <div id="players" class="overlay" hidden>
+      <div class="panel players-panel">
+        <div class="panel-title">Joueurs au village <button class="x" data-close>✕</button></div>
+        <ul id="players-list"></ul>
       </div>
     </div>
 
     <div id="pause" class="overlay" hidden>
       <div class="panel pause-panel">
         <div class="panel-title">Pause</div>
-        <div class="hint">La partie continue pour les autres joueurs</div>
         <button id="btn-resume" class="btn primary">Reprendre</button>
         <button id="btn-pause-options" class="btn">Options</button>
-        <button id="btn-quit" class="btn ghost">Quitter la partie</button>
+        <button id="btn-quit" class="btn ghost">Retour au village</button>
       </div>
     </div>
-    <div id="help">Clic : frapper · F : construire · E : Joyau · M : carte · Entrée : chat · Échap : menu</div>
   </div>
 
   <!-- ======================= OPTIONS ======================= -->
@@ -162,7 +202,8 @@
     </div>
   </div>
 
-  <div id="version">ver.0.0.3</div>
+  <div id="fade"></div>
+  <div id="version">ver.0.0.4</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

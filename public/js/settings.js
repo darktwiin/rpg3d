@@ -2,7 +2,7 @@
 
 export const ACTIONS = [
   ['forward', 'Avancer'], ['back', 'Reculer'], ['left', 'Gauche'], ['right', 'Droite'],
-  ['jump', 'Sauter'], ['run', 'Courir'], ['interact', 'Joyau (prendre/poser)'], ['build', 'Construire'],
+  ['jump', 'Sauter'], ['run', 'Courir'], ['interact', 'Interagir / Joyau'], ['build', 'Construire'],
   ['map', 'Carte'], ['chat', 'Chat'],
 ];
 export const DEFAULT_KEYS = {

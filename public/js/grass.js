@@ -2,6 +2,7 @@
 // La "dalle" d'herbe suit le joueur ; chaque brin ondule au vent et s'écarte quand on passe.
 import * as THREE from 'three';
 import { TERRAIN_GLSL } from './terrain.js';
+import { VILLAGE_GLSL } from './village.js';
 
 const TILE = 42;
 const COUNT = 75000;
@@ -14,10 +15,12 @@ uniform vec2 uCenter;
 uniform vec3 uPlayer;
 uniform vec3 uWind;       // direction x, z + force
 uniform sampler2D uMask;  // zones sans herbe (sols construits)
+uniform float uFlat;      // 1 = village
 varying float vY;
 varying float vRand;
 varying vec3 vWorld;
 ${TERRAIN_GLSL}
+${VILLAGE_GLSL}
 void main() {
   const float T = ${TILE.toFixed(1)};
   vec2 wp = uCenter + mod(aOffset.xy - uCenter + T * 0.5, T) - T * 0.5;
@@ -25,8 +28,8 @@ void main() {
   float fade = 1.0 - smoothstep(T * 0.3, T * 0.48, dist);
   float s = aOffset.z * fade * (1.0 - smoothstep(0.25, 0.7, dirtAt(wp)));
   s *= 1.0 - step(96.0, max(abs(wp.x), abs(wp.y)));
-  float gh = terrainHeight(wp);
-  s *= smoothstep(5.0, 7.0, abs(wp.y - riverZ(wp.x)));   // pas d'herbe dans la rivière
+  float gh = mix(terrainHeight(wp), villageHeight(wp), uFlat);
+  s *= max(uFlat, smoothstep(5.0, 7.0, abs(wp.y - riverZ(wp.x))));   // pas d'herbe dans la rivière
   s *= 1.0 - texture2D(uMask, wp / 200.0 + 0.5).r;       // ni sous les constructions
   if (aRand > 0.985) s *= 1.25; // les fleurs dépassent un peu
 
@@ -113,6 +116,7 @@ export class Grass {
       uWind: wind.uWind,
       uCenter: { value: new THREE.Vector2() },
       uMask: { value: this.makeMask() },
+      uFlat: { value: 0 },
       uPlayer: { value: new THREE.Vector3() },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color(1, 1, 1) },
@@ -136,6 +140,14 @@ export class Grass {
     this.maskTex = new THREE.CanvasTexture(c);
     this.maskTex.flipY = false;
     return this.maskTex;
+  }
+  // Mode village : sol plat et zones sans herbe dessinées par le village
+  setVillage(village) {
+    this.uniforms.uFlat.value = village ? 1 : 0;
+    const ctx = this.maskCtx;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 512, 512);
+    if (village) village.drawGrassMask(ctx, 512 / 200);
+    this.maskTex.needsUpdate = true;
   }
   // floors : liste de {x, z} (centres de cases de 2 m)
   setMask(floors) {

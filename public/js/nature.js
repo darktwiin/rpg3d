@@ -192,6 +192,7 @@ function buildBush(rand) {
 export class Particles {
   constructor(scene) {
     this.scene = scene;
+    this.groundFn = heightAt;
     this.list = [];
     this.box = new THREE.BoxGeometry(1, 1, 1);
     this.leaf = new THREE.PlaneGeometry(1, 0.6);
@@ -248,7 +249,7 @@ export class Particles {
       if (p.windK) { p.vel.x += wind.x * wind.z * p.windK * dt; p.vel.z += wind.y * wind.z * p.windK * dt; }
       if (p.flutter) { p.vel.x += Math.sin(p.life * 7 + i) * p.flutter * dt; p.vel.z += Math.cos(p.life * 5 + i) * p.flutter * dt; }
       m.position.addScaledVector(p.vel, dt);
-      const gy = heightAt(m.position.x, m.position.z) + p.size * 0.4;
+      const gy = this.groundFn(m.position.x, m.position.z) + p.size * 0.4;
       if (m.position.y < gy) {
         m.position.y = gy;
         if (p.vel.y < 0) p.vel.y *= -p.bounce;
@@ -303,22 +304,8 @@ export class Nature {
   }
 
   // Buissons décoratifs (identiques chez tout le monde)
-  populate() {
-    const rand = seededRandom(42);
-    const L = WORLD_LIMIT - 2;
-    let bushes = 0;
-    for (let i = 0; i < 600 && bushes < 120; i++) {
-      const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
-      if (Math.hypot(x - GEM_HOME.x, z - GEM_HOME.z) < 10 || riverDist(x, z) < 7) continue;
-      bushes++;
-      const b = new THREE.Mesh(this.bushGeos[i % 3], this.mat.leaf);
-      const s = 0.7 + rand() * 0.6;
-      b.scale.set(s, s * (0.8 + rand() * 0.3), s);
-      b.position.set(x, heightAt(x, z) - 0.1, z);
-      b.castShadow = true; b.receiveShadow = true;
-      this.scene.add(b);
-    }
-  }
+  // (les buissons sont maintenant des ressources envoyées par le serveur)
+  populate() {}
 
   // Reçoit la liste complète envoyée par le serveur (début de partie)
   load(list) {
@@ -334,6 +321,8 @@ export class Nature {
     if (res.k === 't') {
       const proto = res.v >= 4 ? this.pines[res.v - 4] : this.oaks[res.v];
       this.addTree(res.id, res.x, res.z, proto, res.v >= 4, res.s);
+    } else if (res.k === 'b') {
+      this.addBush(res.id, res.x, res.z, res.s, this.bushGeos[res.v % 3], res.rot);
     } else {
       this.addRock(res.id, res.x, res.z, res.s, this.rockGeos[res.v], res.rot);
     }
@@ -376,6 +365,26 @@ export class Nature {
       shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0,
     };
     this.resources.set(id, t); this.list.push(t);
+  }
+
+  addBush(id, x, z, size, geo, rot) {
+    const mesh = new THREE.Mesh(geo, this.mat.leaf);
+    const y = heightAt(x, z) - 0.1;
+    mesh.position.set(x, y, z);
+    mesh.rotation.y = rot;
+    mesh.scale.setScalar(size);
+    mesh.castShadow = mesh.receiveShadow = true;
+    this.scene.add(mesh);
+    const b = { id, kind: 'bush', x, z, y, size, scale: size, r: 0.55 * size, max: 2, hp: 2, alive: true, state: 'idle', mesh, shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0 };
+    // Quelques baies rouges
+    if (!this.berryGeo) { this.berryGeo = new THREE.SphereGeometry(0.05, 6, 4); this.berryMat = new THREE.MeshStandardMaterial({ color: '#c8203a', roughness: 0.4 }); }
+    for (let i = 0; i < 6; i++) {
+      const a = i * 1.7 + rot, e = 0.3 + (i % 3) * 0.25;
+      const berry = new THREE.Mesh(this.berryGeo, this.berryMat);
+      berry.position.set(Math.cos(a) * 0.55 * Math.cos(e), 0.45 + Math.sin(e) * 0.4, Math.sin(a) * 0.55 * Math.cos(e));
+      mesh.add(berry);
+    }
+    this.resources.set(id, b); this.list.push(b);
   }
 
   addRock(id, x, z, size, geo, rot) {
@@ -430,7 +439,7 @@ export class Nature {
 
   collide(pos, radius) {
     for (const r of this.list) {
-      if (!r.alive || r.state === 'falling') continue;
+      if (!r.alive || r.state === 'falling' || r.kind === 'bush') continue;
       const dx = pos.x - r.x, dz = pos.z - r.z;
       const min = r.r + radius;
       if (Math.abs(dx) > min || Math.abs(dz) > min) continue;
@@ -446,7 +455,7 @@ export class Nature {
       if (res.kind === 'tree') {
         res.trunk.material = res.isPine ? set.pineBark : set.bark;
         res.leaves.material = set.leaf;
-      } else res.mesh.material = set.rock;
+      } else res.mesh.material = res.kind === 'bush' ? set.leaf : set.rock;
     };
     apply(this.highlighted, this.mat);
     apply(r, this.hiMat);
@@ -456,7 +465,7 @@ export class Nature {
   impactPoint(r, fromX, fromZ) {
     const dx = fromX - r.x, dz = fromZ - r.z, d = Math.hypot(dx, dz) || 1;
     const k = r.r * (r.kind === 'rock' ? 0.8 : 1);
-    return new THREE.Vector3(r.x + dx / d * k, r.y + (r.kind === 'tree' ? 1.0 : r.size * 0.45), r.z + dz / d * k);
+    return new THREE.Vector3(r.x + dx / d * k, r.y + (r.kind === 'tree' ? 1.0 : r.kind === 'bush' ? r.size * 0.5 : r.size * 0.45), r.z + dz / d * k);
   }
 
   // Coup reçu (effets visuels)
@@ -476,6 +485,8 @@ export class Nature {
         });
       }
       for (let i = 0; i < 5; i++) this.spawnLeaf(r, true);
+    } else if (r.kind === 'bush') {
+      this.bushBurst(r, p, 7);
     } else {
       for (let i = 0; i < 10; i++) {
         this.fx.spawn({
@@ -492,7 +503,17 @@ export class Nature {
     const r = this.resources.get(id);
     if (!r) return;
     r.hp = hp;
-    if (r.kind === 'rock') r.mesh.scale.setScalar(r.size * (0.75 + 0.25 * Math.max(0, hp) / r.max));
+    if (r.kind !== 'tree' && r.state !== 'growing') r.mesh.scale.setScalar(r.size * (0.75 + 0.25 * Math.max(0, hp) / r.max));
+  }
+
+  bushBurst(r, p, n) {
+    for (let i = 0; i < n; i++) {
+      this.fx.spawn({
+        geo: this.fx.leaf, mat: this.fx.mats.leaf, pos: p.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.6, Math.random() * 0.4, (Math.random() - 0.5) * 0.6)),
+        vel: new THREE.Vector3((Math.random() - 0.5) * 4, 1.5 + Math.random() * 2.5, (Math.random() - 0.5) * 4),
+        size: 0.12, life: 2 + Math.random() * 2, gravity: 2, drag: 1.5, flutter: 3, windK: 1.5,
+      });
+    }
   }
 
   spawnLeaf(t, burst) {
@@ -510,6 +531,14 @@ export class Nature {
     if (!r || !r.alive) return;
     r.alive = false; r.hp = 0;
     if (this.highlighted === r) this.setHighlight(null);
+    if (r.kind === 'bush') {
+      r.state = 'dead';
+      this.bushBurst(r, new THREE.Vector3(r.x, r.y + r.size * 0.5, r.z), 18);
+      this.fx.puff(new THREE.Vector3(r.x, r.y + 0.4, r.z), 0x9ac070, 4, 0.4);
+      this.scene.remove(r.mesh);
+      this.forget(r);
+      return;
+    }
     if (r.kind === 'tree') {
       const d = Math.hypot(dx, dz) || 1;
       r.fallDir = new THREE.Vector2(dx / d, dz / d);

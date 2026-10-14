@@ -28,10 +28,10 @@ export const ATTACKS = {
   },
   mine: { // casse-pierre : frappe à deux mains au-dessus de la tête, à la pioche
     dur: 0.7, hit: 0.53, tool: 'pick', frames: [
-      [0.0, { rShX: -1.6, rShY: 0.5, rEl: -1.0, rWr: 0.6, lShX: -1.5, lShY: -0.5, lEl: -1.0 }],
-      [0.4, { rShX: -3.0, rShY: 0.4, rEl: -0.9, rWr: 0.2, lShX: -2.9, lShY: -0.4, lEl: -0.9, spineRx: -0.25, headRx: -0.25, hipsY: 0.95 }],
-      [0.55, { rShX: -0.55, rShY: 0.35, rEl: -0.15, rWr: 1.25, lShX: -0.6, lShY: -0.35, lEl: -0.2, spineRx: 0.55, headRx: 0.25, hipsY: 0.82, lThX: -0.45, lKn: 0.75, rThX: 0.15, rKn: 0.55 }],
-      [1.0, { rShX: -0.6, rShY: 0.3, rEl: -0.5, rWr: 1.2, lShX: -0.4, lShY: -0.2, lEl: -0.4, spineRx: 0.15, hipsY: 0.9 }],
+      [0.0, { rShX: -1.6, rShY: 0.15, rShZ: -0.15, rEl: -1.0, rWr: 0.6 }],
+      [0.4, { rShX: -3.0, rShY: 0.1, rShZ: -0.1, rEl: -0.9, rWr: 0.2, spineRx: -0.2, spineRy: -0.15, headRx: -0.2, hipsY: 0.95, lShX: 0.25, lShZ: 0.35, lEl: -0.5 }],
+      [0.55, { rShX: -0.65, rShY: 0.1, rShZ: -0.1, rEl: -0.15, rWr: 1.25, spineRx: 0.5, spineRy: 0.1, headRx: 0.25, hipsY: 0.84, lThX: -0.4, lKn: 0.65, rThX: 0.15, rKn: 0.5, lShX: 0.35, lShZ: 0.3, lEl: -0.4 }],
+      [1.0, { rShX: -0.6, rShY: 0.1, rEl: -0.5, rWr: 1.2, spineRx: 0.12, hipsY: 0.9 }],
     ],
   },
   hammer: { // coup de marteau rapide (construction)
@@ -447,10 +447,10 @@ export class CharacterRig {
   die() { this.dead = true; this.deadT = 0; this.atk = null; }
   revive() { this.dead = false; this.body.rotation.set(0, 0, 0); this.body.position.set(0, 0, 0); }
 
-  attack(kind) {
+  attack(kind, speed = 1) {
     if (this.atk || this.dead) return false;
     const def = ATTACKS[kind] || ATTACKS.slash;
-    this.atk = { kind, t: 0, def, hitDone: false };
+    this.atk = { kind, t: 0, def, hitDone: false, sp: speed };
     this.setTool(def.tool);
     return true;
   }
@@ -537,7 +537,7 @@ export class CharacterRig {
     let trailOn = false;
     if (this.atk) {
       const a = this.atk;
-      a.t += dt;
+      a.t += dt * a.sp;
       const p = a.t / a.def.dur;
       const fr = a.def.frames;
       let i = 0;

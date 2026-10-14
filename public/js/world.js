@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.0.3';
+export const VERSION = '0.0.4';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 95;
@@ -21,19 +21,37 @@ export const START_TIME = 30;      // la partie commence au petit matin
 // ---------- Combat ----------
 export const PLAYER_HP = 100;
 export const GEM_HP = 600;
-export const MONSTER_HP = 60;
 export const SWORD_DMG = 20;
-export const MONSTER_DMG_PLAYER = 16;
-export const MONSTER_DMG_GEM = 25;
-export const MONSTER_DMG_BUILD = 40;
 export const RESPAWN_DELAY = 8;
 export const MAX_PLAYERS = 4;
+
+// Les trois sortes de monstres
+export const MONSTERS = {
+  brute: { name: 'Rôdeur', hp: 60, speed: 3.5, dmgP: 16, dmgGem: 25, dmgB: 40, reach: 1.5, cd: 1.7, hitAt: 0.5, scale: 1, radius: 0.5 },
+  runner: { name: 'Griffu', hp: 30, speed: 6.4, dmgP: 8, dmgGem: 12, dmgB: 20, reach: 1.15, cd: 1.0, hitAt: 0.3, scale: 0.6, radius: 0.32 },
+  spitter: { name: 'Cracheur', hp: 45, speed: 2.6, dmgP: 22, dmgGem: 30, dmgB: 30, reach: 13, cd: 4.5, hitAt: 1.0, scale: 0.95, radius: 0.5, ranged: true },
+};
+export const MONSTER_HP = MONSTERS.brute.hp;
+// Nombre de monstres présents en même temps pendant la nuit
+export function nightTarget(night, players) {
+  return Math.round((5 + 2 * (night - 1)) * Math.pow(1.2, Math.max(0, players - 1)));
+}
+export const SPAWN_MIN = 42, SPAWN_MAX = 58;   // distance d'apparition autour du Joyau
+
+// ---------- Progression ----------
+// Éclats gagnés à la fin de la nuit n (exponentiel : 1, 2, 3, 6, 10, 19, 34…)
+export const shardsForNight = (n) => Math.max(1, Math.round(Math.pow(1.8, n - 1)));
 
 // ---------- Ressources ----------
 export const TREE_HP = 5;
 export const ROCK_HP = 4;
+export const BUSH_HP = 2;
 export const TREE_VARIANTS = 6;    // 0-2 chênes, 3 chêne d'automne, 4-5 sapins
 export const ROCK_VARIANTS = 4;
+export const RES_HP = { t: TREE_HP, r: ROCK_HP, b: BUSH_HP };
+// Ce que rapporte une ressource une fois détruite (en une seule fois)
+export const RES_YIELD = { t: { wood: 8 }, r: { stone: 6 }, b: { wood: 2 } };
+export const BUSH_HEAL = 15;
 
 // ---------- Construction ----------
 export const GRID = 2;
@@ -42,10 +60,83 @@ export const BUILD_TIME = 3;
 export const BUILD_RANGE = 7;
 export const PIECES = {
   floor: { name: 'Sol', cost: { wood: 2, stone: 2 }, hp: 250 },
-  wall: { name: 'Mur', cost: { wood: 3, stone: 0 }, hp: 400 },
+  wall: { name: 'Mur', cost: { wood: 3, stone: 0 }, hp: 400, blocks: true },
   roof: { name: 'Toit', cost: { wood: 2, stone: 1 }, hp: 250 },
+  stairs: { name: 'Escalier', cost: { wood: 3, stone: 1 }, hp: 250, skill: 'c_stairs' },
+  door: { name: 'Porte', cost: { wood: 4, stone: 0 }, hp: 350, blocks: true, skill: 'c_door' },
+  stonewall: { name: 'Mur de pierre', cost: { wood: 1, stone: 5 }, hp: 1000, blocks: true, skill: 'c_stone' },
+  spikes: { name: 'Pieux', cost: { wood: 3, stone: 1 }, hp: 200, skill: 'c_spikes' },
 };
-export const PIECE_ORDER = ['floor', 'wall', 'roof'];
+export const PIECE_ORDER = ['floor', 'wall', 'roof', 'stairs', 'door', 'stonewall', 'spikes'];
+export const isWallType = (t) => t === 'wall' || t === 'door' || t === 'stonewall';
+export const SPIKE_DPS = 14;
+
+// ---------- Compétences (achetées à la forge avec les éclats) ----------
+// col/row : position dans l'arbre ; req : compétences nécessaires avant
+export const SKILL_TREES = [
+  { id: 'build', name: 'Constructeur', icon: '🔨', color: '#e0a54a' },
+  { id: 'gather', name: 'Récolteur', icon: '🪓', color: '#7fc46a' },
+  { id: 'fight', name: 'Combattant', icon: '⚔', color: '#e06a5a' },
+];
+export const SKILLS = [
+  // Constructeur
+  { id: 'c_hp1', tree: 'build', row: 0, col: 1, name: 'Charpentier', desc: 'Constructions +25% de vie', cost: 2, req: [] },
+  { id: 'c_speed', tree: 'build', row: 1, col: 0, name: 'Bâtisseur rapide', desc: 'Construction 40% plus rapide', cost: 3, req: ['c_hp1'] },
+  { id: 'c_stairs', tree: 'build', row: 1, col: 2, name: 'Escaliers', desc: 'Débloque l’escalier', cost: 3, req: ['c_hp1'] },
+  { id: 'c_door', tree: 'build', row: 2, col: 0, name: 'Portes', desc: 'Débloque la porte : les joueurs passent, pas les monstres', cost: 5, req: ['c_speed'] },
+  { id: 'c_cost', tree: 'build', row: 2, col: 2, name: 'Économe', desc: 'Constructions 25% moins chères', cost: 8, req: ['c_stairs'] },
+  { id: 'c_hp2', tree: 'build', row: 2, col: 1, name: 'Maître charpentier', desc: 'Constructions +50% de vie en plus', cost: 10, req: ['c_hp1'] },
+  { id: 'c_stone', tree: 'build', row: 3, col: 1, name: 'Maçonnerie', desc: 'Débloque le mur de pierre (très solide)', cost: 14, req: ['c_hp2'] },
+  { id: 'c_spikes', tree: 'build', row: 4, col: 1, name: 'Pièges à pieux', desc: 'Débloque les pieux : blessent et ralentissent les monstres', cost: 20, req: ['c_stone'] },
+  // Récolteur
+  { id: 'g_speed', tree: 'gather', row: 0, col: 1, name: 'Bras solides', desc: 'Récolte 25% plus rapide', cost: 2, req: [] },
+  { id: 'g_wood', tree: 'gather', row: 1, col: 0, name: 'Bûcheron', desc: '+40% de bois', cost: 3, req: ['g_speed'] },
+  { id: 'g_stone', tree: 'gather', row: 1, col: 2, name: 'Carrier', desc: '+40% de pierre', cost: 3, req: ['g_speed'] },
+  { id: 'g_bush', tree: 'gather', row: 2, col: 0, name: 'Cueilleur', desc: 'Les buissons soignent 2× plus et donnent +2 bois', cost: 4, req: ['g_wood'] },
+  { id: 'g_power', tree: 'gather', row: 2, col: 1, name: 'Coup net', desc: 'Il faut moins de coups pour abattre arbres et rochers', cost: 8, req: ['g_speed'] },
+  { id: 'g_carry', tree: 'gather', row: 2, col: 2, name: 'Porteur', desc: 'Porter le Joyau ne ralentit plus', cost: 5, req: ['g_stone'] },
+  { id: 'g_bag', tree: 'gather', row: 3, col: 1, name: 'Grand sac', desc: '+50% de toutes les ressources', cost: 14, req: ['g_power'] },
+  { id: 'g_speed2', tree: 'gather', row: 4, col: 1, name: 'Infatigable', desc: 'Récolte encore 35% plus rapide', cost: 20, req: ['g_bag'] },
+  // Combattant
+  { id: 'f_dmg1', tree: 'fight', row: 0, col: 1, name: 'Lame aiguisée', desc: '+25% de dégâts', cost: 2, req: [] },
+  { id: 'f_hp', tree: 'fight', row: 1, col: 0, name: 'Robuste', desc: '+30 points de vie', cost: 3, req: ['f_dmg1'] },
+  { id: 'f_move', tree: 'fight', row: 1, col: 2, name: 'Agile', desc: '+12% de vitesse de déplacement', cost: 3, req: ['f_dmg1'] },
+  { id: 'f_regen', tree: 'fight', row: 2, col: 0, name: 'Régénération', desc: 'Récupère ta vie 2× plus vite', cost: 5, req: ['f_hp'] },
+  { id: 'f_aspd', tree: 'fight', row: 2, col: 1, name: 'Frappe rapide', desc: 'Attaques 30% plus rapides', cost: 8, req: ['f_dmg1'] },
+  { id: 'f_armor', tree: 'fight', row: 2, col: 2, name: 'Peau de pierre', desc: '−25% de dégâts reçus', cost: 8, req: ['f_move'] },
+  { id: 'f_dmg2', tree: 'fight', row: 3, col: 1, name: 'Lame lourde', desc: '+50% de dégâts en plus', cost: 14, req: ['f_aspd'] },
+  { id: 'f_cleave', tree: 'fight', row: 4, col: 1, name: 'Coup circulaire', desc: 'Chaque coup touche tous les monstres autour', cost: 20, req: ['f_dmg2'] },
+];
+export const SKILL_BY_ID = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
+
+// Effets des compétences possédées
+export function skillMods(list = []) {
+  const has = new Set(list);
+  return {
+    has,
+    buildHp: 1 + (has.has('c_hp1') ? 0.25 : 0) + (has.has('c_hp2') ? 0.5 : 0),
+    buildTime: has.has('c_speed') ? 0.6 : 1,
+    costMul: has.has('c_cost') ? 0.75 : 1,
+    harvestSpeed: (has.has('g_speed') ? 1.25 : 1) * (has.has('g_speed2') ? 1.35 : 1),
+    woodMul: (has.has('g_wood') ? 1.4 : 1) * (has.has('g_bag') ? 1.5 : 1),
+    stoneMul: (has.has('g_stone') ? 1.4 : 1) * (has.has('g_bag') ? 1.5 : 1),
+    hitPow: has.has('g_power') ? 1.5 : 1,
+    bush: has.has('g_bush'),
+    carry: has.has('g_carry'),
+    dmg: (has.has('f_dmg1') ? 1.25 : 1) * (has.has('f_dmg2') ? 1.5 : 1),
+    maxHp: PLAYER_HP + (has.has('f_hp') ? 30 : 0),
+    speed: has.has('f_move') ? 1.12 : 1,
+    atkSpeed: has.has('f_aspd') ? 1.3 : 1,
+    regen: has.has('f_regen') ? 2 : 1,
+    armor: has.has('f_armor') ? 0.75 : 1,
+    cleave: has.has('f_cleave'),
+  };
+}
+export function pieceCost(type, mods) {
+  const c = PIECES[type].cost, k = mods ? mods.costMul : 1;
+  return { wood: Math.ceil(c.wood * k), stone: Math.ceil(c.stone * k) };
+}
+export const pieceUnlocked = (type, mods) => !PIECES[type].skill || (mods && mods.has.has(PIECES[type].skill));
 
 // ---------- Outils ----------
 const smoothstep = (a, b, x) => {
@@ -110,6 +201,7 @@ export function isFreeSpot(x, z, others, minDist, extra = []) {
 }
 
 export function makeResource(rand, id, kind, x, z) {
+  if (kind === 'b') return { id, k: 'b', x: +x.toFixed(2), z: +z.toFixed(2), v: Math.floor(rand() * 3), s: +(0.7 + rand() * 0.6).toFixed(2), rot: +(rand() * 6.28).toFixed(2) };
   return kind === 't'
     ? { id, k: 't', x: +x.toFixed(2), z: +z.toFixed(2), v: rand() < 0.35 ? 4 + Math.floor(rand() * 2) : Math.floor(rand() * 4), s: +(0.85 + rand() * 0.35).toFixed(2), rot: 0 }
     : { id, k: 'r', x: +x.toFixed(2), z: +z.toFixed(2), v: Math.floor(rand() * ROCK_VARIANTS), s: +(0.55 + rand() * 0.95).toFixed(2), rot: +(rand() * 6.28).toFixed(2) };
@@ -130,15 +222,27 @@ export function generateResources(seed) {
     if (!isFreeSpot(x, z, list, 2.0)) continue;
     list.push(makeResource(rand, 'n' + n++, 'r', x, z));
   }
+  for (let i = 0; i < 900 && list.filter((r) => r.k === 'b').length < 110; i++) {
+    const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
+    if (!isFreeSpot(x, z, list, 1.4)) continue;
+    list.push(makeResource(rand, 'n' + n++, 'b', x, z));
+  }
   // Quelques ressources près du départ pour bien commencer
-  const near = [[9, 7, 't'], [-11, 4, 't'], [6, -12, 't'], [-7, -10, 'r'], [13, -3, 'r']];
+  const near = [[9, 7, 't'], [-11, 4, 't'], [6, -12, 't'], [-7, -10, 'r'], [13, -3, 'r'], [-12, -3, 'b'], [4, 12, 'b']];
   for (const [x, z, k] of near) list.push(makeResource(rand, 'n' + n++, k, x, z));
   return list;
 }
 
-export const resourceRadius = (r) => (r.k === 't' ? 0.45 * r.s : r.s * 0.9);
+export const resourceRadius = (r) => (r.k === 't' ? 0.45 * r.s : r.k === 'b' ? 0.55 * r.s : r.s * 0.9);
 
 // ---------- Bâtiments (géométrie partagée pour les collisions) ----------
+export function stairsHeight(b, x, z) {
+  // hauteur de la rampe d'un escalier (b.rot : 0 monte vers +z, 1 vers +x, 2 vers -z, 3 vers -x)
+  const dx = x - b.x, dz = z - b.z;
+  if (Math.abs(dx) > 1 || Math.abs(dz) > 1) return null;
+  const t = [dz, dx, -dz, -dx][b.rot & 3];
+  return b.y + Math.min(1, Math.max(0, (t + 1) / 2)) * WALL_H;
+}
 export function wallBox(b) {
   // Rectangle au sol d'un mur : centre, demi-longueurs en x et z
   return b.rot ? { x: b.x, z: b.z, hx: 0.16, hz: GRID / 2 + 0.05 } : { x: b.x, z: b.z, hx: GRID / 2 + 0.05, hz: 0.16 };
@@ -146,6 +250,7 @@ export function wallBox(b) {
 export function pieceTop(b) {
   if (b.type === 'floor') return b.y;
   if (b.type === 'roof') return b.y + 0.35;
+  if (b.type === 'spikes') return b.y;
   return b.y + WALL_H;
 }
 // Distance d'un point au rectangle (0 si dedans)
@@ -154,6 +259,9 @@ export function distToBox(px, pz, box) {
   const dz = Math.max(Math.abs(pz - box.z) - box.hz, 0);
   return Math.hypot(dx, dz);
 }
+// Deux pièces du même « emplacement » ne peuvent pas se superposer
+const SLOT_GROUP = { floor: 'f', stairs: 'f', spikes: 'f', wall: 'w', door: 'w', stonewall: 'w', roof: 'r' };
 export function slotKey(type, x, z, rot) {
-  return `${type}:${Math.round(x * 2)}:${Math.round(z * 2)}:${type === 'wall' ? rot : 0}`;
+  const g = SLOT_GROUP[type] || type;
+  return `${g}:${Math.round(x * 2)}:${Math.round(z * 2)}:${g === 'w' ? rot : 0}`;
 }
