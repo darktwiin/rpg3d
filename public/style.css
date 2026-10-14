@@ -243,3 +243,9 @@ input, select { font: inherit; }
 .slot.locked { opacity: 0.55; }
 .slot.locked .cost { color: #c49bff; }
 #build-slots .slot { width: 92px; }
+#build-slots { gap: 6px; }
+#build-slots .slot { width: 74px; padding: 6px 4px; font-size: 10.5px; }
+#build-slots .slot .name { font-size: 12px; line-height: 1.15; min-height: 28px; display: flex; align-items: center; justify-content: center; }
+#build-slots .slot svg { transform: scale(0.85); }
+#ui.building #bottom-left { bottom: 160px; }
+#ui.building #chat { bottom: 270px; }

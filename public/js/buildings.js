@@ -94,7 +94,10 @@ export class Buildings {
       stoneWall: new THREE.MeshStandardMaterial({ map: stone, color: '#d8d2c8', roughness: 0.95 }),
       iron: new THREE.MeshStandardMaterial({ color: '#555a60', metalness: 0.6, roughness: 0.45 }),
       stake: new THREE.MeshStandardMaterial({ color: '#c49a6a', roughness: 0.8 }),
+      ice: new THREE.MeshStandardMaterial({ color: '#bfe8ff', emissive: '#4ab8ff', emissiveIntensity: 1.2, roughness: 0.15, transparent: true, opacity: 0.9 }),
+      rune: new THREE.MeshStandardMaterial({ color: '#9ad8ff', emissive: '#3aa8ff', emissiveIntensity: 1.4 }),
     };
+    this.bars = new Map();
     this.blueprint = new THREE.MeshStandardMaterial({ color: '#9fd0ff', emissive: '#2a5a90', transparent: true, opacity: 0.45, depthWrite: false });
     this.ghostOk = new THREE.MeshBasicMaterial({ color: '#6dff8a', transparent: true, opacity: 0.38, depthWrite: false });
     this.ghostBad = new THREE.MeshBasicMaterial({ color: '#ff5a4a', transparent: true, opacity: 0.38, depthWrite: false });
@@ -180,6 +183,43 @@ export class Buildings {
       add(new THREE.BoxGeometry(2.04, WALL_H + dh, 0.42), m('stoneWall'), 0, (WALL_H - dh) / 2, 0);
       // Créneaux
       for (let i = 0; i < 3; i++) add(new THREE.BoxGeometry(0.5, 0.35, 0.46), m('stoneWall'), -0.75 + i * 0.75, WALL_H + 0.17, 0);
+    } else if (type === 'tower') {
+      // Tour d'archer : pilotis, plateforme, parapet, petit toit et arbalète
+      for (const [px, pz] of [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]]) {
+        const post = add(new THREE.CylinderGeometry(0.12, 0.15, 3.2 + Math.max(0, drop), 8), m('log'), px, (3.2 - Math.max(0, drop)) / 2, pz);
+        post.rotation.set(pz * 0.08, 0, -px * 0.08);
+      }
+      for (const y of [1.0, 2.1]) for (const [w, d, x, z] of [[1.6, 0.1, 0, 0.72], [1.6, 0.1, 0, -0.72], [0.1, 1.6, 0.72, 0], [0.1, 1.6, -0.72, 0]]) add(new THREE.BoxGeometry(w, 0.1, d), m('planksDark'), x, y, z);
+      add(new THREE.BoxGeometry(2, 0.15, 2), m('planks'), 0, 3.2, 0);
+      for (const [w, d, x, z] of [[2, 0.1, 0, 0.95], [2, 0.1, 0, -0.95], [0.1, 2, 0.95, 0], [0.1, 2, -0.95, 0]]) add(new THREE.BoxGeometry(w, 0.6, d), m('planks'), x, 3.55, z);
+      for (const [px, pz] of [[-0.95, -0.95], [0.95, -0.95], [-0.95, 0.95], [0.95, 0.95]]) add(new THREE.CylinderGeometry(0.06, 0.06, 1.6, 6), m('log'), px, 4.0, pz);
+      const roof = add(new THREE.ConeGeometry(1.6, 0.9, 4), m('shingles'), 0, 5.2, 0);
+      roof.rotation.y = Math.PI / 4;
+      const bow = new THREE.Group();
+      bow.position.set(0, 3.75, 0);
+      g.add(bow);
+      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 1.0), m('log'));
+      const arms = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.07, 0.08), m('iron'));
+      arms.position.z = 0.4;
+      bow.add(stock, arms);
+      g.userData.aim = bow;
+    } else if (type === 'frost') {
+      // Tour de givre : pilier de pierre, cristal de glace et anneaux de runes
+      add(new THREE.CylinderGeometry(0.85, 1.0, 0.5 + Math.max(0, drop), 8), m('stoneWall'), 0, (0.5 - Math.max(0, drop)) / 2, 0);
+      add(new THREE.CylinderGeometry(0.5, 0.7, 2.6, 8), m('stoneWall'), 0, 1.8, 0);
+      add(new THREE.CylinderGeometry(0.75, 0.55, 0.3, 8), m('stoneWall'), 0, 3.2, 0);
+      const crystal = add(new THREE.OctahedronGeometry(0.42, 0), m('ice'), 0, 3.95, 0);
+      crystal.scale.set(1, 1.7, 1);
+      const rings = new THREE.Group();
+      rings.position.y = 3.95;
+      for (let i = 0; i < 2; i++) {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75 + i * 0.2, 0.035, 6, 32), m('rune'));
+        ring.rotation.x = Math.PI / 2 + (i ? 0.5 : -0.4);
+        rings.add(ring);
+      }
+      g.add(rings);
+      g.userData.spin = rings;
+      g.userData.crystal = crystal;
     } else if (type === 'spikes') {
       add(new THREE.BoxGeometry(1.9, 0.1, 1.9), m('planksDark'), 0, 0.03, 0);
       for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
@@ -194,6 +234,10 @@ export class Buildings {
   clear() {
     for (const b of this.map.values()) this.scene.remove(b.mesh);
     this.map.clear();
+    this.bars.clear();
+    for (const a of this.arrows || []) this.scene.remove(a.arrow);
+    for (const r of this.rings || []) this.scene.remove(r.ring);
+    this.arrows = []; this.rings = [];
     this.version++;
   }
 
@@ -204,11 +248,12 @@ export class Buildings {
     mesh.position.set(b.x, b.y, b.z);
     mesh.rotation.y = this.rotY(b);
     this.scene.add(mesh);
-    const box = isWallType(b.type) ? wallBox(b) : { x: b.x, z: b.z, hx: 1, hz: 1 };
+    const box = isWallType(b.type) ? wallBox(b) : PIECES[b.type].tower ? { x: b.x, z: b.z, hx: 0.85, hz: 0.85 } : { x: b.x, z: b.z, hx: 1, hz: 1 };
     if (b.type === 'stonewall') { if (b.rot) box.hx = 0.24; else box.hz = 0.24; }
     const e = { ...b, mesh, drop, anim: b.state === 'done' ? 9 : 0, shake: 9, box, dur: b.dur || BUILD_TIME, open: 0 };
     this.map.set(b.id, e);
     if (b.state !== 'done') this.setBlueprint(e, true);
+    if (e.hp < e.max) this.drawBar(e);
     if (!quiet) {
       this.audio?.play('buildPlace', mesh.position);
       this.dust(e, 3, 0.3);
@@ -241,10 +286,80 @@ export class Buildings {
     this.audio?.play('buildDone', e.mesh.position);
   }
 
+  setHp(id, hp) {
+    const e = this.map.get(id);
+    if (!e) return;
+    e.hp = hp;
+    this.drawBar(e);
+  }
+
+  barHeight(e) {
+    return { floor: 0.7, wall: 3.0, door: 3.0, stonewall: 3.2, roof: 0.9, stairs: 3.0, spikes: 1.0, tower: 5.9, frost: 4.9 }[e.type] || 2;
+  }
+  drawBar(e) {
+    let bar = this.bars.get(e.id);
+    const frac = Math.max(0, e.hp / e.max);
+    if (frac >= 0.999) { if (bar) { e.mesh.remove(bar.sprite); this.bars.delete(e.id); } return; }
+    if (!bar) {
+      const c = document.createElement('canvas');
+      c.width = 128; c.height = 18;
+      const tex = new THREE.CanvasTexture(c);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+      sprite.scale.set(1.5, 0.21, 1);
+      sprite.renderOrder = 9;
+      sprite.position.y = this.barHeight(e);
+      e.mesh.add(sprite);
+      bar = { c, tex, sprite };
+      this.bars.set(e.id, bar);
+    }
+    const ctx = bar.c.getContext('2d');
+    ctx.clearRect(0, 0, 128, 18);
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, 128, 18);
+    ctx.fillStyle = frac > 0.5 ? '#e0b050' : frac > 0.25 ? '#e08a30' : '#e04030';
+    ctx.fillRect(2, 2, 124 * frac, 14);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.strokeRect(1, 1, 126, 16);
+    bar.tex.needsUpdate = true;
+  }
+
+  // Tir d'une tour d'archer vers un monstre
+  shoot(id, target) {
+    const e = this.map.get(id);
+    if (!e) return;
+    const from = new THREE.Vector3(e.x, e.y + 3.8, e.z);
+    const aim = e.mesh.userData.aim;
+    if (aim) aim.rotation.y = Math.atan2(target.x - e.x, target.z - e.z) - e.mesh.rotation.y;
+    if (!this.arrowGeo) {
+      this.arrowGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.7, 5).rotateX(Math.PI / 2);
+      this.arrowMat = new THREE.MeshBasicMaterial({ color: 0xf0e0c0 });
+    }
+    const arrow = new THREE.Mesh(this.arrowGeo, this.arrowMat);
+    arrow.position.copy(from);
+    arrow.lookAt(target);
+    this.scene.add(arrow);
+    (this.arrows ||= []).push({ arrow, from, to: target.clone(), t: 0, dur: Math.max(0.08, from.distanceTo(target) / 45) });
+    this.audio?.play('bow', from);
+  }
+
+  // Onde de givre
+  pulse(id) {
+    const e = this.map.get(id);
+    if (!e) return;
+    if (!this.ringGeo) {
+      this.ringGeo = new THREE.RingGeometry(0.85, 1, 48).rotateX(-Math.PI / 2);
+    }
+    const mat = new THREE.MeshBasicMaterial({ color: 0x8ad8ff, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const ring = new THREE.Mesh(this.ringGeo, mat);
+    ring.position.set(e.x, heightAt(e.x, e.z) + 0.15, e.z);
+    this.scene.add(ring);
+    (this.rings ||= []).push({ ring, t: 0 });
+    this.audio?.play('frost', ring.position);
+  }
+
   hit(id, hp) {
     const e = this.map.get(id);
     if (!e) return;
     e.hp = hp;
+    this.drawBar(e);
     e.shake = 0;
     this.chips(e, 6);
     this.audio?.play('woodHit', e.mesh.position);
@@ -255,6 +370,7 @@ export class Buildings {
     if (!e) return;
     this.scene.remove(e.mesh);
     this.map.delete(id);
+    this.bars.delete(id);
     if (broken) {
       this.chips(e, 22);
       this.dust(e, 10);
@@ -296,7 +412,7 @@ export class Buildings {
   groundAt(x, z, feetY, terrainY) {
     let g = terrainY;
     for (const b of this.map.values()) {
-      if (isWallType(b.type) || b.type === 'spikes') continue;
+      if (isWallType(b.type) || b.type === 'spikes' || b.type === 'frost') continue;
       if (Math.abs(x - b.x) > 1.05 || Math.abs(z - b.z) > 1.05) continue;
       const top = b.type === 'stairs' ? stairsHeight(b, clamp(x, b.x - 1, b.x + 1), clamp(z, b.z - 1, b.z + 1)) : pieceTop(b);
       if (top <= feetY + 0.55 && top > g) g = top;
@@ -308,8 +424,10 @@ export class Buildings {
   collide(pos, radius) {
     let hit = false;
     for (const b of this.map.values()) {
-      if (b.type !== 'wall' && b.type !== 'stonewall') continue; // les portes laissent passer les joueurs
-      if (pos.y > b.y + WALL_H - 0.1 || pos.y + 1.7 < b.y - b.drop - 0.2) continue;
+      const tower = PIECES[b.type].tower;
+      if (b.type !== 'wall' && b.type !== 'stonewall' && !tower) continue; // les portes laissent passer les joueurs
+      if (tower && pos.y > b.y + 3.0) continue;
+      if (!tower && pos.y > b.y + WALL_H - 0.1 || pos.y + 1.7 < b.y - b.drop - 0.2) continue;
       const box = b.box;
       const dx = pos.x - box.x, dz = pos.z - box.z;
       const px = box.hx + radius - Math.abs(dx), pz = box.hz + radius - Math.abs(dz);
@@ -346,7 +464,7 @@ export class Buildings {
       y = base;
     } else if (type === 'floor') {
       y = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c))) + 0.15;
-    } else if (type === 'stairs' || type === 'spikes') {
+    } else if (type === 'stairs' || type === 'spikes' || PIECES[type].tower) {
       // posé sur un plancher s'il y en a un à cet endroit, sinon sur le terrain
       let base = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c))) + (type === 'spikes' ? 0.02 : 0.05);
       for (const b of this.map.values()) if (b.type === 'floor' && Math.abs(b.x - x) < 0.1 && Math.abs(b.z - z) < 0.1) base = b.y;
@@ -412,7 +530,25 @@ export class Buildings {
 
   // players : positions des joueurs (pour ouvrir les portes)
   update(dt, players = []) {
+    this.time = (this.time || 0) + dt;
+    for (const a of this.arrows || []) {
+      a.t += dt;
+      const k = Math.min(1, a.t / a.dur);
+      a.arrow.position.lerpVectors(a.from, a.to, k);
+      if (k >= 1) { this.scene.remove(a.arrow); a.done = true; this.fx.spawn({ geo: this.fx.box, mat: this.fx.mats.wood, pos: a.to, vel: new THREE.Vector3(0, 2, 0), size: 0.04, life: 0.4, gravity: 10 }); }
+    }
+    if (this.arrows) this.arrows = this.arrows.filter((a) => !a.done);
+    for (const r of this.rings || []) {
+      r.t += dt;
+      const k = r.t / 0.9;
+      r.ring.scale.setScalar(1 + k * 7);
+      r.ring.material.opacity = 0.6 * (1 - k);
+      if (k >= 1) { this.scene.remove(r.ring); r.ring.material.dispose(); r.done = true; }
+    }
+    if (this.rings) this.rings = this.rings.filter((r) => !r.done);
     for (const e of this.map.values()) {
+      const sp = e.mesh.userData.spin;
+      if (sp) { sp.rotation.y = this.time * 1.5; e.mesh.userData.crystal.position.y = 3.95 + Math.sin(this.time * 2) * 0.1; }
       if (e.type === 'door') {
         const near = players.some((p) => Math.abs(p.x - e.x) < 1.7 && Math.abs(p.z - e.z) < 1.7 && Math.abs(p.y - e.y) < 2);
         e.open += ((near ? 1 : 0) - e.open) * Math.min(1, dt * 6);

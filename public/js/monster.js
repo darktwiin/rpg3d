@@ -67,7 +67,25 @@ function roughen(geo, amp, seed) {
 const SHARED = {};
 function sharedMats() {
   if (SHARED.skin) return SHARED;
-  SHARED.skin = new THREE.MeshStandardMaterial({ color: '#56465f', roughness: 0.75, flatShading: true });
+  // Peau tachetée et cicatrisée
+  const sc = document.createElement('canvas');
+  sc.width = sc.height = 256;
+  const sx = sc.getContext('2d');
+  sx.fillStyle = '#d8d0d8'; sx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 260; i++) {
+    const v = 120 + Math.random() * 110;
+    sx.fillStyle = `rgba(${v * 0.7},${v * 0.6},${v * 0.7},${0.25 + Math.random() * 0.35})`;
+    sx.beginPath(); sx.ellipse(Math.random() * 256, Math.random() * 256, 3 + Math.random() * 14, 2 + Math.random() * 8, Math.random() * 3, 0, Math.PI * 2); sx.fill();
+  }
+  sx.strokeStyle = 'rgba(255,240,240,0.45)'; sx.lineWidth = 2;
+  for (let i = 0; i < 18; i++) { sx.beginPath(); const x = Math.random() * 256, y = Math.random() * 256; sx.moveTo(x, y); sx.lineTo(x + (Math.random() - 0.5) * 50, y + (Math.random() - 0.5) * 50); sx.stroke(); }
+  SHARED.skinTex = new THREE.CanvasTexture(sc);
+  SHARED.skinTex.wrapS = SHARED.skinTex.wrapT = THREE.RepeatWrapping;
+  SHARED.skinTex.repeat.set(2, 2);
+  SHARED.skinTex.colorSpace = THREE.SRGBColorSpace;
+  SHARED.skin = new THREE.MeshStandardMaterial({ color: '#56465f', roughness: 0.75, flatShading: true, map: SHARED.skinTex });
+  SHARED.cloth = new THREE.MeshStandardMaterial({ color: '#3a2a22', roughness: 1, side: THREE.DoubleSide, flatShading: true });
+  SHARED.metal = new THREE.MeshStandardMaterial({ color: '#5a5550', metalness: 0.7, roughness: 0.5, flatShading: true });
   SHARED.skinLight = new THREE.MeshStandardMaterial({ color: '#8a7488', roughness: 0.7, flatShading: true });
   SHARED.bone = new THREE.MeshStandardMaterial({ color: '#d9ceb4', roughness: 0.6, flatShading: true });
   SHARED.mouth = new THREE.MeshStandardMaterial({ color: '#3a0a08', emissive: '#ff3015', emissiveIntensity: 0.6 });
@@ -238,6 +256,82 @@ export class MonsterRig {
     const LL = leg(1), RL = leg(-1);
     Object.assign(J, { thL: LL.th, knL: LL.kn, anL: LL.an, ftL: LL.ft, thR: RL.th, knR: RL.kn, anR: RL.an, ftR: RL.ft });
 
+    // ---------- Détails : épaulières d'os, pagne en lambeaux, défenses, crinière, chaînes, queue ----------
+    const S1 = S0;
+    if (kind !== 'spitter') {
+      for (const [sh, side] of [[J.shL, 1], [J.shR, -1]]) {
+        const pad = part(sh, new THREE.SphereGeometry(0.16, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), S.bone, 0, 0.04, 0, 1.15, 0.8, 1.1);
+        pad.rotation.z = side * 0.3;
+        for (let i = 0; i < 3; i++) {
+          const sp = part(sh, new THREE.ConeGeometry(0.03, 0.2 - i * 0.03, 5), S.bone, side * (0.04 + i * 0.05), 0.14 - i * 0.02, -0.04 + i * 0.05);
+          sp.rotation.z = -side * (0.5 + i * 0.2);
+        }
+      }
+    }
+    // pagne en lambeaux
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5 - 0.4) * 2.4;
+      const strip = new THREE.PlaneGeometry(0.12, 0.34 + (i % 2) * 0.1, 1, 3);
+      strip.translate(0, -0.17, 0);
+      const pp = strip.attributes.position;
+      for (let k = 0; k < pp.count; k++) if (pp.getY(k) < -0.3) pp.setX(k, pp.getX(k) * (0.4 + Math.random() * 0.6));
+      const m = part(J.hips, strip, S1.cloth, Math.sin(a) * 0.2, -0.05, Math.cos(a) * 0.16);
+      m.rotation.y = a;
+      m.rotation.x = -0.1;
+    }
+    part(J.hips, new THREE.TorusGeometry(0.21, 0.025, 5, 16), S1.cloth, 0, -0.02, 0, 1.1, 1, 0.82).rotation.x = Math.PI / 2;
+    // défenses (dents qui sortent de la mâchoire)
+    for (const sx of [1, -1]) {
+      const tusk = part(J.jaw, new THREE.ConeGeometry(0.022, 0.13, 5), S.bone, sx * 0.07, 0.07, 0.2);
+      tusk.rotation.set(-0.3, 0, sx * 0.25);
+    }
+    // crinière d'épines derrière la tête
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 4 - 0.5) * 1.6;
+      const sp = part(J.head, new THREE.ConeGeometry(0.025, 0.2, 4), S.bone, Math.sin(a) * 0.1, 0.14, -0.1 - Math.cos(a) * 0.04);
+      sp.rotation.set(-1.9, a * 0.5, 0);
+    }
+    // bracelets de fer avec bout de chaîne (Rôdeur)
+    if (kind === 'brute') {
+      for (const ha of [J.elL, J.elR]) {
+        part(ha, new THREE.TorusGeometry(0.085, 0.025, 6, 12), S1.metal, 0, -0.36, 0).rotation.x = Math.PI / 2;
+        for (let k = 0; k < 3; k++) {
+          const link = part(ha, new THREE.TorusGeometry(0.03, 0.009, 4, 8), S1.metal, 0.07, -0.42 - k * 0.05, 0);
+          link.rotation.y = k % 2 ? Math.PI / 2 : 0;
+        }
+      }
+      // fissures lumineuses sur le dos
+      for (let i = 0; i < 4; i++) part(J.chest, new THREE.BoxGeometry(0.015, 0.16, 0.015), S.vein, (i - 1.5) * 0.08, 0.18 + (i % 2) * 0.05, -0.27).rotation.z = (i - 1.5) * 0.4;
+    }
+    // queue articulée (Griffu : longue, Rôdeur : courte)
+    this.tail = [];
+    const segs = kind === 'runner' ? 7 : kind === 'brute' ? 4 : 0;
+    let parentT = J.hips;
+    for (let i = 0; i < segs; i++) {
+      const jt = joint(parentT, 0, i === 0 ? 0.02 : 0, i === 0 ? -0.16 : -0.13);
+      const rr = (kind === 'runner' ? 0.07 : 0.09) * (1 - i / (segs + 1));
+      const seg = new THREE.CylinderGeometry(rr * 0.8, rr, 0.15, 6).rotateX(Math.PI / 2);
+      seg.translate(0, 0, -0.07);
+      part(jt, seg, this.skin);
+      if (i % 2 === 0) part(jt, new THREE.ConeGeometry(0.02, 0.1, 4), S.bone, 0, rr, -0.06).rotation.x = -0.6;
+      jt.userData.keepJoint = true;
+      this.tail.push(jt);
+      parentT = jt;
+    }
+    // Cracheur : pustules lumineuses sur le corps
+    if (kind === 'spitter') {
+      this.pustules = [];
+      const pm = new THREE.MeshStandardMaterial({ color: '#9aff60', emissive: '#4adf20', emissiveIntensity: 0.8, roughness: 0.3 });
+      for (const [par, x, y, z, r0] of [[J.shL, 0.06, -0.1, 0.08, 0.05], [J.shR, -0.05, -0.2, 0.07, 0.045], [J.spine, 0.12, 0.25, 0.2, 0.06], [J.spine, -0.15, 0.15, 0.18, 0.05], [J.head, 0.08, 0.15, 0.05, 0.04], [J.thL, 0.08, -0.15, 0.08, 0.05], [J.elR, 0.05, -0.15, 0.04, 0.04]]) {
+        const pu = part(par, new THREE.SphereGeometry(r0, 8, 6), pm, x, y, z);
+        pu.userData.keep = true;
+        this.pustules.push(pu);
+      }
+      // capuchon de peau autour de la tête
+      const hood = part(J.neck, new THREE.SphereGeometry(0.24, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), this.skinLight, 0, 0.2, -0.06, 1.1, 1, 1);
+      hood.rotation.x = -0.4;
+    }
+
     // Cracheur : poche de poison lumineuse sur le dos et à la gorge
     if (kind === 'spitter') {
       this.sac = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), new THREE.MeshStandardMaterial({ color: '#7aff40', emissive: '#4aff20', emissiveIntensity: 0.9, roughness: 0.3, transparent: true, opacity: 0.85 }));
@@ -304,6 +398,7 @@ export class MonsterRig {
     const move = clamp(sp / 2, 0, 1);
     const prev = this.phase;
     this.phase += sp * dt * 2.3 / this.T.scale;
+
     if (move > 0.3 && Math.floor(prev / Math.PI) !== Math.floor(this.phase / Math.PI)) ev.step = true;
     const s = Math.sin(this.phase), c = Math.cos(this.phase);
     const br = Math.sin(t * 1.6);
@@ -332,7 +427,7 @@ export class MonsterRig {
 
     // Attaque : se cabre, rugit, puis frappe des deux bras en bondissant
     // (le moment du coup est calé sur celui du serveur pour chaque sorte de monstre)
-    this.atkT += dt * (0.5 / this.T.hitAt);
+    this.atkT += dt * (0.5 / this.T.hitAt) * (this.frost ? 0.55 : 1);
     if (this.kind === 'spitter' && this.atkT < 1.1) {
       const p = this.atkT;
       const charge = ss(0, 0.48, p) * (1 - ss(0.5, 0.6, p));
@@ -395,6 +490,12 @@ export class MonsterRig {
     J.neck.rotation.x = P.neckRx;
     J.head.rotation.set(P.headRx, P.headRy, P.headRz);
     J.jaw.rotation.x = clamp(P.jaw, 0, 1) * 0.6;
+    for (let i = 0; i < this.tail.length; i++) {
+      const tj = this.tail[i];
+      tj.rotation.y = Math.sin(t * (move > 0.1 ? 6 : 1.8) - i * 0.7) * (0.15 + move * 0.2);
+      tj.rotation.x = (i === 0 ? 0.35 : -0.08) + Math.sin(t * 1.3 - i * 0.5) * 0.05 + (this.deadT >= 0 ? 0.1 : 0);
+    }
+    if (this.pustules) this.pustules.forEach((pu, i) => pu.scale.setScalar(1 + Math.sin(t * 3 + i * 1.7) * 0.15));
     J.shL.rotation.set(P.lShX, 0, P.lShZ); J.elL.rotation.x = P.lEl; J.haL.rotation.x = P.lHa;
     J.shR.rotation.set(P.rShX, 0, P.rShZ); J.elR.rotation.x = P.rEl; J.haR.rotation.x = P.rHa;
     J.thL.rotation.x = P.lTh; J.knL.rotation.x = P.lKn; J.anL.rotation.x = P.lAn; J.ftL.rotation.x = P.lFt;
@@ -402,10 +503,12 @@ export class MonsterRig {
     this.body.position.z = P.lean;
 
     // Couleurs : flash blanc quand touché, rougeoiement quand il brûle
-    const flash = this.hurtT < 0.15 ? 1 - this.hurtT / 0.15 : 0;
-    const er = flash * 0.7 + this.burn * 0.9, eg = flash * 0.7 + this.burn * 0.3, eb = flash * 0.7;
-    this.skin.emissive.setRGB(er, eg, eb);
+    const flash = this.hurtT < 0.25 ? Math.pow(1 - this.hurtT / 0.25, 1.5) : 0;
+    const er = flash * 1.1 + this.burn * 0.9, eg = flash * 1.1 + this.burn * 0.3, eb = flash * 1.1;
+    const ice = this.frost ? 0.12 : 0;
+    this.skin.emissive.setRGB(er, eg + ice * 0.5, eb + ice);
     this.skinLight.emissive.setRGB(er, eg, eb);
+    if (this.sac) this.sac.material.emissiveIntensity = 0.9 + flash;
     const eyeK = this.deadT >= 0 ? 1 - ss(0.5, 2.0, this.deadT) : 1;
     for (const e of this.eyes) e.material.opacity = eyeK * (0.75 + Math.sin(t * 9) * 0.1);
     if (sink > 0) this.body.scale.setScalar(1 - sink * 0.6);
@@ -450,10 +553,14 @@ export class Monsters {
   }
 
   sync(list) {
-    for (const [id, x, z, ry, st] of list) {
+    for (const [id, x, z, ry, st, fr] of list) {
       const m = this.map.get(id);
       if (!m || m.dead) continue;
       m.tx = x; m.tz = z; m.ry = ry; m.st = st;
+      if (!!fr !== !!m.rig.frost) {
+        m.rig.frost = !!fr;
+        if (fr) for (let i = 0; i < 6; i++) this.fx.spawn({ geo: this.fx.box, mat: this.iceMat ||= new THREE.MeshBasicMaterial({ color: 0xbfe8ff }), pos: m.rig.root.position.clone().add(new THREE.Vector3(0, 1, 0)), vel: new THREE.Vector3((Math.random() - 0.5) * 2, 1 + Math.random() * 2, (Math.random() - 0.5) * 2), size: 0.05, life: 0.8, gravity: 4 });
+      }
     }
   }
 
@@ -472,6 +579,14 @@ export class Monsters {
     m.rig.hurt();
     this.audio?.play('monsterHurt', m.rig.root.position);
     const p = m.rig.root.position;
+    if (!this.sparkMat) this.sparkMat = new THREE.MeshBasicMaterial({ color: 0xfff6e0 });
+    for (let i = 0; i < 8; i++) {
+      this.fx.spawn({
+        geo: this.fx.box, mat: this.sparkMat, pos: new THREE.Vector3(p.x, p.y + 1.1 * m.rig.T.scale, p.z),
+        vel: new THREE.Vector3((Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6),
+        size: 0.03, life: 0.25 + Math.random() * 0.15, gravity: 6, spin: 0,
+      });
+    }
     for (let i = 0; i < 6; i++) {
       this.fx.spawn({
         geo: this.fx.box, mat: this.fx.mats.blood || (this.fx.mats.blood = new THREE.MeshBasicMaterial({ color: 0x5a1030 })),
@@ -592,7 +707,7 @@ export class Monsters {
         });
       }
       if (!m.dead && !growled && this.growlT < 0 && Math.random() < 0.3) {
-        this.audio?.play(m.kind === 'runner' ? 'runnerGrowl' : 'monsterGrowl', root.position);
+        this.audio?.play(m.kind === 'runner' ? 'runnerGrowl' : m.kind === 'spitter' ? 'spitterGrowl' : 'monsterGrowl', root.position);
         growled = true;
       }
       if (ev.gone) { this.scene.remove(root); this.map.delete(m.id); }

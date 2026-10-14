@@ -1,7 +1,7 @@
 # RPG 3D — Survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.0.4**
+Version actuelle : **ver.0.0.5**
 
 ## Le village (lobby)
 On entre son pseudo et on arrive au village, où l'on voit les autres joueurs.
@@ -14,8 +14,8 @@ Les éclats se gagnent à chaque nuit survécue (1, 2, 3, 6, 10, 19…). Profils
 enregistrés sur le serveur dans le dossier `data/` (ignoré par git).
 
 ## Le principe
-- **Le jour** (6 min) : récolte du bois (arbres) et de la pierre (rochers), construis des défenses.
-- **La nuit** (3 min) : des monstres arrivent en continu pour détruire **le Joyau** (Rôdeurs, Griffus dès la nuit 2, Cracheurs dès la nuit 5). Ils attaquent les joueurs sur leur route et cassent les murs qui les bloquent.
+- **Le jour** (4 min) : récolte du bois (arbres) et de la pierre (rochers), construis des défenses.
+- **La nuit** (2 min) : des monstres arrivent en continu pour détruire **le Joyau** (Rôdeurs, Griffus dès la nuit 2, Cracheurs dès la nuit 5). Ils attaquent les joueurs sur leur route et cassent les murs qui les bloquent.
 - Si le Joyau est détruit, la partie recommence. Au lever du soleil, les monstres brûlent.
 - Le Joyau peut être porté (touche **E**) et posé où vous voulez, par exemple dans votre base.
 
@@ -26,24 +26,29 @@ enregistrés sur le serveur dans le dossier `data/` (ignoré par git).
 | Maj | Courir |
 | Espace | Sauter |
 | Clic gauche | Épée / hache (arbre) / pioche (rocher) |
-| F | Menu de construction (1 Sol · 2 Mur · 3 Toit, clic droit pour démolir) |
+| B | Menu de construction (1 à 9 pour choisir) |
+| F | Déconstruire (dans le menu de construction) |
 | E | Prendre / poser le Joyau |
 | M | Carte |
 | Entrée | Chat |
 | Échap | Menu pause / options |
 
 ## Constructions
+L'inventaire de bois et de pierre est commun à tout le groupe.
+
 | Pièce | Coût |
 |---|---|
-| Sol | 2 bois + 2 pierre |
-| Mur | 3 bois |
+| Sol | 2 bois + 1 pierre |
+| Mur | 2 bois |
 | Toit | 2 bois + 1 pierre |
-| Escalier* | 3 bois + 1 pierre |
-| Porte* | 4 bois |
-| Mur de pierre* | 1 bois + 5 pierre |
-| Pieux* | 3 bois + 1 pierre |
+| Escalier | 3 bois |
+| Porte | 3 bois |
+| Mur de pierre* | 4 pierre |
+| Pieux* | 2 bois + 1 pierre |
+| Tour d'archer* | 5 bois + 3 pierre |
+| Tour de givre* | 3 bois + 5 pierre |
 
-\* à débloquer à la forge
+\* à débloquer à la forge (arbre Constructeur)
 
 ## Admin
 Tape `/god` dans le chat (hôte du groupe ou partie solo) : faire apparaître des monstres,

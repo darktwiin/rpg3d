@@ -59,7 +59,7 @@ scene.add(sun, sun.target);
 
 const wind = { uTime: { value: 0 }, uWind: { value: new THREE.Vector3(1, 0, 0.6) } };
 const audio = new AudioEngine();
-audio.setVolumes({ music: settings.music / 100, amb: settings.amb / 100, sfx: settings.sfx / 100 });
+audio.setVolumes({ master: settings.master / 100, music: settings.music / 100, amb: settings.amb / 100, sfx: settings.sfx / 100 });
 
 // Le monde de la partie (caché au village)
 const worldRoot = new THREE.Group();
@@ -206,8 +206,9 @@ addEventListener('keydown', (e) => {
   if (inGame() && e.code === K.map) { toggleMap(false); return; }
   if (game.mode) return;
   if (inGame() && e.code === K.build) toggleBuild();
+  if (inGame() && game.build.on && e.code === K.demolish) demolishPiece();
   if (e.code === K.interact) interact();
-  if (game.build.on && /^Digit[1-7]$/.test(e.code)) selectPiece(+e.code.slice(5) - 1);
+  if (game.build.on && /^Digit[1-9]$/.test(e.code)) selectPiece(+e.code.slice(5) - 1);
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseHeld = false; });
@@ -311,14 +312,14 @@ $('admin-free').onchange = () => send({ type: 'admin', cmd: 'free' });
 // ===================== Options =====================
 function openOptions() {
   $('options').hidden = false;
-  for (const [id, key] of [['vol-music', 'music'], ['vol-amb', 'amb'], ['vol-sfx', 'sfx'], ['sens', 'sens']]) {
+  for (const [id, key] of [['vol-master', 'master'], ['vol-music', 'music'], ['vol-amb', 'amb'], ['vol-sfx', 'sfx'], ['sens', 'sens']]) {
     const el = $(id);
     el.value = settings[key];
     el.nextElementSibling.textContent = settings[key] + (key === 'sens' ? '%' : '');
     el.oninput = () => {
       settings[key] = +el.value;
       el.nextElementSibling.textContent = el.value + (key === 'sens' ? '%' : '');
-      audio.setVolumes({ music: settings.music / 100, amb: settings.amb / 100, sfx: settings.sfx / 100 });
+      audio.setVolumes({ master: settings.master / 100, music: settings.music / 100, amb: settings.amb / 100, sfx: settings.sfx / 100 });
       saveSettings();
     };
   }
@@ -357,7 +358,7 @@ function updateHelp() {
   const K = settings.keys;
   $('help').textContent = inHub()
     ? `${keyLabel(K.interact)} : interagir · Tab : joueurs · ${keyLabel(K.chat)} : chat · Échap : menu`
-    : `Clic : frapper · ${keyLabel(K.build)} : construire · ${keyLabel(K.interact)} : Joyau · ${keyLabel(K.map)} : carte · ${keyLabel(K.chat)} : chat · Échap : menu`;
+    : `Clic : frapper · ${keyLabel(K.build)} : construction · ${keyLabel(K.interact)} : Joyau · ${keyLabel(K.map)} : carte · ${keyLabel(K.chat)} : chat · Échap : menu`;
   $('launch-key').textContent = keyLabel(K.interact);
 }
 
@@ -440,13 +441,26 @@ const handlers = {
     if (d.k === 'slash') audio.play('swing', o.rig.root.position);
   },
   inv: (d) => {
-    me.inv = d.inv;
-    if (d.gain && d.from) flyResources(d.from, d.gain);
-    else {
-      updateInv();
-      if (d.gain) for (const k in d.gain) popup(`+${d.gain[k]} ${k === 'wood' ? 'Bois' : 'Pierre'}`, k === 'wood' ? '#e0b070' : '#d0d0d0');
+    // inventaire commun au groupe
+    serverInv = { ...d.inv };
+    if (d.gain && d.from) {
+      // les ressources s'ajoutent au compteur au fur et à mesure qu'elles arrivent
+      for (const k in d.gain) flyPending[k] += d.gain[k];
+      flyResources(d.from, d.gain);
+      syncInv();
+    } else {
+      syncInv();
+      if (d.gain) for (const k in d.gain) popup(`${d.by ? d.by + ' ' : ''}+${d.gain[k]} ${k === 'wood' ? 'Bois' : 'Pierre'}`, k === 'wood' ? '#e0b070' : '#d0d0d0');
     }
   },
+  tShot: (d) => {
+    const m = monsters.map.get(d.m);
+    if (!m) return;
+    buildings.shoot(d.id, m.rig.root.position.clone().add(new THREE.Vector3(0, 1.1 * m.rig.T.scale, 0)));
+    m.hp = d.hp; m.rig.setHp(d.hp / m.max);
+  },
+  frostPulse: (d) => buildings.pulse(d.id),
+  bHp: (d) => buildings.setHp(d.id, d.hp),
   resHit: (d) => {
     nature.setHp(d.id, d.hp);
     if (d.by !== me.id) {
@@ -659,7 +673,11 @@ function enterGame(d) {
   monsters.clear();
   d.monsters.forEach((m) => monsters.spawn(m, true));
   gem.set(d.gem);
-  me.inv = d.inv;
+  for (const f of flyers) worldRoot.remove(f.mesh);
+  flyers.length = 0;
+  flyPending.wood = flyPending.stone = 0;
+  serverInv = { ...d.inv };
+  me.inv = { ...d.inv };
   if (game.build.on) toggleBuild();
   worldRoot.visible = true;
   village.root.visible = false;
@@ -911,12 +929,20 @@ function updateClockHud() {
 const flyers = [];
 const flyGeo = { wood: new THREE.CylinderGeometry(0.07, 0.07, 0.32, 7).rotateZ(Math.PI / 2), stone: new THREE.IcosahedronGeometry(0.11, 0) };
 const flyMat = { wood: new THREE.MeshStandardMaterial({ color: '#a8743e', roughness: 0.8 }), stone: new THREE.MeshStandardMaterial({ color: '#9a958d', roughness: 0.9, flatShading: true }) };
+let serverInv = { wood: 0, stone: 0 };
+const flyPending = { wood: 0, stone: 0 };
+function syncInv() {
+  me.inv.wood = serverInv.wood - flyPending.wood;
+  me.inv.stone = serverInv.stone - flyPending.stone;
+  updateInv();
+}
 function flyResources(from, gain) {
   const start = new THREE.Vector3(from.x, terrainH(from.x, from.z) + (from.k === 't' ? 1.2 : 0.6), from.z);
   let delay = 0;
   for (const k in gain) {
     const n = Math.min(gain[k], 12);
     for (let i = 0; i < n; i++) {
+      const amt = Math.floor(gain[k] / n) + (i < gain[k] % n ? 1 : 0);
       const mesh = new THREE.Mesh(flyGeo[k], flyMat[k]);
       mesh.position.copy(start);
       mesh.visible = false;
@@ -925,7 +951,7 @@ function flyResources(from, gain) {
         mesh, k, t: -delay, dur: 0.55 + Math.random() * 0.15,
         p0: start.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.8, Math.random() * 0.5, (Math.random() - 0.5) * 0.8)),
         lift: 1.4 + Math.random() * 1.2, spin: new THREE.Vector3(Math.random() * 8, Math.random() * 8, Math.random() * 8),
-        last: i === n - 1, total: gain[k],
+        last: i === n - 1, total: gain[k], amt,
       });
       delay += 0.045;
     }
@@ -949,8 +975,9 @@ function updateFlyers(dt) {
       worldRoot.remove(f.mesh);
       flyers.splice(i, 1);
       audio.play('collect');
+      flyPending[f.k] = Math.max(0, flyPending[f.k] - f.amt);
+      syncInv();
       if (f.last) {
-        updateInv();
         popup(`+${f.total} ${f.k === 'wood' ? 'Bois' : 'Pierre'}`, f.k === 'wood' ? '#e0b070' : '#d0d0d0');
         const el = $(f.k === 'wood' ? 'inv-wood' : 'inv-stone').parentElement;
         el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
@@ -967,6 +994,8 @@ const PIECE_ICONS = {
   stairs: '<svg width="44" height="32" viewBox="0 0 44 32"><path d="M6 28 L6 22 L14 22 L14 16 L22 16 L22 10 L30 10 L30 4 L38 4 L38 28 Z" fill="#b07a46" stroke="#5a3a1a"/></svg>',
   door: '<svg width="44" height="34" viewBox="0 0 44 34"><rect x="5" y="2" width="4" height="30" fill="#6a4528"/><rect x="35" y="2" width="4" height="30" fill="#6a4528"/><rect x="10" y="5" width="22" height="26" fill="#8a6040" stroke="#3a2510"/><rect x="10" y="10" width="22" height="3" fill="#555"/><rect x="10" y="23" width="22" height="3" fill="#555"/><circle cx="28" cy="18" r="1.8" fill="#333"/></svg>',
   stonewall: '<svg width="44" height="34" viewBox="0 0 44 34"><rect x="4" y="6" width="36" height="26" fill="#a8a296" stroke="#55524c"/><path d="M4 14 H40 M4 22 H40 M14 6 V14 M28 6 V14 M10 14 V22 M24 14 V22 M36 14 V22 M16 22 V32 M30 22 V32" stroke="#6a665e"/><rect x="6" y="2" width="8" height="5" fill="#a8a296"/><rect x="18" y="2" width="8" height="5" fill="#a8a296"/><rect x="30" y="2" width="8" height="5" fill="#a8a296"/></svg>',
+  tower: '<svg width="44" height="36" viewBox="0 0 44 36"><path d="M10 34 L14 14 M34 34 L30 14 M12 26 H32" stroke="#6a4528" stroke-width="3"/><rect x="9" y="11" width="26" height="5" fill="#b07a46"/><rect x="10" y="6" width="24" height="5" fill="#8a6040"/><path d="M8 6 L22 0 L36 6 Z" fill="#6e6c68"/><path d="M22 9 L34 13" stroke="#333" stroke-width="2"/></svg>',
+  frost: '<svg width="44" height="36" viewBox="0 0 44 36"><rect x="16" y="14" width="12" height="20" fill="#a8a296"/><rect x="13" y="12" width="18" height="4" fill="#bbb5aa"/><path d="M22 0 L27 7 L22 12 L17 7 Z" fill="#9ad8ff" stroke="#3aa8ff"/><ellipse cx="22" cy="7" rx="12" ry="3" fill="none" stroke="#6ac8ff"/></svg>',
   spikes: '<svg width="44" height="30" viewBox="0 0 44 30"><rect x="4" y="24" width="36" height="4" fill="#7a5a3a"/><path d="M8 24 L11 6 L14 24 M16 24 L19 2 L22 24 M24 24 L27 6 L30 24 M32 24 L35 4 L38 24" fill="#c49a6a" stroke="#6a4a2a"/></svg>',
 };
 function renderBuildBar() {
@@ -976,20 +1005,21 @@ function renderBuildBar() {
     const P = W.PIECES[type];
     const unlocked = game.god.free || W.pieceUnlocked(type, mods);
     const c = W.pieceCost(type, mods);
-    const can = unlocked && (game.god.free || (me.inv.wood >= c.wood && me.inv.stone >= c.stone));
+    const can = unlocked && (game.god.free || (serverInv.wood >= c.wood && serverInv.stone >= c.stone));
     const div = document.createElement('div');
     div.className = 'slot' + (i === game.build.piece ? ' sel' : '') + (can ? '' : ' cant') + (unlocked ? '' : ' locked');
     const cost = [c.wood && `${c.wood} bois`, c.stone && `${c.stone} pierre`].filter(Boolean).join(' + ');
     div.innerHTML = `<span class="key">${i + 1}</span>${PIECE_ICONS[type]}<div class="name">${P.name}</div><div class="cost">${!unlocked ? '🔒 Forge' : game.god.free ? 'Gratuit (admin)' : cost}</div>`;
     box.append(div);
   });
-  $('build-hint').innerHTML = `Clic gauche : poser · Clic droit : démolir (rend la moitié) · 1-7 / molette : choisir · <span class="kbd">${keyLabel(settings.keys.build)}</span> : quitter`;
+  $('build-hint').innerHTML = `Clic gauche : poser · <span class="kbd">${keyLabel(settings.keys.demolish)}</span> ou clic droit : déconstruire (rend la moitié) · 1-9 / molette : choisir · <span class="kbd">${keyLabel(settings.keys.build)}</span> : quitter`;
 }
 function toggleBuild() {
-  if (me.dead || !inGame()) { if (game.build.on) { game.build.on = false; $('buildbar').hidden = true; buildings.showGhost(null); } return; }
+  if (me.dead || !inGame()) { if (game.build.on) { game.build.on = false; $('buildbar').hidden = true; $('ui').classList.remove('building'); buildings.showGhost(null); } return; }
   game.build.on = !game.build.on;
   $('buildbar').hidden = !game.build.on;
   $('help').hidden = game.build.on;
+  $('ui').classList.toggle('building', game.build.on);
   if (game.build.on) { renderBuildBar(); audio.play('ui'); }
   else buildings.showGhost(null);
 }
@@ -1010,7 +1040,7 @@ function aimPoint() {
 function updateBuild() {
   if (!game.build.on || game.mode) { buildings.showGhost(null); game.build.plan = null; return; }
   const type = W.PIECE_ORDER[game.build.piece];
-  const plan = buildings.plan(type, aimPoint(), me.pos, nature.list, me.inv, game.god.free, mods, camYaw);
+  const plan = buildings.plan(type, aimPoint(), me.pos, nature.list, serverInv, game.god.free, mods, camYaw);
   game.build.plan = plan;
   buildings.showGhost(plan);
   $('target').style.display = plan.ok ? 'none' : 'block';
@@ -1129,18 +1159,18 @@ function updateEnvironment(dt, time, focus) {
     // Clair de lune : assez de lumière pour bien voir les monstres
     lightDir.set(-sunDir.x, -sunDir.y, -sunDir.z);
     sun.color.copy(moonCol);
-    sun.intensity = 1.25 * THREE.MathUtils.smoothstep(-e, 0.02, 0.2);
+    sun.intensity = 1.55 * THREE.MathUtils.smoothstep(-e, 0.02, 0.2);
   }
   hemi.color.copy(hemiNight).lerp(hemiDay, info.day).lerp(hemiSet, info.sunset * 0.35);
   hemi.groundColor.copy(groundNight).lerp(groundDay, info.day);
-  hemi.intensity = 1.0 + info.day * 0.3;
-  renderer.toneMappingExposure = 1.05 + nightAmount * 0.3;
+  hemi.intensity = 1.15 + info.day * 0.15;
+  renderer.toneMappingExposure = 1.05 + nightAmount * 0.4;
   scene.fog.color.copy(info.horizon).lerp(new THREE.Color(0x1a2438), nightAmount * 0.5);
   sun.position.copy(focus).addScaledVector(lightDir, 70);
   sun.target.position.copy(focus);
 
   tmpCol.copy(sun.color).multiplyScalar(sun.intensity * 0.42 * Math.max(0, lightDir.y) + sun.intensity * 0.08);
-  tmpCol2.copy(hemi.color).multiplyScalar(hemi.intensity * (0.38 + nightAmount * 0.45));
+  tmpCol2.copy(hemi.color).multiplyScalar(hemi.intensity * (0.38 + nightAmount * 0.6));
   grass.update(me.pos, focus, lightDir, tmpCol, tmpCol2, scene.fog);
   if (inGame()) river.update(time, lightDir, tmpCol, info.horizon, scene.fog);
 

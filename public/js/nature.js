@@ -283,6 +283,8 @@ export class Nature {
     });
     this.mat = mk(0x000000);
     this.hiMat = mk(0x16120a);
+    this.flashMat = mk(0xffffff);   // fondu blanc quand on frappe
+    this.flashing = [];
     this.stumpSide = new THREE.MeshStandardMaterial({ map: bark, roughness: 1 });
     this.stumpTop = new THREE.MeshStandardMaterial({ map: makeRingsTexture(), roughness: 0.9 });
 
@@ -448,10 +450,24 @@ export class Nature {
     }
   }
 
+  applyMat(res, set) {
+    if (!res) return;
+    if (res.kind === 'tree') {
+      res.trunk.material = res.isPine ? set.pineBark : set.bark;
+      res.leaves.material = set.leaf;
+    } else res.mesh.material = res.kind === 'bush' ? set.leaf : set.rock;
+  }
+
+  flash(r) {
+    r.flashT = 0.22;
+    if (!this.flashing.includes(r)) this.flashing.push(r);
+    this.applyMat(r, this.flashMat);
+  }
+
   setHighlight(r) {
     if (this.highlighted === r) return;
     const apply = (res, set) => {
-      if (!res) return;
+      if (!res || res.flashT > 0) return;
       if (res.kind === 'tree') {
         res.trunk.material = res.isPine ? set.pineBark : set.bark;
         res.leaves.material = set.leaf;
@@ -476,6 +492,17 @@ export class Nature {
     const out = new THREE.Vector3(fromX - r.x, 0, fromZ - r.z).normalize();
     r.shakeT = 0;
     r.shakeDir.set(-out.x, -out.z);
+    this.flash(r);
+    // étincelles blanches à l'impact
+    if (!this.sparkMat) this.sparkMat = new THREE.MeshBasicMaterial({ color: 0xfff6e0 });
+    for (let i = 0; i < 6; i++) {
+      this.fx.spawn({
+        geo: this.fx.box, mat: this.sparkMat, pos: p,
+        vel: out.clone().multiplyScalar(3 + Math.random() * 3).add(new THREE.Vector3((Math.random() - 0.5) * 5, 1 + Math.random() * 3, (Math.random() - 0.5) * 5)),
+        size: 0.025 + Math.random() * 0.02, life: 0.25 + Math.random() * 0.15, gravity: 8, spin: 0,
+      });
+    }
+    if (r.kind === 'tree') this.fx.puff(p, 0xd8c8a8, 1, 0.25);
     if (r.kind === 'tree') {
       for (let i = 0; i < 8; i++) {
         this.fx.spawn({
@@ -588,6 +615,18 @@ export class Nature {
   }
 
   update(dt, time, windVec, player, night) {
+    // fondu blanc qui s'estompe
+    let lvl = 0;
+    for (let i = this.flashing.length - 1; i >= 0; i--) {
+      const r = this.flashing[i];
+      r.flashT -= dt;
+      if (r.flashT <= 0 || !r.alive) {
+        this.flashing.splice(i, 1);
+        r.flashT = 0;
+        if (r.alive) this.applyMat(r, this.highlighted === r ? this.hiMat : this.mat);
+      } else lvl = Math.max(lvl, r.flashT / 0.22);
+    }
+    for (const k of ['bark', 'pineBark', 'leaf', 'rock']) this.flashMat[k].emissiveIntensity = 0.1 + lvl * 0.4;
     // Les souches s'enfoncent et disparaissent au bout d'un moment
     for (let i = this.stumps.length - 1; i >= 0; i--) {
       const st = this.stumps[i];

@@ -13,7 +13,7 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 export class AudioEngine {
   constructor() {
     this.ctx = null;
-    this.vol = { music: 0.6, amb: 0.7, sfx: 0.8 };
+    this.vol = { master: 1, music: 0.6, amb: 0.7, sfx: 0.8 };
     this.listener = { x: 0, y: 0, z: 0, rx: 1, rz: 0 };
     this.phaseK = { day: 1, dusk: 0, night: 0 };
   }
@@ -89,6 +89,7 @@ export class AudioEngine {
     Object.assign(this.vol, v);
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
+    this.master.gain.setTargetAtTime(2.2 * this.vol.master, t, 0.05);
     this.musicBus.gain.setTargetAtTime(this.vol.music * 1.6, t, 0.05);
     this.musicVerb.gain.setTargetAtTime(this.vol.music, t, 0.05);
     this.ambBus.gain.setTargetAtTime(this.vol.amb * 0.8, t, 0.05);
@@ -796,6 +797,119 @@ export class AudioEngine {
       thump(t, out, 80, 30, 0.45, 0.8);
       burst(t, out, 'lowpass', 400, 0.7, 0.4, 0.4);
     }; S.thud.range = 12;
+    // ---------- Monstres : voix retravaillées (formants + grain + râle) ----------
+    const shaper = (k) => {
+      const ws = self.ctx.createWaveShaper(), n = 1024, c = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const x = i / n * 2 - 1; c[i] = (1 + k) * x / (1 + k * Math.abs(x)); }
+      ws.curve = c; return ws;
+    };
+    // voix : f = [[temps, fréquence], ...], formants = [[fréquence, Q, gain], ...]
+    const voice = (t, out, o) => {
+      const dur = o.dur;
+      const mix = self.gain(0, out);
+      mix.gain.setValueAtTime(0.0001, t);
+      mix.gain.linearRampToValueAtTime(o.vol, t + (o.att ?? 0.08));
+      mix.gain.setValueAtTime(o.vol * 0.85, t + dur * 0.7);
+      mix.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      // râle : modulation d'amplitude rapide (texture de grognement)
+      const rattle = self.gain(1, null);
+      const rl = self.ctx.createOscillator(); rl.frequency.value = o.rattle || 28;
+      const rg = self.gain(o.rattleDepth ?? 0.6); rl.connect(rg); rg.connect(rattle.gain); rl.start(t); rl.stop(t + dur + 0.1);
+      const sh = shaper(o.grit ?? 6);
+      sh.connect(rattle);
+      for (const [f, q, g] of o.formants) rattle.connect(self.filter('bandpass', f, q, self.gain(g, mix)));
+      const lp = self.filter('lowpass', o.lp || 3000, 0.7, mix); rattle.connect(lp);
+      const src = self.osc('sawtooth', o.f[0][1], t, dur, sh);
+      const sub = self.osc('square', o.f[0][1] / 2, t, dur, self.gain(0.35, sh));
+      for (const [dt, f] of o.f.slice(1)) {
+        src.frequency.exponentialRampToValueAtTime(f, t + dt);
+        sub.frequency.exponentialRampToValueAtTime(f / 2, t + dt);
+      }
+      const vib = self.ctx.createOscillator(); vib.frequency.value = o.vibRate || rnd(5, 8);
+      const vg = self.gain(o.f[0][1] * (o.vib ?? 0.05)); vib.connect(vg); vg.connect(src.frequency); vg.connect(sub.detune); vib.start(t); vib.stop(t + dur + 0.1);
+      if (o.breath) {
+        const bg = self.gain(0, out);
+        self.noise(t, dur, self.filter('bandpass', o.breathF || 900, 1.2, bg), 0.9);
+        bg.gain.setValueAtTime(0.0001, t); bg.gain.linearRampToValueAtTime(o.breath, t + dur * 0.2); bg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      }
+    };
+    const BRUTE_F = [[280, 5, 1.2], [620, 6, 0.9], [1150, 7, 0.5], [2400, 8, 0.2]];
+    S.monsterGrowl = function (t, out) {
+      const f0 = rnd(62, 78), dur = rnd(1.2, 1.9);
+      voice(t, out, { dur, vol: 0.32, f: [[0, f0], [dur * 0.4, f0 * 1.25], [dur, f0 * 0.8]], formants: BRUTE_F, rattle: rnd(24, 34), grit: 9, breath: 0.12, breathF: 500, lp: 1500 });
+    }; S.monsterGrowl.range = 12; S.monsterGrowl.verb = 0.35;
+    S.monsterAttack = function (t, out) {
+      voice(t, out, { dur: 0.75, vol: 0.45, att: 0.05, f: [[0, 85], [0.35, 170], [0.75, 70]], formants: [[380, 4, 1.2], [820, 5, 1], [1500, 6, 0.6], [2800, 8, 0.25]], rattle: 32, grit: 12, breath: 0.2, breathF: 1200, lp: 2400 });
+      S.swing.call(self, t + 0.5, out);
+    }; S.monsterAttack.range = 13; S.monsterAttack.verb = 0.35;
+    S.monsterHurt = function (t, out) {
+      voice(t, out, { dur: 0.38, vol: 0.4, att: 0.01, f: [[0, 210], [0.38, 120]], formants: [[450, 4, 1.2], [1000, 5, 0.8], [2200, 7, 0.4]], rattle: 40, grit: 10, breath: 0.15, lp: 2600 });
+      thump(t, out, 130, 55, 0.14, 0.55);
+      burst(t, out, 'bandpass', 900, 1.5, 0.12, 0.45);
+    }; S.monsterHurt.range = 12;
+    S.monsterDie = function (t, out) {
+      voice(t, out, { dur: 2.2, vol: 0.38, f: [[0, 150], [0.3, 190], [2.2, 38]], formants: BRUTE_F, rattle: 22, rattleDepth: 0.8, grit: 8, breath: 0.18, breathF: 600, lp: 1800, vib: 0.08, vibRate: 4 });
+      burst(t + 1.7, out, 'lowpass', 400, 0.6, 1.4, 0.25, 0.3);
+    }; S.monsterDie.range = 15; S.monsterDie.verb = 0.5;
+    // Griffu : cris aigus et cliquetis
+    S.runnerGrowl = function (t, out) {
+      const n = 3 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < n; i++) {
+        const tt = t + i * rnd(0.06, 0.1), f0 = rnd(520, 780);
+        voice(tt, out, { dur: 0.09, vol: 0.18, att: 0.005, f: [[0, f0], [0.09, f0 * 1.4]], formants: [[1400, 5, 1], [2900, 6, 0.6]], rattle: 60, grit: 5, lp: 5000, vib: 0.02 });
+      }
+      voice(t + n * 0.08, out, { dur: 0.45, vol: 0.2, f: [[0, 600], [0.2, 950], [0.45, 500]], formants: [[1300, 4, 1], [2600, 6, 0.7], [4000, 8, 0.3]], rattle: 48, grit: 7, breath: 0.08, breathF: 3000, lp: 6000 });
+    }; S.runnerGrowl.range = 10; S.runnerGrowl.verb = 0.2;
+    S.runnerAttack = function (t, out) {
+      voice(t, out, { dur: 0.35, vol: 0.32, att: 0.01, f: [[0, 700], [0.12, 1300], [0.35, 600]], formants: [[1500, 4, 1.2], [3000, 6, 0.8]], rattle: 55, grit: 8, breath: 0.12, breathF: 3500, lp: 7000 });
+      S.swing.call(self, t + 0.18, out);
+    }; S.runnerAttack.range = 10;
+    // Cracheur : gargouillis
+    const gurgle = (t, out, dur, vol) => {
+      const g = self.gain(0, out);
+      const f = self.filter('bandpass', 500, 3, g);
+      self.noise(t, dur, f, 0.6);
+      const am = self.ctx.createOscillator(); am.frequency.value = rnd(11, 18);
+      const ag = self.gain(vol * 0.8); am.connect(ag); ag.connect(g.gain); am.start(t); am.stop(t + dur);
+      const fm = self.ctx.createOscillator(); fm.frequency.value = rnd(3, 6);
+      const fg = self.gain(250); fm.connect(fg); fg.connect(f.frequency); fm.start(t); fm.stop(t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.1); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      for (let i = 0; i < 5; i++) {
+        const tt = t + rnd(0, dur), f0 = rnd(200, 500), bg = self.gain(0, out);
+        const o = self.osc('sine', f0, tt, 0.08, bg); o.frequency.exponentialRampToValueAtTime(f0 * 2.2, tt + 0.07);
+        self.env(bg, tt, vol * 0.5, 0.004, 0.07);
+      }
+    };
+    S.spitterGrowl = function (t, out) {
+      gurgle(t, out, rnd(0.8, 1.3), 0.3);
+      voice(t, out, { dur: 0.9, vol: 0.18, f: [[0, 110], [0.5, 95], [0.9, 80]], formants: [[350, 5, 1], [900, 6, 0.6]], rattle: 16, rattleDepth: 0.9, grit: 6, lp: 1400 });
+    }; S.spitterGrowl.range = 11; S.spitterGrowl.verb = 0.3;
+    S.spitCharge = function (t, out) {
+      gurgle(t, out, 1.0, 0.4);
+      const g = self.gain(0, out);
+      const f = self.filter('bandpass', 300, 4, g);
+      f.frequency.exponentialRampToValueAtTime(1800, t + 0.95);
+      self.noise(t, 1, f, 0.8);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.3, t + 0.9); g.gain.linearRampToValueAtTime(0.0001, t + 1.02);
+    }; S.spitCharge.range = 14;
+    // Tours
+    S.bow = function (t, out) {
+      const g = self.gain(0, out);
+      const o = self.osc('triangle', 220, t, 0.15, self.filter('lowpass', 1800, 2, g));
+      o.frequency.exponentialRampToValueAtTime(120, t + 0.12);
+      self.env(g, t, 0.18, 0.002, 0.12);
+      burst(t + 0.01, out, 'highpass', 3000, 0.6, 0.12, 0.12, 0.01);
+    }; S.bow.range = 10; S.bow.verb = 0.1;
+    S.frost = function (t, out) {
+      ring(t, out, [[2093, 1], [2637, 0.7], [3136, 0.5], [4186, 0.3]], 1.0, 0.05);
+      const g = self.gain(0, out);
+      const f = self.filter('highpass', 4000, 0.7, g);
+      self.noise(t, 0.6, f, 1.4);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.12, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    }; S.frost.range = 12; S.frost.verb = 0.5;
+    S.sparkHit = function (t, out) {
+      burst(t, out, 'highpass', 5000, 0.7, 0.05, 0.25);
+    }; S.sparkHit.verb = 0;
     this._sfx = S;
     return S;
   }

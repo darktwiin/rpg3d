@@ -51,6 +51,11 @@ function getProfile(token, name) {
   if (typeof token !== 'string' || !/^[a-z0-9]{16,48}$/.test(token)) token = crypto.randomBytes(12).toString('hex');
   if (!profiles[token]) profiles[token] = { name, shards: 0, skills: [], best: 0, created: Date.now() };
   profiles[token].name = name;
+  // Compétences supprimées ou déplacées par une mise à jour : on rembourse
+  const prof = profiles[token];
+  for (const id of [...prof.skills]) {
+    if (!W.SKILL_BY_ID[id]) { prof.shards += W.OLD_SKILLS[id] || 0; prof.skills = prof.skills.filter((s) => s !== id); }
+  }
   saveJSON('profiles.json', profiles);
   return { token, prof: profiles[token] };
 }
@@ -155,7 +160,7 @@ class Room {
     this.monsters = new Map();
     this.mN = 1;
     this.gem = { x: W.GEM_HOME.x, z: W.GEM_HOME.z, y: null, carrier: null, hp: W.GEM_HP };
-    this.time = process.env.TEST_FAST ? W.DAY_LEN - 3 : W.START_TIME;
+    this.time = W.START_TIME;
     this.night = 0;
     this.survived = 0;
     this.spawnCd = 0;
@@ -164,6 +169,8 @@ class Room {
     this.syncT = 0; this.gemSyncT = 0; this.lastGemHp = this.gem.hp;
     this.shards = 0;
     this.shots = [];
+    this.inv = { wood: 0, stone: 0 };   // inventaire commun au groupe
+    this.towerT = 0; this.frostT = 0; this.repairT = 0;
     rooms.add(this);
     members.forEach((m, i) => this.addPlayer(m, COLORS[i]));
     this.interval = setInterval(() => { try { this.tick(TICK); } catch (err) { console.error('Erreur partie', err); } }, TICK * 1000);
@@ -186,7 +193,7 @@ class Room {
     p.where = 'room'; p.room = this; p.color = color;
     p.mods = W.skillMods(p.prof.skills);
     p.hp = p.mods.maxHp; p.dead = false;
-    p.inv = { wood: 0, stone: 0 };
+    p.inv = this.inv;
     p.god = false; p.invuln = false; p.free = false;
     const a = Math.random() * Math.PI * 2;
     p.x = Math.cos(a) * 3; p.z = Math.sin(a) * 3; p.y = W.heightAt(p.x, p.z);
@@ -265,6 +272,7 @@ class Room {
     this.updateShots(now);
     this.updateMonsters(dt, now);
     this.updateSpikes(dt);
+    this.updateTowers(dt);
 
     this.syncT -= dt;
     if (this.syncT <= 0) { this.syncT = 5; this.broadcast({ type: 'clock', time: this.time, night: this.night }); }
@@ -278,7 +286,6 @@ class Room {
     const target = W.nightTarget(this.night, this.players.size);
     this.broadcast({ type: 'clock', time: this.time, night: this.night });
     this.broadcast({ type: 'phase', phase: 'night', night: this.night });
-    if (process.env.TEST_FAST) this.time = W.CYCLE - 12;
     this.sys(`🌙 Nuit ${this.night} — ${target} monstres rôdent en permanence jusqu'à l'aube. Défendez le Joyau !`, 'night');
   }
 
@@ -302,6 +309,14 @@ class Room {
     this.broadcast({ type: 'clock', time: this.time, night: this.night });
   }
 
+  // Inventaire partagé : celui qui récolte voit les ressources voler vers lui, les autres voient le total changer
+  sendInv(by, gain, from) {
+    for (const p of this.players.values()) {
+      if (p === by) send(p.ws, { type: 'inv', inv: this.inv, gain, from });
+      else send(p.ws, { type: 'inv', inv: this.inv, gain, by: by ? by.name : null });
+    }
+  }
+
   // ---------------- Ressources ----------------
   hitResource(p, id) {
     const r = this.resources.get(String(id));
@@ -313,13 +328,11 @@ class Room {
     r.hp -= r.k === 'b' ? 1 : p.mods.hitPow;
     this.broadcast({ type: 'resHit', id: r.id, hp: Math.max(0, r.hp), by: p.id, fx: p.x, fz: p.z });
     if (r.hp > 0.001) return;
-    // Ressource détruite : tout le butin d'un coup
-    const y = W.RES_YIELD[r.k];
-    const gain = {};
-    if (y.wood) gain.wood = Math.round(y.wood * p.mods.woodMul) + (r.k === 'b' && p.mods.bush ? 2 : 0);
-    if (y.stone) gain.stone = Math.round(y.stone * p.mods.stoneMul);
-    for (const k in gain) p.inv[k] += gain[k];
-    send(p.ws, { type: 'inv', inv: p.inv, gain, from: { x: r.x, z: r.z, k: r.k } });
+    // Ressource détruite : tout le butin d'un coup (1 à 3 + bonus)
+    const kind = W.RES_KIND[r.k];
+    const gain = { [kind]: W.rollYield(r.k, p.mods) };
+    this.inv[kind] += gain[kind];
+    this.sendInv(p, gain, { x: r.x, z: r.z, k: r.k });
     if (r.k === 'b' && !p.dead) {
       p.hp = Math.min(p.mods.maxHp, p.hp + W.BUSH_HEAL * (p.mods.bush ? 2 : 1));
       this.broadcast({ type: 'pHp', id: p.id, hp: Math.round(p.hp), max: p.mods.maxHp, heal: true });
@@ -360,12 +373,12 @@ class Room {
     if (!p.free) {
       const c = W.pieceCost(type, p.mods);
       if (p.inv.wood < c.wood || p.inv.stone < c.stone) return;
-      p.inv.wood -= c.wood; p.inv.stone -= c.stone;
-      send(p.ws, { type: 'inv', inv: p.inv });
+      this.inv.wood -= c.wood; this.inv.stone -= c.stone;
+      this.sendInv(null);
     }
     const hp = Math.round(piece.hp * p.mods.buildHp);
     const dur = +(W.BUILD_TIME * p.mods.buildTime).toFixed(2);
-    const b = { id: 'b' + this.bN++, type, x, z, y, rot, hp, max: hp, state: 'building', dur, by: p.id };
+    const b = { id: 'b' + this.bN++, type, x, z, y, rot, hp, max: hp, state: 'building', dur, by: p.id, repair: p.mods.repair, towerDmg: p.mods.towerDmg, cd: 0 };
     this.buildings.set(b.id, b);
     this.broadcast({ type: 'bAdd', b });
     setTimeout(() => {
@@ -381,8 +394,8 @@ class Room {
     if (Math.hypot(b.x - p.x, b.z - p.z) > W.BUILD_RANGE + 3) return;
     this.buildings.delete(b.id);
     const c = W.PIECES[b.type].cost;
-    p.inv.wood += Math.floor(c.wood / 2); p.inv.stone += Math.floor(c.stone / 2);
-    send(p.ws, { type: 'inv', inv: p.inv });
+    this.inv.wood += Math.floor(c.wood / 2); this.inv.stone += Math.floor(c.stone / 2);
+    this.sendInv(null);
     this.broadcast({ type: 'bDel', id: b.id, broken: false });
   }
 
@@ -414,6 +427,46 @@ class Room {
       if (used) {
         b.wear = (b.wear || 0) + dt * 8;
         if (b.wear >= 4) { this.damageBuilding(b, b.wear); b.wear = 0; }
+      }
+    }
+  }
+
+  // Tours : l'archer tire sur le monstre le plus proche, le givre ralentit tout autour
+  updateTowers(dt) {
+    const repairing = !this.isNight();
+    this.repairT -= dt;
+    const doRepair = this.repairT <= 0;
+    if (doRepair) this.repairT = 1;
+    for (const b of this.buildings.values()) {
+      if (b.state !== 'done') continue;
+      if (doRepair && repairing && b.repair && b.hp < b.max) {
+        b.hp = Math.min(b.max, b.hp + b.max * 0.03);
+        this.broadcast({ type: 'bHp', id: b.id, hp: Math.round(b.hp) });
+      }
+      if (b.type === 'tower') {
+        b.cd -= dt;
+        if (b.cd > 0) continue;
+        let best = null, bd = W.TOWER.range;
+        for (const m of this.monsters.values()) {
+          if (m.dead || m.wake > 0) continue;
+          const d = Math.hypot(m.x - b.x, m.z - b.z);
+          if (d < bd) { bd = d; best = m; }
+        }
+        if (!best) continue;
+        b.cd = W.TOWER.rate;
+        best.hp -= b.towerDmg;
+        this.broadcast({ type: 'tShot', id: b.id, m: best.id, hp: Math.max(0, best.hp) });
+        if (best.hp <= 0) this.killMonster(best, false);
+      } else if (b.type === 'frost') {
+        b.cd -= dt;
+        if (b.cd > 0) continue;
+        b.cd = W.FROST.pulse;
+        let any = false;
+        for (const m of this.monsters.values()) {
+          if (m.dead) continue;
+          if (Math.hypot(m.x - b.x, m.z - b.z) < W.FROST.range) { m.frost = 1.3; any = true; }
+        }
+        if (any) this.broadcast({ type: 'frostPulse', id: b.id });
       }
     }
   }
@@ -558,13 +611,16 @@ class Room {
     if (!this.monsters.size) return;
     const alive = [...this.players.values()].filter((p) => !p.dead);
     const gp = this.gemPos();
-    const walls = [...this.buildings.values()].filter((b) => W.isWallType(b.type));
+    const walls = [...this.buildings.values()].filter((b) => W.isWallType(b.type) || W.PIECES[b.type].tower);
     const list = [];
     for (const m of this.monsters.values()) {
       if (m.dead) continue;
       const T = m.T;
-      if (m.wake > 0) { m.wake -= dt; list.push([m.id, +m.x.toFixed(2), +m.z.toFixed(2), +m.ry.toFixed(2), 0]); continue; }
-      m.cd -= dt;
+      if (m.wake > 0) { m.wake -= dt; list.push([m.id, +m.x.toFixed(2), +m.z.toFixed(2), +m.ry.toFixed(2), 0, 0]); continue; }
+      const frosty = m.frost > 0;
+      if (frosty) m.frost -= dt;
+      const fk = frosty ? 1 - W.FROST.slow : 1;
+      m.cd -= dt * fk;
 
       // Coup en cours : appliqué au bon moment de l'animation
       if (m.atk && now >= m.hitAt) {
@@ -605,11 +661,14 @@ class Room {
           if (m.cd <= 0) this.monsterAttack(m, tk, now);
           m.ry = Math.atan2(dx, dz);
         } else if (dist > 0.01) {
-          let sp = T.speed * (W.isWater(m.x, m.z) ? 0.55 : 1);
+          let sp = T.speed * (W.isWater(m.x, m.z) ? 0.55 : 1) * fk;
           if (m.slow > 0) { sp *= 1 - m.slow; m.slow = Math.max(0, m.slow - dt * 2); }
           const nx = m.x + dx / dist * sp * dt, nz = m.z + dz / dist * sp * dt;
           let blocking = null;
-          for (const b of walls) if (W.distToBox(nx, nz, W.wallBox(b)) < T.radius) { blocking = b; break; }
+          for (const b of walls) {
+            const box = W.isWallType(b.type) ? W.wallBox(b) : { x: b.x, z: b.z, hx: 0.8, hz: 0.8 };
+            if (W.distToBox(nx, nz, box) < T.radius) { blocking = b; break; }
+          }
           if (blocking) {
             if (m.cd <= 0) this.monsterAttack(m, { kind: 'wall', id: blocking.id }, now);
             m.ry = Math.atan2(blocking.x - m.x, blocking.z - m.z);
@@ -634,13 +693,13 @@ class Room {
         if (d < min && d > 0.001) { m.x += ex / d * (min - d) * 0.5; m.z += ez / d * (min - d) * 0.5; }
       }
       m.x = clamp(m.x, -W.WORLD_LIMIT, W.WORLD_LIMIT); m.z = clamp(m.z, -W.WORLD_LIMIT, W.WORLD_LIMIT);
-      list.push([m.id, +m.x.toFixed(2), +m.z.toFixed(2), +m.ry.toFixed(2), m.atk ? 2 : st]);
+      list.push([m.id, +m.x.toFixed(2), +m.z.toFixed(2), +m.ry.toFixed(2), m.atk ? 2 : st, frosty ? 1 : 0]);
     }
     this.broadcast({ type: 'm', l: list });
   }
   monsterAttack(m, target, now) {
     m.atk = target;
-    m.hitAt = now + m.T.hitAt;
+    m.hitAt = now + m.T.hitAt / (m.frost > 0 ? 1 - W.FROST.slow : 1);
     m.cd = m.T.cd;
     this.broadcast({ type: 'mAtk', id: m.id });
   }
@@ -685,7 +744,7 @@ class Room {
       case 'night': if (!this.isNight()) { this.time = W.DAY_LEN; this.startNight(); } break;
       case 'invuln': p.invuln = !p.invuln; break;
       case 'free': p.free = !p.free; break;
-      case 'give': p.inv.wood += 50; p.inv.stone += 50; send(p.ws, { type: 'inv', inv: p.inv, gain: { wood: 50, stone: 50 } }); break;
+      case 'give': this.inv.wood += 50; this.inv.stone += 50; this.sendInv(null, { wood: 50, stone: 50 }); break;
       case 'kill': for (const m of [...this.monsters.values()]) this.killMonster(m, false); break;
       case 'heal': this.gem.hp = W.GEM_HP; this.broadcast({ type: 'gem', gem: this.gem }); break;
       case 'tp': p.x = clamp(num(d.x), -93, 93); p.z = clamp(num(d.z), -93, 93); send(p.ws, { type: 'tp', x: p.x, z: p.z }); break;
