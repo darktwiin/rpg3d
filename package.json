@@ -1,0 +1,16 @@
+{
+  "name": "rpg3d",
+  "version": "0.0.1",
+  "description": "RPG multijoueur 3D à la 3ème personne (base de déplacement)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
