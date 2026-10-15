@@ -1,7 +1,7 @@
-# RPG 3D — Survie multijoueur
+# Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.1.1**
+Version actuelle : **ver.0.1.3**
 
 ## Comptes
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
@@ -10,13 +10,22 @@ Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connec
 un clic sur « Entrer au village » suffit. On peut aussi jouer en invité (progression liée au navigateur) ;
 en créant un compte depuis ce navigateur, la progression d'invité est reprise.
 
+## Héros, équipement et inventaire (touche I)
+- La classe est choisie à la création du héros ; ensuite on la change au village depuis l'inventaire pour **3 éclats**.
+- Les monstres lâchent un **coffre** dans 1 % des cas (on le ramasse en marchant dessus). L'objet va dans l'inventaire du compte.
+- Emplacements : chapeau (vie), tenue (vie : plastron, peau de bête, robe ou gilet selon la classe), arme (dégâts, selon la classe),
+  anneau (dégâts), bottes (vitesse de déplacement).
+- Raretés : gris, vert (dès la nuit 2), bleu (nuit 5), violet (nuit 10), jaune (nuit 15), orange (nuit 20). Une rareté débloquée
+  commence à 10 % et augmente avec les nuits ; les raretés basses ne disparaissent jamais. Exemple nuit 19 : 6 % gris, 18 % vert,
+  30 % bleu, 26 % violet, 20 % jaune.
+
 ## Niveau du héros
 Les monstres tués et les nuits survécues donnent de l'**expérience**. Chaque niveau donne +2 PV et +1 % de dégâts
 (d'autres améliorations du héros viendront s'y ajouter).
 
 ## Le village (lobby)
 On arrive au village, où l'on voit les autres joueurs.
-- **Forge** : acheter des compétences avec les éclats (Constructeur, Récolteur, Combattant, Mobilité)
+- **Forge** : acheter des compétences avec les éclats (Constructeur, Récolteur, Combattant, Mobilité) ; « Réinitialiser l'arbre » rend tous les éclats dépensés, moins 3
 - **Piédestal** : classement des meilleures parties (solo, duo, trio, équipe de 4)
 - **Portail** : lancer la partie (seul, ou avec son groupe)
 - Inviter un joueur : s'approcher de lui et appuyer sur **E**, ou **Tab** pour la liste
@@ -39,7 +48,8 @@ Chaque apparence a son style de combat :
 - Les monstres apparaissent loin du Joyau (70 à 90 m) : on a le temps d'aller à leur rencontre.
 - Le nombre de monstres augmente à chaque nuit et avec le nombre de joueurs. Un monstre qui poursuit un joueur pendant 8 s sans réussir à le toucher abandonne et fonce vers le Joyau jusqu'à sa mort.
 - Si le Joyau est détruit, la partie recommence. Au lever du soleil, les monstres brûlent.
-- Le Joyau peut être porté (touche **E**) et posé où vous voulez, par exemple dans votre base.
+- Le Joyau peut être porté (touche **E**) **10 secondes** au maximum, puis il tombe et doit se reposer 10 secondes.
+- Après une défaite, on revient tout de suite au village avec un panneau qui explique comment devenir plus fort.
 
 ## Lieux spéciaux
 - **Cascade** à l'est : la rivière tombe d'un plateau.
@@ -60,6 +70,9 @@ Chaque apparence a son style de combat :
 | E | Prendre / poser le Joyau |
 | M | Carte |
 | Entrée | Chat |
+| I | Héros et inventaire |
+| R | Réparer la construction visée (mode construction) |
+| G | Coup de poing à un allié tout proche (il est assommé 2 s et roule par terre) |
 | Échap | Ferme le menu ouvert / quitte la construction / pause |
 
 ## Constructions
@@ -81,6 +94,9 @@ L'inventaire (bois, pierre, brindilles) est commun à tout le groupe. Les buisso
 | Tour de givre* | 3 bois + 5 pierre |
 
 \* à débloquer à la forge (arbre Constructeur)
+
+**Déconstruire** rend la moitié des matériaux. **Réparer** (R) une pièce abîmée coûte la moitié de son prix × la part de vie
+perdue ; la compétence Entretien les répare gratuitement pendant le jour.
 
 **Grille** : en mode construction, une grille de cases de 2 m s'affiche au sol. Au rez-de-chaussée, une pièce se cale
 à la hauteur de ses voisines (planchers, charpentes, murs) pour que tout s'emboîte même sur un terrain en pente.
@@ -109,6 +125,15 @@ npm install
 pm2 restart rpg3d
 ```
 
+## Lanceur Windows (.exe)
+Le dossier `launcher/` contient un petit programme (Electron) qui ouvre le jeu dans sa propre fenêtre.
+Le jeu est chargé depuis le serveur : il est donc toujours à jour. Le lanceur lui-même se met à jour
+tout seul à partir des « Releases » GitHub. Il est indépendant de The Curse (autre identifiant, autre dossier).
+1. L'adresse du jeu est dans `launcher/config.json` (`http://51.210.104.194:3001/`).
+2. Vérifier `owner` / `repo` dans `launcher/package.json` (section `publish`).
+3. GitHub > Actions > « Lanceur Windows » > Run workflow : l'installateur `NuitBlanche-Setup-x.y.z.exe` apparaît dans les Releases.
+4. Pour publier une mise à jour du lanceur : augmenter `version` dans `launcher/package.json`, relancer l'action.
+
 ## Fichiers
 - `server.js` — serveur : lobby/groupes, cycle jour/nuit, IA des monstres, ressources, constructions, chat, admin
 - `public/index.html`, `public/style.css`, `public/ui.css` — page et interface (thème Kenney UI Pack Adventure, images dans `public/ui/`)
@@ -133,6 +158,7 @@ pm2 restart rpg3d
 ## Crédits
 Modèles 3D, tous sous licence CC0 (libres, même pour un usage commercial) :
 - **KayKit** de Kay Lousberg ([kaylousberg.com](https://kaylousberg.com)) : Adventurers (personnages et forgeron), Skeletons (monstres), Forest Nature Pack (arbres, rochers, buissons, herbe), Dungeon Pack et RPG Tools (décor du village, outils).
+- **Medieval Village Pack** (maisons, moulin, clocher, puits, étals, charrettes) pour le village.
 - **Pirate Kit** de [Quaternius](https://quaternius.com) : bûches, cailloux et gemmes.
 - **KayKit Character Animations** (Kay Lousberg, CC0) : animations de combat, d'outils, des squelettes et du forgeron.
 - **Kenney UI Pack Adventure** (Kenney, CC0) : toute l'interface.

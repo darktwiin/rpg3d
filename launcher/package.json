@@ -1,0 +1,57 @@
+{
+  "name": "nuit-blanche-launcher",
+  "productName": "Nuit Blanche",
+  "version": "1.0.0",
+  "description": "Lanceur du jeu Nuit Blanche (fenêtre du jeu + mises à jour automatiques)",
+  "author": "Mano gamming",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "release": "electron-builder --win nsis --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "fr.manogamming.nuitblanche",
+    "productName": "Nuit Blanche",
+    "artifactName": "NuitBlanche-Setup-${version}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "offline.html",
+      "config.json",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nuit Blanche",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "darktwiin",
+        "repo": "rpg3d",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

@@ -102,7 +102,21 @@ function getProfile(token, name) {
   return { token, prof: profiles[token] };
 }
 function sendProfile(p) {
-  send(p.ws, { type: 'profile', token: p.token, shards: p.prof.shards, skills: p.prof.skills, best: p.prof.best, xp: p.prof.xp || 0, account: p.prof.account ? accounts[p.prof.account]?.name : null });
+  const pr = p.prof;
+  send(p.ws, { type: 'profile', token: p.token, shards: pr.shards, skills: pr.skills, best: pr.best, xp: pr.xp || 0, account: pr.account ? accounts[pr.account]?.name : null,
+    items: pr.items || [], equip: pr.equip || {}, skin: p.skin });
+}
+// Recalcule les caractéristiques (en partie : la vie max change aussi)
+function refreshMods(p) {
+  if (!p.room) return;
+  const before = p.mods?.maxHp || W.PLAYER_HP;
+  p.mods = computeMods(p);
+  if (!p.dead) p.hp = clamp(p.hp + Math.max(0, p.mods.maxHp - before), 1, p.mods.maxHp);
+  p.room.broadcast({ type: 'pHp', id: p.id, hp: Math.round(p.hp), max: p.mods.maxHp });
+}
+// Caractéristiques d'un joueur : compétences + niveau du héros + équipement porté
+function computeMods(p) {
+  return W.applyGear(W.skillMods(p.prof.skills, W.levelOf(p.prof.xp || 0)), p.prof.items || [], p.prof.equip || {}, p.skin);
 }
 function recordScore(room) {
   if (room.adminUsed || room.survived <= 0 || room.recorded) return;
@@ -234,7 +248,7 @@ class Room {
   addPlayer(p, color) {
     hub.leave(p);
     p.where = 'room'; p.room = this; p.color = color;
-    p.mods = W.skillMods(p.prof.skills, W.levelOf(p.prof.xp || 0));
+    p.mods = computeMods(p);
     p.hp = p.mods.maxHp; p.dead = false;
     p.inv = this.inv;
     p.god = false; p.invuln = false; p.free = false;
@@ -305,6 +319,11 @@ class Room {
         p.regenT = (p.regenT || 0) - dt;
         if (p.regenT <= 0 || p.hp >= p.mods.maxHp) { p.regenT = 1; this.broadcast({ type: 'pHp', id: p.id, hp: Math.round(p.hp), max: p.mods.maxHp }); }
       }
+    }
+    // le Joyau devient trop lourd : il tombe des mains au bout de 10 s
+    if (this.gem.carrier && Date.now() > (this.gem.carryUntil || Infinity)) {
+      const c = this.players.get(this.gem.carrier);
+      if (c) { this.dropGem(c.x, c.z, c.y, null); send(c.ws, { type: 'toast', text: 'Le Joyau t’échappe des mains !' }); }
     }
     if (!this.isNight() && this.gem.hp < W.GEM_HP) this.gem.hp = Math.min(W.GEM_HP, this.gem.hp + 2 * dt);
     this.gemSyncT -= dt;
@@ -452,11 +471,27 @@ class Room {
     if (!b || p.dead) return;
     if (Math.hypot(b.x - p.x, b.z - p.z) > W.BUILD_RANGE + 3) return;
     this.buildings.delete(b.id);
-    const c = W.PIECES[b.type].cost;
-    for (const k of W.RES_KEYS) this.inv[k] += Math.floor((c[k] || 0) / 2);
-    this.sendInv(null);
+    const back = W.refundOf(b.type);
+    for (const k of W.RES_KEYS) this.inv[k] += back[k];
+    const gain = Object.fromEntries(W.RES_KEYS.filter((k) => back[k]).map((k) => [k, back[k]]));
+    this.sendInv(null, Object.keys(gain).length ? gain : undefined);
     this.broadcast({ type: 'bDel', id: b.id, broken: false });
     this.collapse();
+  }
+
+  // Réparer au marteau : coûte la moitié du prix de la pièce × la part de vie perdue
+  repair(p, id) {
+    const b = this.buildings.get(String(id));
+    if (!b || p.dead || b.state !== 'done' || b.hp >= b.max) return;
+    if (Math.hypot(b.x - p.x, b.z - p.z) > W.BUILD_RANGE + 3) return;
+    if (!p.free) {
+      const c = W.repairCost(b, p.mods);
+      if (!W.canAfford(this.inv, c)) return send(p.ws, { type: 'toast', text: 'Pas assez de matériaux pour réparer.' });
+      for (const k of W.RES_KEYS) this.inv[k] -= c[k];
+      this.sendInv(null);
+    }
+    b.hp = b.max;
+    this.broadcast({ type: 'bHp', id: b.id, hp: b.hp, repaired: true });
   }
 
   // Les pièces en hauteur qui ne reposent plus sur rien s'écroulent
@@ -555,7 +590,9 @@ class Room {
   pickGem(p) {
     if (this.gem.carrier || p.dead) return;
     if (Math.hypot(p.x - this.gem.x, p.z - this.gem.z) > 3) return;
+    if (Date.now() < (this.gem.readyAt || 0)) return send(p.ws, { type: 'toast', text: `Le Joyau doit se reposer encore ${Math.ceil((this.gem.readyAt - Date.now()) / 1000)} s.` });
     this.gem.carrier = p.id;
+    this.gem.carryUntil = Date.now() + W.GEM_CARRY * 1000;
     this.broadcast({ type: 'gem', gem: this.gem, ev: 'pick', by: p.id });
   }
   dropGem(x, z, y, p) {
@@ -565,7 +602,9 @@ class Room {
     this.gem.z = clamp(num(z), -W.WORLD_LIMIT, W.WORLD_LIMIT);
     this.gem.y = typeof y === 'number' && isFinite(y) ? y : null;
     this.gem.carrier = null;
-    this.broadcast({ type: 'gem', gem: this.gem, ev: 'drop' });
+    this.gem.carryUntil = 0;
+    this.gem.readyAt = Date.now() + W.GEM_REST * 1000;
+    this.broadcast({ type: 'gem', gem: this.gem, ev: 'drop', now: Date.now() });
   }
   damageGem(dmg) {
     if (this.over) return;
@@ -579,7 +618,7 @@ class Room {
     this.broadcast({ type: 'gameOver', survived: this.survived, shards: this.shards, admin: this.adminUsed });
     setTimeout(() => {
       for (const p of [...this.players.values()]) this.removePlayer(p, true);
-    }, 10000);
+    }, 3500);   // retour rapide au village (un panneau y explique comment devenir plus fort)
   }
 
   // ---------------- Joueurs ----------------
@@ -646,10 +685,33 @@ class Room {
     m.dead = true;
     this.monsters.delete(m.id);
     this.broadcast({ type: 'mDie', id: m.id, burn: !!burn });
+    // 1 % de chance de lâcher un objet (rareté selon la nuit)
+    if (!burn && Math.random() < W.DROP_CHANCE) this.dropLoot(m.x, m.z);
+  }
+  dropLoot(x, z, r = null) {
+    const night = Math.max(1, this.night || 1);
+    const owners = [...this.players.values()];
+    const pref = owners.length ? owners[Math.floor(Math.random() * owners.length)].skin : null;
+    const item = W.randomItem(night, pref);
+    if (r != null) { const it2 = W.makeItem(item.slot, item.cls || pref || 'Knight', clamp(r, 0, 5), night); Object.assign(item, it2); }
+    const loot = { id: 'l' + (this.lootN = (this.lootN || 0) + 1), x, z, y: W.heightAt(x, z), item };
+    (this.loots ||= new Map()).set(loot.id, loot);
+    this.broadcast({ type: 'lootAdd', loot });
+  }
+  takeLoot(p, id) {
+    const l = this.loots?.get(String(id));
+    if (!l || p.dead || Math.hypot(l.x - p.x, l.z - p.z) > 3) return;
+    const items = (p.prof.items ||= []);
+    if (items.length >= W.INV_MAX) return send(p.ws, { type: 'toast', text: 'Inventaire plein : jette des objets (touche I).' });
+    this.loots.delete(l.id);
+    items.push(l.item);
+    saveJSON('profiles.json', profiles);
+    sendProfile(p);
+    this.broadcast({ type: 'lootDel', id: l.id, by: p.id, item: l.item, name: p.name });
   }
   // Coup d'un joueur : chaque style de combat a ses dégâts, son rythme et sa portée
   hitMonster(p, id, d = {}) {
-    if (p.dead) return;
+    if (p.dead || Date.now() < (p.stunUntil || 0)) return;
     const cls = W.classOf(p.skin);
     const m = id != null ? this.monsters.get(String(id)) : null;
     if (id != null && (!m || m.dead)) return;
@@ -698,6 +760,18 @@ class Room {
     }
   }
 
+  // Coup de poing entre alliés : la victime est assommée et roule par terre
+  punch(p, id) {
+    const t = this.players.get(num(id));
+    const now = Date.now();
+    if (!t || t === p || p.dead || t.dead || now - (p.lastPunch || 0) < W.PUNCH.cd * 1000) return;
+    if (Math.hypot(t.x - p.x, t.z - p.z) > W.PUNCH.reach + 0.8) return;
+    p.lastPunch = now;
+    t.stunUntil = now + W.PUNCH.stun * 1000;
+    if (this.gem.carrier === t.id) this.dropGem(t.x, t.z, t.y, null);
+    this.broadcast({ type: 'punch', from: p.id, to: t.id, dir: Math.atan2(t.x - p.x, t.z - p.z), stun: W.PUNCH.stun });
+  }
+
   // Expérience du héros (sauvegardée sur le compte)
   giveXp(p, n) {
     if (this.adminUsed || !p.prof || n <= 0) return;
@@ -705,7 +779,7 @@ class Room {
     p.prof.xp = (p.prof.xp || 0) + n;
     const lvl = W.levelOf(p.prof.xp);
     if (lvl > before) {
-      p.mods = W.skillMods(p.prof.skills, lvl);
+      p.mods = computeMods(p);
       p.hp = Math.min(p.mods.maxHp, p.hp + W.heroBonus(lvl).hp - W.heroBonus(before).hp);
       this.broadcast({ type: 'pHp', id: p.id, hp: Math.round(p.hp), max: p.mods.maxHp });
       this.sys(`⭐ ${p.name} passe au niveau ${lvl} !`, 'info');
@@ -921,6 +995,7 @@ class Room {
       case 'free': p.free = !p.free; break;
       case 'give': this.inv.wood += 50; this.inv.stone += 50; this.inv.twig += 50; this.sendInv(null, { wood: 50, stone: 50, twig: 50 }); break;
       case 'kill': for (const m of [...this.monsters.values()]) this.killMonster(m, false); break;
+      case 'loot': this.dropLoot(p.x + 1.5, p.z, d.r != null ? clamp(Math.floor(num(d.r)), 0, 5) : null); break;
       case 'heal': this.gem.hp = W.GEM_HP; this.broadcast({ type: 'gem', gem: this.gem }); break;
       case 'tp': p.x = clamp(num(d.x), -W.WORLD_LIMIT, W.WORLD_LIMIT); p.z = clamp(num(d.z), -W.WORLD_LIMIT, W.WORLD_LIMIT); send(p.ws, { type: 'tp', x: p.x, z: p.z }); break;
     }
@@ -949,15 +1024,31 @@ wss.on('connection', (ws) => {
       const a = authenticate(d, p);
       if (a.err) return send(ws, { type: 'authErr', text: a.err });
       p.name = a.name;
-      p.skin = W.skinOk(d.skin) ? d.skin : W.SKINS[0].id;
       const { token, prof } = getProfile(a.token, p.name);
       p.token = token; p.prof = prof;
+      // la classe est choisie une fois (création du héros), ensuite on la change à l'inventaire (3 éclats)
+      if (!W.skinOk(prof.skin)) prof.skin = W.skinOk(d.skin) ? d.skin : W.SKINS[0].id;
+      p.skin = prof.skin;
+      prof.items ||= []; prof.equip ||= {};
       hub.enter(p);
       console.log(`+ ${p.name} au village (${hub.players.size})`);
       return;
     }
     if (!p.where) return;
 
+    // Réinitialiser l'arbre de compétences : tous les éclats dépensés sont rendus, moins 3
+    if (d.type === 'resetSkills') {
+      const prof = p.prof;
+      const spent = prof.skills.reduce((t, id) => t + (W.SKILL_BY_ID[id]?.cost || 0), 0);
+      if (!prof.skills.length) return send(ws, { type: 'toast', text: 'Aucune compétence à réinitialiser.' });
+      if (prof.shards + spent < W.SKILL_RESET_COST) return send(ws, { type: 'toast', text: `Il faut ${W.SKILL_RESET_COST} éclats pour réinitialiser.` });
+      prof.shards = prof.shards + spent - W.SKILL_RESET_COST;
+      prof.skills = [];
+      saveJSON('profiles.json', profiles);
+      sendProfile(p);
+      send(ws, { type: 'toast', text: `Arbre réinitialisé : ${spent - W.SKILL_RESET_COST} éclats rendus.` });
+      return;
+    }
     if (d.type === 'buySkill') {
       const s = W.SKILL_BY_ID[d.id];
       const prof = p.prof;
@@ -972,14 +1063,57 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // ----- Inventaire / équipement (au village comme en partie) -----
+    if (d.type === 'equip' || d.type === 'unequip' || d.type === 'discard') {
+      const prof = p.prof, items = (prof.items ||= []), eq = (prof.equip ||= {});
+      if (d.type === 'equip') {
+        const it = items.find((i) => i.id === d.id);
+        if (!it || (it.cls && it.cls !== p.skin)) return send(ws, { type: 'toast', text: 'Cet objet est pour une autre classe.' });
+        eq[it.slot] = it.id;
+      } else if (d.type === 'unequip') {
+        if (!W.SLOT_BY_ID[d.slot]) return;
+        delete eq[d.slot];
+      } else {
+        const i = items.findIndex((x) => x.id === d.id);
+        if (i < 0) return;
+        for (const k in eq) if (eq[k] === d.id) delete eq[k];
+        items.splice(i, 1);
+      }
+      refreshMods(p);
+      saveJSON('profiles.json', profiles);
+      sendProfile(p);
+      return;
+    }
+
     if (p.where === 'hub') {
       switch (d.type) {
+        case 'setClass': {
+          if (!W.skinOk(d.skin) || d.skin === p.skin) return;
+          if (p.prof.shards < W.CLASS_CHANGE_COST) return send(ws, { type: 'toast', text: `Changer de classe coûte ${W.CLASS_CHANGE_COST} éclats.` });
+          p.prof.shards -= W.CLASS_CHANGE_COST;
+          p.prof.skin = p.skin = d.skin;
+          // l'arme et la tenue de l'ancienne classe sont rangées
+          for (const k of ['weapon', 'chest']) { const it = (p.prof.items || []).find((i) => i.id === p.prof.equip?.[k]); if (it && it.cls && it.cls !== p.skin) delete p.prof.equip[k]; }
+          saveJSON('profiles.json', profiles);
+          sendProfile(p);
+          hub.broadcast({ type: 'hubSkin', id: p.id, skin: p.skin });
+          send(ws, { type: 'toast', text: `Tu joues maintenant ${W.CLASS_NAMES[p.skin]} !` });
+          break;
+        }
         case 'hubMove':
           p.x = clamp(num(d.x), -60, 60); p.y = num(d.y); p.z = clamp(num(d.z), -60, 60); p.ry = num(d.ry);
           hub.broadcast({ type: 'hubMove', id: p.id, x: p.x, y: p.y, z: p.z, ry: p.ry, s: clamp(num(d.s), 0, 12), g: d.g !== false }, p);
           break;
-        case 'act': hub.broadcast({ type: 'act', id: p.id, k: ['slash', 'cleave', 'staff', 'shoot'].includes(d.k) ? d.k : 'slash' }, p); break;
+        case 'act': hub.broadcast({ type: 'act', id: p.id, k: ['slash', 'cleave', 'staff', 'shoot', 'punch'].includes(d.k) ? d.k : 'slash' }, p); break;
         case 'block': hub.broadcast({ type: 'act', id: p.id, k: 'block', on: !!d.on }, p); break;
+        case 'punch': {
+          const t = hub.players.get(num(d.id)), now = Date.now();
+          if (!t || t === p || now - (p.lastPunch || 0) < W.PUNCH.cd * 1000) return;
+          if (Math.hypot(t.x - p.x, t.z - p.z) > W.PUNCH.reach + 0.8) return;
+          p.lastPunch = now;
+          hub.broadcast({ type: 'punch', from: p.id, to: t.id, dir: Math.atan2(t.x - p.x, t.z - p.z), stun: W.PUNCH.stun });
+          break;
+        }
         case 'hubDash': hub.broadcast({ type: 'act', id: p.id, k: 'dash', dir: 0 }, p); break;
         case 'hubJump2': hub.broadcast({ type: 'act', id: p.id, k: 'jump2' }, p); break;
         case 'chat': {
@@ -1040,7 +1174,7 @@ wss.on('connection', (ws) => {
         break;
       case 'act':
         R.broadcast({
-          type: 'act', id: p.id, k: ['slash', 'chop', 'mine', 'hammer', 'cleave', 'staff', 'shoot'].includes(d.k) ? d.k : 'slash', sp: clamp(num(d.sp, 1), 0.5, 3),
+          type: 'act', id: p.id, k: ['slash', 'chop', 'mine', 'hammer', 'cleave', 'staff', 'shoot', 'punch'].includes(d.k) ? d.k : 'slash', sp: clamp(num(d.sp, 1), 0.5, 3),
           to: d.to && typeof d.to === 'object' ? { x: num(d.to.x), y: num(d.to.y), z: num(d.to.z) } : undefined,
         }, p);
         break;
@@ -1062,6 +1196,9 @@ wss.on('connection', (ws) => {
         break;
       case 'build': R.build(p, d); break;
       case 'demolish': R.demolish(p, d.id); break;
+      case 'repair': R.repair(p, d.id); break;
+      case 'lootTake': R.takeLoot(p, d.id); break;
+      case 'punch': R.punch(p, d.id); break;
       case 'gemPick': R.pickGem(p); break;
       case 'relicPick': R.pickRelic(p); break;
       case 'gemDrop': R.dropGem(d.x, d.z, d.y, p); break;

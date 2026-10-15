@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Nuit Blanche — hors ligne</title>
+<style>
+  html, body { margin: 0; height: 100%; background: radial-gradient(circle at 50% 35%, #5a2a1a, #1a0e08); color: #fff4dc; font-family: 'Trebuchet MS', system-ui, sans-serif; }
+  .box { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+  img { width: 160px; height: 160px; }
+  h1 { margin: 12px 0 4px; } p { opacity: .85; }
+  button { margin-top: 14px; padding: 12px 28px; font-size: 17px; font-weight: 800; color: #fff; background: #c05040; border: 3px solid #7a2a20; border-radius: 10px; cursor: pointer; }
+  button:hover { filter: brightness(1.1); }
+</style></head>
+<body><div class="box"><div>
+  <img src="build/icon.png" alt="">
+  <h1>Impossible de joindre le serveur</h1>
+  <p>Le serveur du jeu ne répond pas (maintenance ou pas de connexion internet).</p>
+  <button id="retry">Réessayer</button>
+</div></div>
+<script>
+  const url = new URLSearchParams(location.search).get('url');
+  document.getElementById('retry').onclick = () => { location.href = url; };
+  setTimeout(() => { location.href = url; }, 15000);
+</script></body></html>
