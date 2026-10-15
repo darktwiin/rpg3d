@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -40,16 +40,17 @@ export const TANK_NIGHT = 8;
 export const SKINS = [
 // Chaque apparence a son style de combat.
   { id: 'Knight', name: 'Guerrier', role: 'Épée + bouclier (clic droit : parer)' },
-  { id: 'Barbarian', name: 'Barbare', role: 'Hache de guerre' },
-  { id: 'Mage', name: 'Mage', role: 'Bâton de feu (zone + brûlure)' },
+  { id: 'Barbarian', name: 'Barbare', role: 'Hache (coups rapides en arc)' },
+  { id: 'Mage', name: 'Mage', role: 'Boule de feu (zone + brûlure)' },
   { id: 'Rogue', name: 'Voleuse', role: 'Arc (lent, puissant, à distance)' },
 ];
 export const skinOk = (s) => SKINS.some((k) => k.id === s);
 // Styles de combat (dégâts de base, temps entre deux coups en secondes, portée…)
 export const CLASSES = {
   Knight: { kind: 'slash', weapon: 'sword', dmg: 20, cd: 0.42, reach: 3.6, block: 0.2 },          // parade : 80 % de dégâts en moins
-  Barbarian: { kind: 'cleave', weapon: 'waraxe', dmg: 30, cd: 0.7, reach: 3.9, cleave: 3.4 },   // touche tous les monstres devant lui
-  Mage: { kind: 'staff', weapon: 'staff', dmg: 8, cd: 0.62, reach: 4.2, aoe: 2.8, burn: { dps: 7, dur: 4 } },
+  Barbarian: { kind: 'cleave', weapon: 'waraxe', dmg: 24, cd: 0.47, reach: 3.7, cleave: 3.2 },  // touche tous les monstres devant lui
+  // mage : boule de feu lancée au loin, dégâts en zone à l'impact puis brûlure (1 par seconde pendant 3 s)
+  Mage: { kind: 'staff', weapon: 'staff', dmg: 12, cd: 0.8, range: 20, aoe: 2.8, burn: { dps: 1, dur: 3 }, missile: true },
   Rogue: { kind: 'shoot', weapon: 'bow', dmg: 40, cd: 1.0, range: 26, ranged: true },
 };
 export const classOf = (skin) => CLASSES[skin] || CLASSES.Knight;
@@ -57,10 +58,10 @@ export const MONSTER_HP = MONSTERS.brute.hp;
 // Nombre de monstres présents en même temps pendant la nuit
 // k = avancement de la nuit (0 au début, 1 à l'aube) : ils sont deux fois plus nombreux à la fin
 export function nightTarget(night, players, k = 0) {
-  return Math.round((5 + 3 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)));
+  return Math.round((10 + 6 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)));
 }
 export const CHASE_GIVEUP = 8;   // secondes de poursuite sans toucher le joueur avant d'abandonner
-export const SPAWN_MIN = 42, SPAWN_MAX = 58;   // distance d'apparition autour du Joyau
+export const SPAWN_MIN = 68, SPAWN_MAX = 88;   // distance d'apparition autour du Joyau
 
 // ---------- Progression ----------
 // Éclats gagnés à la fin de la nuit n (exponentiel : 1, 2, 3, 6, 10, 19, 34…)
@@ -111,7 +112,7 @@ export const TOWER = { range: 15, rate: 0.33, dmg: 1, heavyDmg: 3 };
 export const FROST = { range: 8, slow: 0.45, pulse: 1 };
 export const isWallType = (t) => t === 'wall' || t === 'door' || t === 'stonewall' || t === 'window';
 export const SPIKE_DPS = 14;
-export const PATH_SPEED = 1.6;   // +60 % de vitesse sur les dalles de chemin
+export const PATH_SPEED = 1.15;  // +15 % de vitesse sur les dalles de chemin
 
 // ---------- Compétences (achetées à la forge avec les éclats) ----------
 // col/row : position dans l'arbre ; req : compétences nécessaires avant
@@ -119,6 +120,7 @@ export const SKILL_TREES = [
   { id: 'build', name: 'Constructeur', icon: '🔨', color: '#e0a54a' },
   { id: 'gather', name: 'Récolteur', icon: '🪓', color: '#7fc46a' },
   { id: 'fight', name: 'Combattant', icon: '⚔', color: '#e06a5a' },
+  { id: 'move', name: 'Mobilité', icon: '💨', color: '#4aa8d8' },
 ];
 export const SKILLS = [
   // Constructeur : surtout la résistance des constructions, puis les tours
@@ -154,14 +156,41 @@ export const SKILLS = [
   { id: 'f_armor', tree: 'fight', row: 2, col: 2, name: 'Peau de pierre', desc: '−25% de dégâts reçus', cost: 8, req: ['f_move'] },
   { id: 'f_dmg2', tree: 'fight', row: 3, col: 1, name: 'Lame lourde', desc: '+50% de dégâts en plus', cost: 14, req: ['f_aspd'] },
   { id: 'f_cleave', tree: 'fight', row: 4, col: 1, name: 'Coup circulaire', desc: 'Chaque coup touche tous les monstres autour', cost: 20, req: ['f_dmg2'] },
+  // Mobilité : endurance, dash (Maj), double saut…
+  { id: 'm_stam1', tree: 'move', row: 0, col: 1, name: 'Endurance', desc: '+30 d’endurance', cost: 2, req: [] },
+  { id: 'm_dash', tree: 'move', row: 1, col: 0, name: 'Dash', desc: 'Appuie sur Maj : bond rapide dans la direction du mouvement (30 d’endurance)', cost: 4, req: ['m_stam1'] },
+  { id: 'm_djump', tree: 'move', row: 1, col: 1, name: 'Double saut', desc: 'Saute une 2ᵉ fois en l’air (15 d’endurance)', cost: 5, req: ['m_stam1'] },
+  { id: 'm_regen', tree: 'move', row: 1, col: 2, name: 'Second souffle', desc: 'L’endurance revient 50% plus vite', cost: 3, req: ['m_stam1'] },
+  { id: 'm_dodge', tree: 'move', row: 2, col: 0, name: 'Esquive', desc: 'Invulnérable pendant le dash', cost: 8, req: ['m_dash'] },
+  { id: 'm_jump', tree: 'move', row: 2, col: 1, name: 'Bond', desc: 'Sauts 25% plus hauts', cost: 6, req: ['m_djump'] },
+  { id: 'm_sprint', tree: 'move', row: 2, col: 2, name: 'Coureur', desc: 'Courir use 40% d’endurance en moins', cost: 6, req: ['m_regen'] },
+  { id: 'm_dash2', tree: 'move', row: 3, col: 0, name: 'Dash éclair', desc: 'Dash 40% moins cher et 30% plus long', cost: 12, req: ['m_dodge'] },
+  { id: 'm_glide', tree: 'move', row: 3, col: 1, name: 'Planeur', desc: 'Garde Espace enfoncé en l’air pour planer', cost: 12, req: ['m_jump'] },
+  { id: 'm_stam2', tree: 'move', row: 3, col: 2, name: 'Grand souffle', desc: '+50 d’endurance', cost: 12, req: ['m_sprint'] },
+  { id: 'm_charge', tree: 'move', row: 4, col: 0, name: 'Charge', desc: 'Le dash blesse les monstres traversés', cost: 18, req: ['m_dash2'] },
+  { id: 'm_speed', tree: 'move', row: 4, col: 2, name: 'Vent du nord', desc: '+10% de vitesse de déplacement', cost: 18, req: ['m_stam2'] },
 ];
 // Compétences retirées dans une mise à jour (remboursées automatiquement)
 export const OLD_SKILLS = { c_stairs: 3, c_door: 5, g_carry_old: 0 };
 export const SKILL_BY_ID = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
 
+// Endurance : courir, dash, double saut
+export const STAMINA = { max: 100, regen: 22, delay: 0.7, sprint: 14, dash: 30, djump: 15 };
+export const DASH = { speed: 22, time: 0.18, dodge: 0.3 };
+
+// ---------- Expérience du héros ----------
+// XP totale pour atteindre le niveau n (niveau 1 = 0 XP) : 60, 180, 360, 600…
+export const xpForLevel = (n) => 30 * (n - 1) * n;
+export function levelOf(xp) { let n = 1; while (xpForLevel(n + 1) <= xp && n < 99) n++; return n; }
+export const XP_KILL = { brute: 3, runner: 4, spitter: 6, tank: 25 };
+export const xpForNight = (n) => 15 + 10 * n;
+// bonus de niveau : +2 PV et +1 % de dégâts par niveau
+export const heroBonus = (lvl) => ({ hp: 2 * (lvl - 1), dmg: 1 + 0.01 * (lvl - 1) });
+
 // Effets des compétences possédées
-export function skillMods(list = []) {
+export function skillMods(list = [], level = 1) {
   const has = new Set(list);
+  const hb = heroBonus(level);
   return {
     has,
     buildHp: 1 + (has.has('c_hp1') ? 0.25 : 0) + (has.has('c_hp2') ? 0.5 : 0) + (has.has('c_hp3') ? 1 : 0) + (has.has('c_hp4') ? 1 : 0),
@@ -178,13 +207,25 @@ export function skillMods(list = []) {
     hitPow: has.has('g_power') ? 1.5 : 1,
     bush: has.has('g_bush'),
     carry: has.has('g_carry'),
-    dmg: (has.has('f_dmg1') ? 1.25 : 1) * (has.has('f_dmg2') ? 1.5 : 1),
-    maxHp: PLAYER_HP + (has.has('f_hp') ? 30 : 0),
-    speed: has.has('f_move') ? 1.12 : 1,
+    dmg: (has.has('f_dmg1') ? 1.25 : 1) * (has.has('f_dmg2') ? 1.5 : 1) * hb.dmg,
+    maxHp: PLAYER_HP + (has.has('f_hp') ? 30 : 0) + hb.hp,
+    speed: (has.has('f_move') ? 1.12 : 1) * (has.has('m_speed') ? 1.1 : 1),
     atkSpeed: has.has('f_aspd') ? 1.3 : 1,
     regen: has.has('f_regen') ? 2 : 1,
     armor: has.has('f_armor') ? 0.75 : 1,
     cleave: has.has('f_cleave'),
+    // mobilité
+    stamina: STAMINA.max + (has.has('m_stam1') ? 30 : 0) + (has.has('m_stam2') ? 50 : 0),
+    stamRegen: STAMINA.regen * (has.has('m_regen') ? 1.5 : 1),
+    sprintCost: STAMINA.sprint * (has.has('m_sprint') ? 0.6 : 1),
+    dash: has.has('m_dash'),
+    dashCost: STAMINA.dash * (has.has('m_dash2') ? 0.6 : 1),
+    dashDist: has.has('m_dash2') ? 1.3 : 1,
+    dodge: has.has('m_dodge'),
+    charge: has.has('m_charge'),
+    djump: has.has('m_djump'),
+    jump: has.has('m_jump') ? 1.12 : 1,   // ≈ +25 % de hauteur
+    glide: has.has('m_glide'),
   };
 }
 export function pieceCost(type, mods) {

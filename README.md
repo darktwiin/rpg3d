@@ -1,11 +1,22 @@
 # RPG 3D — Survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.1.0**
+Version actuelle : **ver.0.1.1**
+
+## Comptes
+Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
+(éclats, compétences, niveau du héros) est sauvegardée sur le serveur dans `data/accounts.json` et
+`data/profiles.json` (mots de passe hachés avec scrypt). Le navigateur garde la session : la fois suivante,
+un clic sur « Entrer au village » suffit. On peut aussi jouer en invité (progression liée au navigateur) ;
+en créant un compte depuis ce navigateur, la progression d'invité est reprise.
+
+## Niveau du héros
+Les monstres tués et les nuits survécues donnent de l'**expérience**. Chaque niveau donne +2 PV et +1 % de dégâts
+(d'autres améliorations du héros viendront s'y ajouter).
 
 ## Le village (lobby)
-On entre son pseudo et on arrive au village, où l'on voit les autres joueurs.
-- **Forge** : acheter des compétences avec les éclats (Constructeur, Récolteur, Combattant)
+On arrive au village, où l'on voit les autres joueurs.
+- **Forge** : acheter des compétences avec les éclats (Constructeur, Récolteur, Combattant, Mobilité)
 - **Piédestal** : classement des meilleures parties (solo, duo, trio, équipe de 4)
 - **Portail** : lancer la partie (seul, ou avec son groupe)
 - Inviter un joueur : s'approcher de lui et appuyer sur **E**, ou **Tab** pour la liste
@@ -18,13 +29,14 @@ Chaque apparence a son style de combat :
 | Classe | Arme | Style |
 |---|---|---|
 | Guerrier | Épée + bouclier | Coups rapides ; **clic droit maintenu** = parade (80 % des dégâts bloqués, on avance plus lentement) |
-| Barbare | Hache de guerre | Coups lents et lourds qui touchent tous les monstres devant lui |
-| Mage | Bâton de feu | Petits dégâts en zone, mais les monstres **brûlent** quelques secondes |
+| Barbare | Hache à une main | Coups rapides qui touchent tous les monstres devant lui |
+| Mage | Bâton de feu | Lance une **boule de feu** à distance : dégâts en zone à l'impact, puis brûlure (1 par seconde pendant 3 s) |
 | Voleuse | Arc | Tir lent mais puissant, à distance (vise avec la caméra) |
 
 ## Le principe
 - **Le jour** (4 min) : récolte du bois (arbres) et de la pierre (rochers), construis des défenses.
 - **La nuit** (2 min) : des monstres arrivent en continu pour détruire **le Joyau** (squelettes de base, squelettes encapuchonnés rapides dès la nuit 2, mages squelettes dès la nuit 5, Colosses en armure dès la nuit 8). Ils attaquent les joueurs sur leur route et cassent les murs qui les bloquent.
+- Les monstres apparaissent loin du Joyau (70 à 90 m) : on a le temps d'aller à leur rencontre.
 - Le nombre de monstres augmente à chaque nuit et avec le nombre de joueurs. Un monstre qui poursuit un joueur pendant 8 s sans réussir à le toucher abandonne et fonce vers le Joyau jusqu'à sa mort.
 - Si le Joyau est détruit, la partie recommence. Au lever du soleil, les monstres brûlent.
 - Le Joyau peut être porté (touche **E**) et posé où vous voulez, par exemple dans votre base.
@@ -38,8 +50,9 @@ Chaque apparence a son style de combat :
 | Touche | Action |
 |---|---|
 | ZQSD / flèches | Se déplacer |
-| Maj | Courir |
-| Espace | Sauter |
+| Maj (maintenu) | Courir (use l'endurance, barre verte) |
+| Maj (appui) | Dash — compétence Mobilité |
+| Espace | Sauter (2ᵉ appui en l'air : double saut ; maintenu : planer — compétences Mobilité) |
 | Clic gauche | Attaque de la classe / hache (arbre) / pioche (rocher) |
 | Clic droit (maintenu) | Parade au bouclier (Guerrier) |
 | B | Fenêtre de construction (choisir une pièce) |
@@ -47,7 +60,7 @@ Chaque apparence a son style de combat :
 | E | Prendre / poser le Joyau |
 | M | Carte |
 | Entrée | Chat |
-| Échap | Menu pause / options |
+| Échap | Ferme le menu ouvert / quitte la construction / pause |
 
 ## Constructions
 L'inventaire (bois, pierre, brindilles) est commun à tout le groupe. Les buissons donnent des brindilles.
@@ -61,13 +74,16 @@ L'inventaire (bois, pierre, brindilles) est commun à tout le groupe. Les buisso
 | Porte | 3 bois |
 | Escalier (monte d'un étage) | 3 bois |
 | Toit | 1 bois + 3 brindilles |
-| Dalle de chemin (+60 % de vitesse dessus) | 1 pierre |
+| Dalle de chemin (+15 % de vitesse dessus) | 1 pierre |
 | Mur de pierre* | 4 pierre |
 | Pieux* | 2 bois + 1 pierre |
 | Tour d'archer* | 5 bois + 3 pierre |
 | Tour de givre* | 3 bois + 5 pierre |
 
 \* à débloquer à la forge (arbre Constructeur)
+
+**Grille** : en mode construction, une grille de cases de 2 m s'affiche au sol. Au rez-de-chaussée, une pièce se cale
+à la hauteur de ses voisines (planchers, charpentes, murs) pour que tout s'emboîte même sur un terrain en pente.
 
 **Étages** : pendant la construction, la **molette** monte / descend d'un étage (Maj + molette change de pièce).
 Un étage repose sur une charpente, sur des murs, ou en balcon à côté d'un plancher déjà en hauteur.

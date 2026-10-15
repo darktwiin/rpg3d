@@ -22,11 +22,14 @@ export const ATTACKS = {
   mine: { dur: 0.7, hit: 0.53, tool: 'pick', variants: [{ clip: 'Pickaxing', t0: 1.2, strike: 1.98, t1: 2.6 }] },
   hammer: { dur: 0.45, hit: 0.55, tool: 'hammer', variants: [{ clip: 'Hammering', t0: 0.8, strike: 1.45, t1: 1.95 }] },
   // styles de combat
-  cleave: { dur: 0.72, hit: 0.55, tool: 'waraxe', variants: [
-    { clip: 'Melee_2H_Attack_Chop', t0: 0.25, strike: 0.74, t1: 1.35 },
-    { clip: 'Melee_2H_Attack_Slice', t0: 0.05, strike: 0.38, t1: 0.95 },
+  // barbare : hache à une main, coups rapides
+  cleave: { dur: 0.48, hit: 0.5, tool: 'waraxe', variants: [
+    { clip: 'Melee_1H_Attack_Chop', t0: 0.15, strike: 0.58, t1: 1.0 },
+    { clip: 'Melee_1H_Attack_Slice_Diagonal', t0: 0.12, strike: 0.42, t1: 0.85 },
+    { clip: 'Melee_1H_Attack_Slice_Horizontal', t0: 0.0, strike: 0.3, t1: 0.85 },
   ] },
-  staff: { dur: 0.6, hit: 0.55, tool: 'staff', variants: [{ clip: 'Melee_1H_Attack_Chop', t0: 0.15, strike: 0.58, t1: 1.0 }] },
+  // mage : il lance une boule de feu avec son bâton
+  staff: { dur: 0.62, hit: 0.5, tool: 'staff', variants: [{ clip: 'Ranged_Magic_Shoot', t0: 0.05, strike: 0.36, t1: 0.9 }] },
   // l'arc : on bande (Draw) puis on lâche la flèche (Release)
   shoot: { dur: 0.95, hit: 0.78, tool: 'bow', variants: [{ clip: 'Ranged_Bow_Release', t0: 0.0, strike: 0.07, t1: 0.75, pre: { clip: 'Ranged_Bow_Draw', t0: 0.1, t1: 1.15 } }] },
 };
@@ -199,8 +202,8 @@ export class CharacterRig {
     this.swordMat = modelMaterial('a_sword_1handed').clone();
     this.glowMats = [this.swordMat];
     // arme du pack Adventurers (matériaux copiés : elle peut briller avec la Larme)
-    const weaponProp = (name) => {
-      const o = prop(name, 1);
+    const weaponProp = (name, sc = 1) => {
+      const o = prop(name, sc);
       o.traverse((m) => { if (m.isMesh) { m.material = m.material.clone(); this.glowMats.push(m.material); } });
       const g = new THREE.Group(); g.add(o);
       o.updateMatrixWorld(true);
@@ -212,7 +215,7 @@ export class CharacterRig {
       axe: toolMesh('t_axe', this.toolMat, 1.2),
       pick: toolMesh('t_pickaxe', this.toolMat, 0.95),
       hammer: toolMesh('t_hammer', this.toolMat, 1.2),
-      waraxe: weaponProp('x_waraxe'),
+      waraxe: weaponProp('x_waraxe', 0.82),
       staff: weaponProp('x_staff'),
       bow: weaponProp('x_bow'),
     };
@@ -263,6 +266,9 @@ export class CharacterRig {
     }
     // parade du guerrier (haut du corps, en boucle)
     this.blockAct = act(getClip(animations, 'Melee_Blocking', true), true);
+    // dash (corps entier) et salto du double saut
+    this.dodgeActs = ['Dodge_Forward', 'Dodge_Backward', 'Dodge_Left', 'Dodge_Right'].map((n) => { const a = act(getClip(animations, n), false); a.paused = true; return a; });
+    this.dodge = null; this.flipT = 9;
     this.blocking = false; this.blockK = 0;
     this.atkN = 0;
     this.A.hit.paused = true; this.A.death.paused = true;
@@ -328,6 +334,14 @@ export class CharacterRig {
     this.body.rotation.set(0, 0, 0); this.body.position.set(0, 0, 0);
   }
 
+  // Dash : petite roulade dans la direction (0 avant, 1 arrière, 2 gauche, 3 droite)
+  startDodge(dir = 0) {
+    const a = this.dodgeActs[dir] || this.dodgeActs[0];
+    this.dodge = { a, t: 0 };
+    a.reset(); a.paused = false; a.timeScale = 1.6; a.play();
+  }
+  flip() { this.flipT = 0; }
+
   attack(kind, speed = 1) {
     if (this.atk || this.dead) return false;
     const def = ATTACKS[kind] || ATTACKS.slash;
@@ -392,6 +406,23 @@ export class CharacterRig {
     // parade
     this.blockK += ((this.blocking && !this.atk && !this.dead ? 1 : 0) - this.blockK) * Math.min(1, dt * 12);
     this.blockAct.weight = this.blockK * 30;
+
+    // ---- Dash ----
+    if (this.dodge) {
+      this.dodge.t += dt;
+      const k = this.dodge.t / 0.3;
+      this.dodge.a.weight = k < 1 ? Math.sin(Math.min(1, k) * Math.PI) * 60 + 1 : 0;
+      if (k >= 1) { this.dodge.a.weight = 0; this.dodge = null; }
+    }
+    // ---- Salto du double saut ----
+    this.flipT += dt;
+    if (this.flipT < 0.5 || this._flipping) {
+      // rotation autour des hanches (≈ 0,9 m)
+      const ang = this.flipT < 0.42 && !this.dead ? ss(0, 0.42, this.flipT) * Math.PI * 2 : 0, c = 0.9;
+      this.body.rotation.x = ang;
+      this.body.position.set(0, c - c * Math.cos(ang), -c * Math.sin(ang));
+      this._flipping = ang !== 0;
+    }
 
     // ---- Mort ----
     if (this.dead) {

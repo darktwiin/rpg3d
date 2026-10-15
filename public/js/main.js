@@ -98,8 +98,9 @@ const me = {
   id: null, rig: null, pos: new THREE.Vector3(), vy: 0, grounded: true, ry: 0, speed: 0,
   hp: W.PLAYER_HP, maxHp: W.PLAYER_HP, dead: false, deadT: 0, attackTarget: null, attackMonster: null, attackDir: 0,
   inv: { wood: 0, stone: 0, twig: 0 }, name: '', color: 0x2e6fd8, power: 0,
+  stam: 100, stamIdle: 0, tired: false, dash: null, jumps: 0, jumpHeld: false,
 };
-const profile = { token: lsGet('rpg3d_token') || '', shards: 0, skills: [], best: 0 };
+const profile = { token: lsGet('rpg3d_token') || '', shards: 0, skills: [], best: 0, xp: 0, account: lsGet('rpg3d_account') || null };
 let mods = W.skillMods([]);
 const others = new Map();
 const game = {
@@ -143,7 +144,9 @@ document.addEventListener('pointerlockchange', () => {
   mouseHeld = false;
   if (!isLocked() && playing()) {
     if (game.mode === 'chat') closeChat(false);
-    if (!game.mode) setMode('pause');
+    else if (performance.now() - lastEscT < 400) { /* déjà traité par la touche Échap */ }
+    else if (game.build.on && !game.mode) stopBuild();   // Échap : on quitte la construction
+    else if (!game.mode) setMode('pause');
   }
   updateStatus();
 });
@@ -215,7 +218,20 @@ $('btn-quit').onclick = () => {
 $('btn-pause-options').onclick = () => openOptions();
 
 // ===================== Clavier =====================
-let rebinding = null;
+let rebinding = null, lastEscT = -9;
+// Échap ferme toujours ce qui est ouvert, du plus « haut » au plus « bas »
+function escapeAll() {
+  lastEscT = performance.now();
+  if (!$('keys-panel').hidden) { $('keys-panel').hidden = true; $('options').hidden = false; return true; }
+  if (!$('options').hidden) { $('options').hidden = true; audio.play('ui'); return true; }
+  if (!playing()) return false;
+  if (game.mode === 'chat') { closeChat(true); return true; }
+  if (game.invite) { answerInvite(false); return true; }
+  if (game.mode) { setMode(null); lockMouse(); audio.play('ui'); return true; }
+  if (game.build.on) { stopBuild(); audio.play('ui'); return true; }
+  setMode('pause');
+  return true;
+}
 addEventListener('keydown', (e) => {
   if (rebinding) {
     e.preventDefault();
@@ -224,8 +240,7 @@ addEventListener('keydown', (e) => {
     renderKeybinds();
     return;
   }
-  if (e.code === 'Escape' && !$('keys-panel').hidden) { $('keys-panel').hidden = true; $('options').hidden = false; return; }
-  if (e.code === 'Escape' && !$('options').hidden) { $('options').hidden = true; return; }
+  if (e.code === 'Escape') { if (escapeAll()) e.preventDefault(); return; }
   const ae = document.activeElement;
   if (ae && ['INPUT', 'SELECT'].includes(ae.tagName) && ae.id !== 'chat-input') return;
   if (game.mode === 'chat') {
@@ -240,12 +255,12 @@ addEventListener('keydown', (e) => {
   const K = settings.keys;
   // Invitation : Y / N
   if (game.invite && (e.code === 'KeyY' || e.code === 'KeyN')) { answerInvite(e.code === 'KeyY'); return; }
-  if (e.code === 'Escape' && game.mode && game.mode !== 'pause') { closePanel(); return; }
   if (game.mode === 'craft' && e.code === K.build) { closePanel(); return; }
   if (e.code === K.chat || e.code === 'NumpadEnter') { e.preventDefault(); if (!game.mode) openChat(); return; }
   if (inHub() && e.code === 'Tab') { if (game.mode === 'players') closePanel(); else if (!game.mode) openPlayers(); return; }
   if (inGame() && e.code === K.map) { toggleMap(false); return; }
   if (game.mode) return;
+  if (e.code === K.run) tryDash();
   if (inGame() && e.code === K.build) openCraft();
   if (inGame() && game.build.on && e.code === K.demolish) demolishPiece();
   if (e.code === K.interact) interact();
@@ -427,11 +442,28 @@ function connect() {
 
 const handlers = {
   toast: (d) => toast(d.text),
+  authErr: (d) => {
+    $('title-error').textContent = d.text; audio.play('ui');
+    if (/Session/.test(d.text)) { try { localStorage.removeItem('rpg3d_account'); } catch {} renderLogin(); }
+  },
+  xp: (d) => {
+    const before = W.levelOf(profile.xp);
+    profile.xp = d.xp;
+    if (d.gain) popup(`+${d.gain} XP`, '#ffe08a');
+    if (d.level > before) {
+      mods = W.skillMods(profile.skills, d.level);
+      showBanner(`Niveau ${d.level} !`, `+2 PV et +1 % de dégâts`, 2500);
+      audio.play('levelUp');
+    }
+    updateHeroHud();
+  },
   profile: (d) => {
     const before = profile.shards;
-    Object.assign(profile, { token: d.token, shards: d.shards, skills: d.skills, best: d.best });
+    Object.assign(profile, { token: d.token, shards: d.shards, skills: d.skills, best: d.best, xp: d.xp || 0, account: d.account || null });
     lsSet('rpg3d_token', d.token);
-    mods = W.skillMods(profile.skills);
+    if (d.account) lsSet('rpg3d_account', d.account);
+    mods = W.skillMods(profile.skills, W.levelOf(profile.xp));
+    updateHeroHud();
     $('shards-n').textContent = profile.shards;
     if (game.mode === 'skills') renderSkills();
     if (inGame() && d.shards > before) popup(`+${d.shards - before} ◆ éclats`, '#d8b8ff');
@@ -481,11 +513,13 @@ const handlers = {
     const o = others.get(d.id);
     if (!o) return;
     if (d.k === 'block') { o.rig.blocking = !!d.on; return; }
+    if (d.k === 'dash') { o.rig.startDodge(d.dir || 0); return; }
+    if (d.k === 'jump2') { o.rig.flip(); return; }
     o.rig.attack(d.k, d.sp || 1);
     if (d.k === 'slash' || d.k === 'cleave' || d.k === 'staff') audio.play('swing', o.rig.root.position);
     // flèche des autres joueurs : partie au moment où la corde est lâchée
     if (d.k === 'shoot' && d.to) setTimeout(() => { if (o.rig) shootArrow(o.rig, d.to, null); }, 0.95 * 0.78 * 1000 / (d.sp || 1));
-    if (d.k === 'staff' && d.to) setTimeout(() => fireBurst(new THREE.Vector3(d.to.x, heightAt(d.to.x, d.to.z), d.to.z)), 0.6 * 0.55 * 1000 / (d.sp || 1));
+    if (d.k === 'staff' && d.to) setTimeout(() => { if (o.rig) shootFire(o.rig, d.to, null); }, 0.62 * 0.5 * 1000 / (d.sp || 1));
   },
   inv: (d) => {
     // inventaire commun au groupe
@@ -691,6 +725,7 @@ function enterHub(d) {
   me.rig.revive(); me.rig.setHp(1); me.rig.carrying = false;
   me.dead = false; me.hp = me.maxHp;
   me.pos.set(d.you.x, 0, d.you.z); me.vy = 0; me.ry = d.you.ry;
+  me.stam = mods.stamina; me.tired = false; me.dash = null; me.jumps = 0;
   camYaw = 0; camPitch = 0.25;
   camTarget.copy(me.pos);
   clearOthers();
@@ -721,6 +756,7 @@ function enterGame(d) {
   game.over = false;
   game.solo = d.solo; game.host = d.host;
   game.survived = d.survived || 0;
+  me.stam = mods.stamina; me.tired = false; me.dash = null; me.jumps = 0;
   game.clock.time = d.clock.time; game.clock.night = d.clock.night;
   me.id = d.you.id;
   ensureMyRig(d.you.color, d.you.name, d.you.skin);
@@ -772,12 +808,32 @@ function enterGame(d) {
 // ===================== Écran titre =====================
 const nameInput = $('name');
 nameInput.value = lsGet('rpg3d_name') || '';
-function enterVillage() {
+// Comptes : connexion, création, session mémorisée, ou invité
+function renderLogin() {
+  const acc = lsGet('rpg3d_account');
+  $('login-box').hidden = !!acc;
+  $('session-box').hidden = !acc;
+  $('session-name').textContent = acc || '';
+  $('btn-enter').hidden = !acc;
+  $('btn-guest').hidden = !!acc;
+}
+function enterVillage(mode) {
   audio.init(); audio.play('ui');
-  const n = nameInput.value.trim() || 'Aventurier' + Math.floor(Math.random() * 1000);
-  lsSet('rpg3d_name', n);
+  $('title-error').textContent = '';
   if (!ws || ws.readyState !== 1) { $('title-error').textContent = 'Pas encore connecté au serveur…'; return; }
-  send({ type: 'hello', name: n, token: profile.token, skin: chosenSkin });
+  const acc = lsGet('rpg3d_account');
+  if (mode === 'session' && acc) return send({ type: 'hello', auth: 'session', name: acc, token: profile.token, skin: chosenSkin });
+  const n = nameInput.value.trim();
+  if (mode === 'login' || mode === 'register') {
+    if (!n) { $('title-error').textContent = 'Entre ton pseudo.'; nameInput.focus(); return; }
+    if (!$('pass').value) { $('title-error').textContent = 'Entre ton mot de passe.'; $('pass').focus(); return; }
+    lsSet('rpg3d_name', n);
+    return send({ type: 'hello', auth: mode, name: n, pass: $('pass').value, token: profile.token, skin: chosenSkin });
+  }
+  // invité
+  const g = n || 'Aventurier' + Math.floor(Math.random() * 1000);
+  lsSet('rpg3d_name', g);
+  send({ type: 'hello', name: g, token: profile.token, skin: chosenSkin });
 }
 
 // ----- Choix de l'apparence (pack KayKit Adventurers) -----
@@ -804,8 +860,18 @@ function renderSkins() {
   }
 }
 renderSkins();
-$('btn-enter').onclick = enterVillage;
-nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') enterVillage(); });
+$('btn-enter').onclick = () => enterVillage('session');
+$('btn-login').onclick = () => enterVillage('login');
+$('btn-register').onclick = () => enterVillage('register');
+$('btn-guest').onclick = () => enterVillage('guest');
+$('btn-logout').onclick = () => {
+  // on oublie la session : le prochain joueur de ce navigateur repart de zéro (ou se connecte)
+  lsSet('rpg3d_account', ''); lsSet('rpg3d_token', ''); profile.token = ''; profile.account = null;
+  try { localStorage.removeItem('rpg3d_account'); } catch {}
+  renderLogin(); audio.play('ui');
+};
+for (const el of [nameInput, $('pass')]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') enterVillage('login'); });
+renderLogin();
 document.addEventListener('click', () => audio.init(), { once: true });
 
 // ===================== Village : groupe, invitations, panneaux =====================
@@ -856,46 +922,63 @@ function renderPlayers() {
 }
 
 function openSkills() { setMode('skills'); renderSkills(); audio.play('anvil', village.anvilPos); }
+let skillTab = 'build';
 function renderSkills() {
   $('skills-shards').textContent = profile.shards;
+  const owned = new Set(profile.skills);
+  // onglets : un arbre à la fois, en grand
+  const tabs = $('skill-tabs');
+  tabs.innerHTML = '';
+  for (const tree of W.SKILL_TREES) {
+    const all = W.SKILLS.filter((s) => s.tree === tree.id), n = all.filter((s) => owned.has(s.id)).length;
+    const b = document.createElement('button');
+    b.className = tree.id === skillTab ? 'on' : '';
+    b.innerHTML = `${tree.icon} ${tree.name} <small>${n}/${all.length}</small>`;
+    b.onclick = () => { skillTab = tree.id; audio.play('ui'); renderSkills(); };
+    tabs.append(b);
+  }
   const box = $('skill-trees');
   box.innerHTML = '';
-  const owned = new Set(profile.skills);
-  for (const tree of W.SKILL_TREES) {
-    const col = document.createElement('div');
-    col.className = 'tree';
-    col.innerHTML = `<div class="tree-title" style="color:${tree.color}">${tree.icon} ${tree.name}</div>`;
-    const grid = document.createElement('div');
-    grid.className = 'tree-grid';
-    const svgNS = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(svgNS, 'svg');
-    svg.setAttribute('viewBox', '0 0 300 560');
-    svg.setAttribute('preserveAspectRatio', 'none');
-    grid.append(svg);
-    const nodes = W.SKILLS.filter((s) => s.tree === tree.id);
-    const P = (s) => ({ x: [16.5, 50, 83.5][s.col] * 3, y: s.row * 114 + 40 });
-    for (const s of nodes) for (const r of s.req) {
-      const a = P(W.SKILL_BY_ID[r]), b = P(s);
-      const line = document.createElementNS(svgNS, 'line');
-      line.setAttribute('x1', a.x); line.setAttribute('y1', a.y); line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
-      line.setAttribute('stroke', owned.has(r) ? tree.color : '#3a4054');
-      line.setAttribute('stroke-width', '3');
-      svg.append(line);
-    }
-    for (const s of nodes) {
-      const el = document.createElement('div');
-      const has = owned.has(s.id), reqOk = s.req.every((r) => owned.has(r)), afford = profile.shards >= s.cost;
-      el.className = 'node ' + (has ? 'owned' : !reqOk ? 'locked' : afford ? 'can' : 'poor');
-      el.style.left = [16.5, 50, 83.5][s.col] + '%';
-      el.style.top = (s.row * 114) + 'px';
-      el.innerHTML = `<div class="nname">${s.name}</div><div class="ndesc">${s.desc}</div><div class="ncost">${has ? '✔ Acquis' : '◆ ' + s.cost}</div>`;
-      el.title = has ? 'Déjà acquis' : !reqOk ? 'Achète d’abord la compétence précédente' : afford ? 'Cliquer pour acheter' : 'Pas assez d’éclats';
-      if (!has && reqOk && afford) el.onclick = () => send({ type: 'buySkill', id: s.id });
-      grid.append(el);
-    }
-    col.append(grid);
-    box.append(col);
+  const tree = W.SKILL_TREES.find((t) => t.id === skillTab) || W.SKILL_TREES[0];
+  const col = document.createElement('div');
+  col.className = 'tree';
+  const grid = document.createElement('div');
+  grid.className = 'tree-grid';
+  const nodes = W.SKILLS.filter((s) => s.tree === tree.id);
+  const ROW = 150, rows = Math.max(...nodes.map((s) => s.row)) + 1, H = rows * ROW;
+  grid.style.height = H + 'px';
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('viewBox', `0 0 300 ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  grid.append(svg);
+  const X = [17, 50, 83];
+  // traits : du bas de la compétence requise au haut de la suivante (sous les cases, couleur claire)
+  for (const s of nodes) for (const r of s.req) {
+    const a = W.SKILL_BY_ID[r];
+    const path = document.createElementNS(svgNS, 'path');
+    const x1 = X[a.col] * 3, y1 = a.row * ROW + 70, x2 = X[s.col] * 3, y2 = s.row * ROW + 14, my = (y1 + y2) / 2;
+    path.setAttribute('d', `M${x1} ${y1} C${x1} ${my} ${x2} ${my} ${x2} ${y2}`);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', owned.has(r) ? tree.color : '#d8bf98');
+    path.setAttribute('stroke-width', owned.has(r) ? '4' : '3');
+    path.setAttribute('vector-effect', 'non-scaling-stroke');
+    if (!owned.has(r)) path.setAttribute('stroke-dasharray', '6 5');
+    svg.append(path);
   }
+  for (const s of nodes) {
+    const el = document.createElement('div');
+    const has = owned.has(s.id), reqOk = s.req.every((r) => owned.has(r)), afford = profile.shards >= s.cost;
+    el.className = 'node ' + (has ? 'owned' : !reqOk ? 'locked' : afford ? 'can' : 'poor');
+    el.style.left = X[s.col] + '%';
+    el.style.top = (s.row * ROW + 10) + 'px';
+    el.innerHTML = `<div class="nname">${s.name}</div><div class="ndesc">${s.desc}</div><div class="ncost">${has ? '✔ Acquis' : (reqOk ? '' : '🔒 ') + '◆ ' + s.cost}</div>`;
+    el.title = has ? 'Déjà acquis' : !reqOk ? 'Achète d’abord la compétence précédente' : afford ? 'Cliquer pour acheter' : 'Pas assez d’éclats';
+    if (!has && reqOk && afford) el.onclick = () => send({ type: 'buySkill', id: s.id });
+    grid.append(el);
+  }
+  col.append(grid);
+  box.append(col);
 }
 
 let boardTab = 1;
@@ -980,6 +1063,14 @@ function updateInv() {
   $('inv-twig').textContent = me.inv.twig;
   if (game.mode === 'craft') renderCraft();
   if (game.build.on) renderBuildBar();
+}
+// Niveau et expérience du héros (village + partie)
+function updateHeroHud() {
+  const lvl = W.levelOf(profile.xp), a = W.xpForLevel(lvl), b = W.xpForLevel(lvl + 1);
+  document.querySelectorAll('.hero-lvl').forEach((e) => { e.textContent = lvl; });
+  document.querySelectorAll('.xp-fill').forEach((e) => { e.style.width = clamp((profile.xp - a) / (b - a) * 100, 0, 100) + '%'; });
+  $('hero-xp').textContent = `${profile.xp - a} / ${b - a} XP`;
+  $('hero-acc').textContent = profile.account ? `Compte : ${profile.account}` : 'Invité (progression sur ce navigateur)';
 }
 function updateHp() {
   $('hp-text').textContent = Math.max(0, Math.round(me.hp)) + ' / ' + me.maxHp;
@@ -1221,6 +1312,7 @@ function stopBuild() {
   buildings.showGhost(null);
 }
 $('craft-stop').onclick = () => { stopBuild(); closePanel(); };
+$('build-exit').onclick = () => { stopBuild(); audio.play('ui'); lockMouse(); };
 function toggleBuild() { if (game.build.on) stopBuild(); }
 function selectPiece(i) {
   const type = W.PIECE_ORDER[i];
@@ -1243,9 +1335,11 @@ function aimPoint() {
   return _rayPos;
 }
 function updateBuild() {
-  if (!game.build.on || game.mode) { buildings.showGhost(null); game.build.plan = null; return; }
+  if (!game.build.on || game.mode) { buildings.showGhost(null); buildings.showGrid(0, 0, false); game.build.plan = null; return; }
   const type = W.PIECE_ORDER[game.build.piece];
-  const plan = buildings.plan(type, aimPoint(), me.pos, nature.list, serverInv, game.god.free, mods, camYaw, game.build.lift || 0);
+  const aim = aimPoint();
+  buildings.showGrid(Math.round(aim.x / W.GRID) * W.GRID, Math.round(aim.z / W.GRID) * W.GRID, true);
+  const plan = buildings.plan(type, aim, me.pos, nature.list, serverInv, game.god.free, mods, camYaw, game.build.lift || 0);
   if (plan.lv !== game.build.plan?.lv) { game.build.plan = plan; renderBuildBar(); }
   game.build.plan = plan;
   buildings.showGhost(plan);
@@ -1299,7 +1393,7 @@ function tryAttack() {
   if (inHub()) { if (me.rig.attack(cls.kind, mods.atkSpeed)) { send({ type: 'act', k: cls.kind }); audio.play('swing', me.pos); } return; }
   const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
   // la voleuse vise loin avec son arc ; les autres frappent au corps à corps
-  const mon = cls.ranged ? (currentTarget ? null : monsters.findAlongAim(me.pos, camera, cls.range)) : monsters.findInFront(me.pos.x, me.pos.z, fx, fz, cls.reach - 1.4);
+  const mon = cls.ranged || cls.missile ? (currentTarget ? null : monsters.findAlongAim(me.pos, camera, cls.range)) : monsters.findInFront(me.pos.x, me.pos.z, fx, fz, cls.reach - 1.4);
   const t = mon ? null : currentTarget;
   const kind = t ? (t.kind === 'tree' ? 'chop' : t.kind === 'rock' ? 'mine' : cls.kind) : cls.kind;
   const combat = kind === cls.kind;
@@ -1315,7 +1409,7 @@ function tryAttack() {
   else me.attackDir = Math.atan2(fx, fz);
   // point visé (flèche, boule de feu)
   me.aimTo = mon ? { x: mon.rig.root.position.x, y: mon.rig.root.position.y + 1.1, z: mon.rig.root.position.z }
-    : kind === 'shoot' ? aimFar(cls.range) : kind === 'staff' ? { x: me.pos.x + fx * 2.2, y: me.pos.y, z: me.pos.z + fz * 2.2 } : null;
+    : kind === 'shoot' ? aimFar(cls.range) : kind === 'staff' ? aimGround(cls.range) : null;
   send({ type: 'act', k: kind, sp, to: me.aimTo });
   if (kind === 'slash' || kind === 'cleave' || kind === 'staff') audio.play('swing', me.pos);
 }
@@ -1375,6 +1469,66 @@ function fireBurst(p) {
   fx.puff(new THREE.Vector3(p.x, p.y + 0.3, p.z), 0xff9a40, 5, 0.7);
   audio.play('fire', p);
 }
+// Boule de feu du mage : part du bâton, explose à l'impact (dégâts en zone + brûlure)
+const fireballs = [];
+let fireTex = null;
+function fireballMesh() {
+  if (!fireTex) {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(255,250,200,1)'); gr.addColorStop(0.3, 'rgba(255,170,50,0.9)'); gr.addColorStop(1, 'rgba(255,60,0,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+    fireTex = new THREE.CanvasTexture(c);
+  }
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  sp.scale.setScalar(0.8);
+  return sp;
+}
+function shootFire(rig, to, mon, mine = false) {
+  const from = new THREE.Vector3();
+  const st = rig.tools.staff;
+  if (st) { st.updateMatrixWorld(true); from.set(0, (st.userData.len || 1) * 0.92, 0).applyMatrix4(st.matrixWorld); }
+  else rig.root.getWorldPosition(from).setY(from.y + 1.4);
+  const target = new THREE.Vector3(to.x, to.y ?? heightAt(to.x, to.z), to.z);
+  const mesh = fireballMesh();
+  mesh.position.copy(from);
+  worldRoot.add(mesh);
+  const dist = from.distanceTo(target);
+  fireballs.push({ mesh, from, to: target, t: 0, dur: Math.max(0.1, dist / 24), mon, mine, arc: dist * 0.06 });
+  audio.play('fire', from);
+}
+function updateFireballs(dt) {
+  for (let i = fireballs.length - 1; i >= 0; i--) {
+    const f = fireballs[i];
+    f.t += dt;
+    const k = Math.min(1, f.t / f.dur);
+    if (f.mon && !f.mon.dead) f.to.set(f.mon.rig.root.position.x, f.mon.rig.root.position.y + 0.9, f.mon.rig.root.position.z);
+    f.mesh.position.lerpVectors(f.from, f.to, k);
+    f.mesh.position.y += Math.sin(k * Math.PI) * f.arc;
+    f.mesh.scale.setScalar(0.7 + Math.sin(f.t * 30) * 0.1);
+    if (Math.random() < 0.7) fx.spawn({ geo: fx.box, mat: fireMats[(Math.random() * 3) | 0], pos: f.mesh.position.clone(), vel: new THREE.Vector3((Math.random() - 0.5), 0.8, (Math.random() - 0.5)), size: 0.07, life: 0.35, gravity: -1, drag: 2 });
+    if (k >= 1) {
+      worldRoot.remove(f.mesh); f.mesh.material.dispose();
+      fireballs.splice(i, 1);
+      const c = new THREE.Vector3(f.to.x, heightAt(f.to.x, f.to.z), f.to.z);
+      fireBurst(c);
+      if (f.mine) { send({ type: 'hitM', id: f.mon && !f.mon.dead ? f.mon.id : null, x: +c.x.toFixed(2), z: +c.z.toFixed(2) }); camShake = Math.max(camShake, 0.06); }
+    }
+  }
+}
+// point visé au sol (ou au loin) le long du regard de la caméra
+function aimGround(range) {
+  camera.getWorldDirection(_ray);
+  const p = camera.position.clone();
+  for (let d = 0; d < range + camDist; d += 0.4) {
+    p.addScaledVector(_ray, 0.4);
+    if (p.y <= heightAt(p.x, p.z)) break;
+  }
+  const dx = p.x - me.pos.x, dz = p.z - me.pos.z, dd = Math.hypot(dx, dz);
+  if (dd > range) { p.x = me.pos.x + dx / dd * range; p.z = me.pos.z + dz / dd * range; }
+  p.y = heightAt(p.x, p.z) + 0.3;
+  return { x: p.x, y: p.y, z: p.z };
+}
 function onToolHit() {
   if (!inGame()) return;
   const mon = me.attackMonster;
@@ -1385,12 +1539,8 @@ function onToolHit() {
     return;
   }
   if (k === 'staff') {
-    // boule de feu : brûle tous les monstres autour du point d'impact
-    const p = mon && !mon.dead ? mon.rig.root.position : new THREE.Vector3(me.aimTo?.x ?? me.pos.x, 0, me.aimTo?.z ?? me.pos.z);
-    const c = new THREE.Vector3(p.x, heightAt(p.x, p.z), p.z);
-    fireBurst(c);
-    send({ type: 'hitM', id: mon && !mon.dead ? mon.id : null, x: +c.x.toFixed(2), z: +c.z.toFixed(2) });
-    camShake = 0.12;
+    // boule de feu lancée vers la cible (ou là où l'on vise)
+    shootFire(me.rig, me.aimTo || aimGround(cls.range), mon && !mon.dead ? mon : null, true);
     return;
   }
   if (mon) {
@@ -1484,6 +1634,43 @@ function updateEnvironment(dt, time, focus) {
 
 // ===================== Joueur =====================
 const tmpV = new THREE.Vector3();
+// ----- Endurance, dash, double saut -----
+function useStam(n) {
+  me.stam = Math.max(0, me.stam - n);
+  me.stamIdle = 0;
+  if (me.stam <= 0) me.tired = true;   // à bout de souffle : il faut récupérer un peu
+}
+function tryDash() {
+  if (!mods.dash || me.dead || me.dash || !me.rig || me.rig.attacking || (inGame() && gem.state.carrier === me.id)) return;
+  if (me.stam < mods.dashCost) { flashStam(); return; }
+  let fx = 0, fz = 0;
+  if (pressed('forward') || keys.ArrowUp) fz += 1;
+  if (pressed('back') || keys.ArrowDown) fz -= 1;
+  if (pressed('left') || keys.ArrowLeft) fx += 1;
+  if (pressed('right') || keys.ArrowRight) fx -= 1;
+  let dx, dz;
+  if (fx || fz) {
+    const len = Math.hypot(fx, fz); fx /= len; fz /= len;
+    const sn = Math.sin(camYaw), cs = Math.cos(camYaw);
+    dx = fz * -sn + fx * -cs; dz = fz * -cs + fx * sn;
+  } else { dx = Math.sin(me.ry); dz = Math.cos(me.ry); }
+  useStam(mods.dashCost);
+  me.dash = { t: 0, dx, dz, hit: new Set() };
+  me.rig.startDodge(0);
+  audio.play('dash', me.pos);
+  fx2Puff();
+  send({ type: inGame() ? 'dash' : 'hubDash', dir: 0 });
+}
+function fx2Puff() { fx.puff(new THREE.Vector3(me.pos.x, me.pos.y + 0.2, me.pos.z), 0xe8e0d0, 4, 0.5); }
+let stamShown = -1, stamFlashT = 0;
+function flashStam() { stamFlashT = 0.5; $('stam').classList.add('flash'); }
+function updateStamHud() {
+  const k = Math.round(clamp(me.stam / mods.stamina, 0, 1) * 200);
+  if (k !== stamShown) { stamShown = k; $('stam-fill').style.width = (k / 2) + '%'; }
+  $('stam').classList.toggle('tired', me.tired);
+  $('stam').classList.toggle('full', k >= 200);
+  if (stamFlashT > 0 && (stamFlashT -= 1 / 60) <= 0) $('stam').classList.remove('flash');
+}
 function updatePlayer(dt) {
   const rig = me.rig;
   const carrying = inGame() && gem.state.carrier === me.id;
@@ -1497,7 +1684,10 @@ function updatePlayer(dt) {
     if (pressed('right') || keys.ArrowRight) fx -= 1;
   }
   const moving = fx || fz;
-  const running = pressed('run');
+  // endurance : courir la vide, elle revient quand on ne force plus
+  const wantRun = pressed('run') && moving && canMove;
+  const running = wantRun && !me.tired && me.stam > 0;
+  if (running) useStam(mods.sprintCost * dt);
   let speed = (running ? RUN_SPEED : WALK_SPEED) * mods.speed;
   if (rig.attacking) speed *= rig.atk?.kind === 'shoot' ? 0.5 : 0.3;
   if (rig.blocking) speed *= 0.5;
@@ -1508,7 +1698,26 @@ function updatePlayer(dt) {
   if (inWater) speed *= 0.6;
 
   const bx = me.pos.x, bz = me.pos.z;
-  if (moving) {
+  // dash : bond très rapide pendant un court instant
+  if (me.dash) {
+    const D = me.dash;
+    D.t += dt;
+    const k = Math.min(dt, Math.max(0, W.DASH.time * mods.dashDist - (D.t - dt)));
+    me.pos.x += D.dx * W.DASH.speed * k;
+    me.pos.z += D.dz * W.DASH.speed * k;
+    me.ry += wrap(Math.atan2(D.dx, D.dz) - me.ry) * Math.min(1, dt * 20);
+    if (mods.charge && inGame()) {
+      const ids = [];
+      for (const m of monsters.map.values()) {
+        if (m.dead || D.hit.has(m.id)) continue;
+        const mp = m.rig.root.position;
+        if (Math.hypot(mp.x - me.pos.x, mp.z - me.pos.z) < 1.7) { D.hit.add(m.id); ids.push(m.id); audio.play('swordHit', mp); }
+      }
+      if (ids.length) { send({ type: 'dashHit', ids }); camShake = 0.12; }
+    }
+    if (D.t > W.DASH.time * mods.dashDist + 0.12) me.dash = null;
+  }
+  if (moving && !me.dash) {
     const len = Math.hypot(fx, fz); fx /= len; fz /= len;
     const sn = Math.sin(camYaw), cs = Math.cos(camYaw);
     const dx = fz * -sn + fx * -cs, dz = fz * -cs + fx * sn;
@@ -1527,14 +1736,30 @@ function updatePlayer(dt) {
   }
 
   const groundY = groundH(me.pos.x, me.pos.z, me.pos.y);
-  if (canMove && pressed('jump') && me.grounded && !rig.attacking) { me.vy = JUMP_FORCE * (inWater ? 0.7 : 1); me.grounded = false; audio.play('jump', me.pos); }
+  const jumpDown = canMove && pressed('jump'), jumpEdge = jumpDown && !me.jumpHeld;
+  me.jumpHeld = jumpDown;
+  if (jumpDown && me.grounded && !rig.attacking) { me.vy = JUMP_FORCE * mods.jump * (inWater ? 0.7 : 1); me.grounded = false; me.jumps = 1; audio.play('jump', me.pos); }
+  else if (jumpEdge && !me.grounded && mods.djump && me.jumps < 2 && me.stam >= W.STAMINA.djump && !inWater) {
+    // double saut (avec un salto)
+    me.jumps = 2; me.vy = JUMP_FORCE * mods.jump * 0.95; useStam(W.STAMINA.djump);
+    rig.flip(); audio.play('jump', me.pos); send({ type: inGame() ? 'jump2' : 'hubJump2' });
+    fx2Puff();
+  }
   if (!me.grounded) {
     me.vy -= GRAVITY * dt;
+    // planeur : Espace maintenu en descendant
+    if (mods.glide && jumpDown && me.vy < -1.6 && me.stam > 0) { me.vy = -1.6; useStam(9 * dt); }
     me.pos.y += me.vy * dt;
-    if (me.pos.y <= groundY) { me.pos.y = groundY; if (me.vy < -6) audio.play('land', me.pos); me.vy = 0; me.grounded = true; }
+    if (me.pos.y <= groundY) { me.pos.y = groundY; if (me.vy < -6) audio.play('land', me.pos); me.vy = 0; me.grounded = true; me.jumps = 0; }
   } else if (me.pos.y - groundY > 0.35) me.grounded = false;
   else me.pos.y = groundY;
   me.speed = Math.hypot(me.pos.x - bx, me.pos.z - bz) / Math.max(dt, 1e-4);
+  if (me.dash) me.speed = Math.min(me.speed, 5);
+  // récupération de l'endurance
+  me.stamIdle += dt;
+  if (me.stamIdle > W.STAMINA.delay) me.stam = Math.min(mods.stamina, me.stam + mods.stamRegen * dt);
+  if (me.tired && me.stam > mods.stamina * 0.3) me.tired = false;
+  updateStamHud();
 
   if (mouseHeld && isLocked() && !game.mode && !game.build.on) tryAttack();
 
@@ -1681,6 +1906,7 @@ function tick(dt) {
     nature.update(dt, time, wind.uWind.value, focus, nightAmount);
     updateFlyers(dt);
     updateArrows(dt);
+  updateFireballs(dt);
     hudT -= dt;
     if (hudT <= 0) {
       hudT = 0.2; updateClockHud(); updatePowerHud();
@@ -1725,6 +1951,8 @@ window.__W = W;
 window.__game = {
   me, nature, others, camera, monsters, buildings, gem, game, keys, tryAttack, send, audio, village, profile, renderer, flyers, setBlock,
   mySkin: (s) => ensureMyRig(me.color, me.name, s),
+  testSkills: (l) => { mods = W.skillMods(l, W.levelOf(profile.xp)); me.stam = mods.stamina; },
+  get mods() { return mods; },
   setView: (yaw, pitch, dist) => { camYaw = yaw; camPitch = pitch; camDist = dist; },
   pause: (v = true) => { paused = v; },
   advance: (sec, step = 1 / 30) => {
@@ -1734,7 +1962,8 @@ window.__game = {
     renderer.render(scene, camera);
     return { simMs: t1 - t0, renderMs: performance.now() - t1 };
   },
-  setBuild: (on, piece = 0) => { if (game.build.on !== on) toggleBuild(); selectPiece(piece); },
+  setBuild: (on, piece = 0) => { if (on) choosePiece(piece); else stopBuild(); },
+  W,
   place: () => placePiece(),
   interact: () => interact(),
   openAdmin: () => openAdmin(),

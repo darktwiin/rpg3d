@@ -45,11 +45,53 @@ function saveJSON(name, data) {
   }, 1000);
 }
 const profiles = loadJSON('profiles.json', {});
+// Comptes : pseudo + mot de passe (haché avec scrypt) -> jeton du profil
+const accounts = loadJSON('accounts.json', {});
+const accKey = (name) => String(name || '').trim().toLowerCase();
+const hashPass = (pass, salt) => crypto.scryptSync(String(pass), salt, 32).toString('hex');
+function checkPass(acc, pass) {
+  const h = Buffer.from(hashPass(pass, acc.salt), 'hex'), ref = Buffer.from(acc.hash, 'hex');
+  return h.length === ref.length && crypto.timingSafeEqual(h, ref);
+}
+// Renvoie { token, name } ou { err }
+function authenticate(d, p) {
+  const name = String(d.name || '').replace(/[<>]/g, '').trim().slice(0, 16);
+  const key = accKey(name), acc = accounts[key];
+  const mode = d.auth;
+  if (mode === 'register') {
+    if (!/^[\p{L}\p{N} _.-]{3,16}$/u.test(name)) return { err: 'Pseudo : 3 à 16 lettres ou chiffres.' };
+    if (String(d.pass || '').length < 4) return { err: 'Mot de passe : au moins 4 caractères.' };
+    if (acc) return { err: 'Ce pseudo est déjà pris.' };
+    // on garde la progression faite en invité sur ce navigateur
+    const t = typeof d.token === 'string' && profiles[d.token] && !profiles[d.token].account ? d.token : crypto.randomBytes(16).toString('hex');
+    const salt = crypto.randomBytes(16).toString('hex');
+    accounts[key] = { name, salt, hash: hashPass(d.pass, salt), token: t, created: Date.now() };
+    if (!profiles[t]) profiles[t] = { name, shards: 0, skills: [], best: 0, xp: 0, created: Date.now() };
+    profiles[t].account = key;
+    saveJSON('accounts.json', accounts);
+    return { token: t, name, account: true };
+  }
+  if (mode === 'login') {
+    p.tries = (p.tries || 0) + 1;
+    if (p.tries > 8) return { err: 'Trop d’essais, recharge la page.' };
+    if (!acc || !checkPass(acc, d.pass)) return { err: 'Pseudo ou mot de passe incorrect.' };
+    return { token: acc.token, name: acc.name, account: true };
+  }
+  if (mode === 'session') {
+    if (!acc || d.token !== acc.token) return { err: 'Session expirée : reconnecte-toi.' };
+    return { token: acc.token, name: acc.name, account: true };
+  }
+  // invité : progression liée au navigateur, pseudo des comptes protégés
+  if (acc) return { err: 'Ce pseudo appartient à un compte : connecte-toi avec ton mot de passe.' };
+  let t = d.token;
+  if (typeof t === 'string' && profiles[t]?.account) t = null;
+  return { token: t, name: name || 'Aventurier', account: false };
+}
 const leaderboard = loadJSON('leaderboard.json', { 1: [], 2: [], 3: [], 4: [] });
 
 function getProfile(token, name) {
   if (typeof token !== 'string' || !/^[a-z0-9]{16,48}$/.test(token)) token = crypto.randomBytes(12).toString('hex');
-  if (!profiles[token]) profiles[token] = { name, shards: 0, skills: [], best: 0, created: Date.now() };
+  if (!profiles[token]) profiles[token] = { name, shards: 0, skills: [], best: 0, xp: 0, created: Date.now() };
   profiles[token].name = name;
   // Compétences supprimées ou déplacées par une mise à jour : on rembourse
   const prof = profiles[token];
@@ -60,7 +102,7 @@ function getProfile(token, name) {
   return { token, prof: profiles[token] };
 }
 function sendProfile(p) {
-  send(p.ws, { type: 'profile', token: p.token, shards: p.prof.shards, skills: p.prof.skills, best: p.prof.best });
+  send(p.ws, { type: 'profile', token: p.token, shards: p.prof.shards, skills: p.prof.skills, best: p.prof.best, xp: p.prof.xp || 0, account: p.prof.account ? accounts[p.prof.account]?.name : null });
 }
 function recordScore(room) {
   if (room.adminUsed || room.survived <= 0 || room.recorded) return;
@@ -192,7 +234,7 @@ class Room {
   addPlayer(p, color) {
     hub.leave(p);
     p.where = 'room'; p.room = this; p.color = color;
-    p.mods = W.skillMods(p.prof.skills);
+    p.mods = W.skillMods(p.prof.skills, W.levelOf(p.prof.xp || 0));
     p.hp = p.mods.maxHp; p.dead = false;
     p.inv = this.inv;
     p.god = false; p.invuln = false; p.free = false;
@@ -313,6 +355,7 @@ class Room {
           p.prof.shards += gain;
           p.prof.best = Math.max(p.prof.best || 0, this.night);
           sendProfile(p);
+          this.giveXp(p, W.xpForNight(this.night));
         }
         saveJSON('profiles.json', profiles);
       }
@@ -541,7 +584,7 @@ class Room {
 
   // ---------------- Joueurs ----------------
   damagePlayer(p, dmg, from) {
-    if (p.dead || p.invuln || Date.now() < (p.protectUntil || 0)) return;
+    if (p.dead || p.invuln || Date.now() < (p.protectUntil || 0) || Date.now() < (p.dodgeUntil || 0)) return;
     if (from && from.T) from.lastDmgT = Date.now() / 1000;   // le monstre a touché sa cible
     // parade du guerrier : le bouclier encaisse presque tout
     const blocked = p.blocking ? W.classOf(p.skin).block : 0;
@@ -619,9 +662,9 @@ class Room {
     let targets = [];
     if (cls.aoe) {
       // mage : boule de feu autour du point d'impact (pas trop loin du joueur)
-      let cx = m ? m.x : num(d.x, p.x), cz = m ? m.z : num(d.z, p.z);
-      const dd = Math.hypot(cx - p.x, cz - p.z);
-      if (dd > cls.reach + 1) { cx = p.x + (cx - p.x) / dd * cls.reach; cz = p.z + (cz - p.z) / dd * cls.reach; }
+      let cx = d.x != null ? num(d.x, p.x) : m ? m.x : p.x, cz = d.z != null ? num(d.z, p.z) : m ? m.z : p.z;
+      const dd = Math.hypot(cx - p.x, cz - p.z), maxR = (cls.range || cls.reach) + 4;
+      if (dd > maxR) { cx = p.x + (cx - p.x) / dd * maxR; cz = p.z + (cz - p.z) / dd * maxR; }
       for (const o of this.monsters.values()) if (!o.dead && Math.hypot(o.x - cx, o.z - cz) < cls.aoe) targets.push(o);
     } else {
       if (!m) return;
@@ -651,7 +694,40 @@ class Room {
         this.broadcast({ type: 'mBurn', id: t.id, t: cls.burn.dur });
       }
       this.broadcast({ type: 'mHurt', id: t.id, hp: Math.max(0, t.hp), by: p.id });
-      if (t.hp <= 0) this.killMonster(t, false);
+      if (t.hp <= 0) { this.killMonster(t, false); this.giveXp(p, W.XP_KILL[t.kind] || 3); }
+    }
+  }
+
+  // Expérience du héros (sauvegardée sur le compte)
+  giveXp(p, n) {
+    if (this.adminUsed || !p.prof || n <= 0) return;
+    const before = W.levelOf(p.prof.xp || 0);
+    p.prof.xp = (p.prof.xp || 0) + n;
+    const lvl = W.levelOf(p.prof.xp);
+    if (lvl > before) {
+      p.mods = W.skillMods(p.prof.skills, lvl);
+      p.hp = Math.min(p.mods.maxHp, p.hp + W.heroBonus(lvl).hp - W.heroBonus(before).hp);
+      this.broadcast({ type: 'pHp', id: p.id, hp: Math.round(p.hp), max: p.mods.maxHp });
+      this.sys(`⭐ ${p.name} passe au niveau ${lvl} !`, 'info');
+      saveJSON('profiles.json', profiles);
+    }
+    send(p.ws, { type: 'xp', xp: p.prof.xp, gain: n, level: lvl });
+  }
+  // Dash « Charge » : blesse les monstres traversés
+  dashHit(p, ids) {
+    if (p.dead || !p.mods.charge || !Array.isArray(ids)) return;
+    const now = Date.now();
+    if (now - (p.lastDash || 0) > 600) return;   // seulement juste après un dash annoncé
+    if (p.dashHits >= 6) return;
+    const cls = W.classOf(p.skin);
+    for (const id of ids.slice(0, 6)) {
+      const m = this.monsters.get(String(id));
+      if (!m || m.dead || Math.hypot(m.x - p.x, m.z - p.z) > 5) continue;
+      p.dashHits++;
+      m.hp -= cls.dmg * p.mods.dmg;
+      if (!m.gemOnly) m.aggro = p.id;
+      this.broadcast({ type: 'mHurt', id: m.id, hp: Math.max(0, m.hp), by: p.id });
+      if (m.hp <= 0) { this.killMonster(m, false); this.giveXp(p, W.XP_KILL[m.kind] || 3); }
     }
   }
 
@@ -662,7 +738,11 @@ class Room {
       m.burnT -= dt;
       m.hp -= m.burnDps * dt;
       m.burnSync = (m.burnSync || 0) - dt;
-      if (m.hp <= 0) { this.broadcast({ type: 'mHurt', id: m.id, hp: 0, by: m.burnBy, burn: true }); this.killMonster(m, false); continue; }
+      if (m.hp <= 0) {
+        this.broadcast({ type: 'mHurt', id: m.id, hp: 0, by: m.burnBy, burn: true }); this.killMonster(m, false);
+        const k = this.players.get(m.burnBy); if (k) this.giveXp(k, W.XP_KILL[m.kind] || 3);
+        continue;
+      }
       if (m.burnSync <= 0) { m.burnSync = 0.5; this.broadcast({ type: 'mHurt', id: m.id, hp: Math.round(m.hp), burn: true }); }
     }
   }
@@ -866,9 +946,11 @@ wss.on('connection', (ws) => {
     // ----- Arrivée au village -----
     if (d.type === 'hello') {
       if (p.where) return;
-      p.name = String(d.name || 'Aventurier').replace(/[<>]/g, '').trim().slice(0, 16) || 'Aventurier';
+      const a = authenticate(d, p);
+      if (a.err) return send(ws, { type: 'authErr', text: a.err });
+      p.name = a.name;
       p.skin = W.skinOk(d.skin) ? d.skin : W.SKINS[0].id;
-      const { token, prof } = getProfile(d.token, p.name);
+      const { token, prof } = getProfile(a.token, p.name);
       p.token = token; p.prof = prof;
       hub.enter(p);
       console.log(`+ ${p.name} au village (${hub.players.size})`);
@@ -898,6 +980,8 @@ wss.on('connection', (ws) => {
           break;
         case 'act': hub.broadcast({ type: 'act', id: p.id, k: ['slash', 'cleave', 'staff', 'shoot'].includes(d.k) ? d.k : 'slash' }, p); break;
         case 'block': hub.broadcast({ type: 'act', id: p.id, k: 'block', on: !!d.on }, p); break;
+        case 'hubDash': hub.broadcast({ type: 'act', id: p.id, k: 'dash', dir: 0 }, p); break;
+        case 'hubJump2': hub.broadcast({ type: 'act', id: p.id, k: 'jump2' }, p); break;
         case 'chat': {
           const text = String(d.text || '').trim().slice(0, 200);
           const now = Date.now();
@@ -962,6 +1046,16 @@ wss.on('connection', (ws) => {
         break;
       case 'hit': R.hitResource(p, d.id); break;
       case 'hitM': R.hitMonster(p, d.id, d); break;
+      case 'dash': {
+        const now = Date.now();
+        if (now - (p.lastDash || 0) < 250 || p.dead) return;
+        p.lastDash = now; p.dashHits = 0;
+        if (p.mods.dodge) p.dodgeUntil = now + W.DASH.dodge * 1000;
+        R.broadcast({ type: 'act', id: p.id, k: 'dash', dir: clamp(Math.floor(num(d.dir)), 0, 3) }, p);
+        break;
+      }
+      case 'dashHit': R.dashHit(p, d.ids); break;
+      case 'jump2': R.broadcast({ type: 'act', id: p.id, k: 'jump2' }, p); break;
       case 'block':
         p.blocking = !!d.on && W.classOf(p.skin).block > 0;
         R.broadcast({ type: 'act', id: p.id, k: 'block', on: p.blocking }, p);

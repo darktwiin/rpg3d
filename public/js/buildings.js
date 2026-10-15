@@ -581,6 +581,9 @@ export class Buildings {
         if (type !== 'floor' && b.type === 'floor' && same(b)) out.push(b.y);
       }
     }
+    // grille : au rez-de-chaussée, une pièce se cale à la hauteur de ses voisines
+    // (planchers, charpentes et murs restent alignés même sur un terrain en pente)
+    ground = this.alignGround(type, x, z, rot, ground);
     const levels = [{ y: ground, lv: 0 }];
     for (const y of out) {
       const lv = Math.max(1, Math.round((y - ground) / WALL_H));
@@ -589,6 +592,52 @@ export class Buildings {
       if (y <= ground + 0.5 && y > ground - 1 && type !== 'floor') levels[0] = { y: Math.max(levels[0].y, y), lv: 0 };
     }
     return levels.sort((a, b) => a.y - b.y);
+  }
+
+  alignGround(type, x, z, rot, ground) {
+    let best = null;
+    const wallT = isWallType(type);
+    for (const b of this.map.values()) {
+      if (b.lv) continue;
+      const dx = Math.abs(b.x - x), dz = Math.abs(b.z - z);
+      if (dx < 0.1 && dz < 0.1) continue;
+      let ok = false;
+      if (type === 'floor' || type === 'base') ok = b.type === type && dx + dz < 2.1;
+      else if (wallT) ok = isWallType(b.type) && dx + dz < 2.1 && (dx > 0.1 || dz > 0.1);
+      if (!ok) continue;
+      // pas plus de 45 cm enfoncé dans le sol, ni de 1 m au-dessus
+      if (b.y < ground - 0.45 || b.y > ground + 1.0) continue;
+      if (!best || Math.abs(b.y - ground) < Math.abs(best - ground)) best = b.y;
+    }
+    return best ?? ground;
+  }
+
+  // Grille de construction autour du point visé (lignes posées sur le terrain, qui s'estompent)
+  showGrid(cx, cz, on) {
+    if (!on) { if (this.grid) this.grid.visible = false; return; }
+    if (!this.grid) {
+      this.grid = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      this.grid.renderOrder = 4;
+      this.grid.frustumCulled = false;
+      this.scene.add(this.grid);
+    }
+    this.grid.visible = true;
+    if (this.grid.userData.cx === cx && this.grid.userData.cz === cz) return;
+    this.grid.userData.cx = cx; this.grid.userData.cz = cz;
+    const N = 5, R = N * GRID, pos = [], col = [];
+    const fade = (x, z) => { const d = Math.hypot(x - cx, z - cz) / R; return Math.max(0, 1 - d * d) * 0.55; };
+    const add = (x, z) => { pos.push(x, this.groundAt(x, z, 99, heightAt(x, z)) + 0.06, z); const f = fade(x, z); col.push(f, f * 0.95, f * 0.8); };
+    // bords des cases : x = cx ± 1, ± 3… (les cases sont centrées sur la grille de 2 m)
+    for (let i = -N; i <= N; i++) {
+      const e = cx + i * GRID + GRID / 2;
+      for (let t = -R; t < R; t += 0.5) { add(e, cz + t); add(e, cz + t + 0.5); }
+      const f = cz + i * GRID + GRID / 2;
+      for (let t = -R; t < R; t += 0.5) { add(cx + t, f); add(cx + t + 0.5, f); }
+    }
+    const g = this.grid.geometry;
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.computeBoundingSphere();
   }
 
   // aim : point visé ; refY : hauteur de référence (les pieds du joueur) ; lift : étages en plus (molette)

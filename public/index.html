@@ -17,12 +17,28 @@
     <div class="panel lobby-panel">
       <h1>RPG 3D</h1>
       <div class="subtitle">Survie · Construction · Jusqu'à 4 joueurs</div>
-      <label class="field">Ton pseudo
-        <input id="name" maxlength="16" placeholder="Pseudo" autocomplete="off">
-      </label>
+      <div id="login-box">
+        <div class="field-row">
+          <label class="field">Pseudo
+            <input id="name" maxlength="16" placeholder="Pseudo" autocomplete="username">
+          </label>
+          <label class="field">Mot de passe
+            <input id="pass" type="password" maxlength="64" placeholder="Mot de passe" autocomplete="current-password">
+          </label>
+        </div>
+        <div class="acc-buttons">
+          <button id="btn-login" class="btn primary">Se connecter</button>
+          <button id="btn-register" class="btn">Créer un compte</button>
+        </div>
+        <div class="hint">Un compte sauvegarde ta progression (éclats, compétences, niveau) sur le serveur.</div>
+      </div>
+      <div id="session-box" hidden>
+        Connecté en tant que <b id="session-name"></b> · <button id="btn-logout" class="linkbtn">changer de compte</button>
+      </div>
       <div class="field-label">Ton apparence</div>
       <div id="skins"></div>
       <button id="btn-enter" class="btn primary">Entrer au village</button>
+      <button id="btn-guest" class="btn small ghost">Jouer en invité (sans compte)</button>
       <div id="title-error" class="error"></div>
       <div class="lobby-foot">
         <button id="btn-title-options" class="btn small ghost">⚙ Options</button>
@@ -36,6 +52,7 @@
     <!-- ----- Village ----- -->
     <div id="hud-hub">
       <div id="shards"><span class="shard-ico">◆</span> <b id="shards-n">0</b> éclats</div>
+      <div id="hero"><span class="lvl">Niv. <b class="hero-lvl">1</b></span> <span id="hero-xp">0 / 60 XP</span><div class="bar xpbar"><div class="fill xp-fill"></div></div><div id="hero-acc"></div></div>
       <div id="party">
         <div class="party-title">Groupe</div>
         <ul id="party-list"></ul>
@@ -64,12 +81,18 @@
           <div class="res"><span class="ico stone"></span><b id="inv-stone">0</b> Pierre</div>
           <div class="res"><span class="ico twig"></span><b id="inv-twig">0</b> Brindilles</div>
         </div>
-        <div id="hp"><div class="hp-label">❤ <span id="hp-text">100</span></div><div class="bar"><div id="hp-fill" class="fill"></div></div></div>
+        <div id="hp">
+          <div class="hp-label"><span class="lvl" title="Niveau du héros">Niv. <b class="hero-lvl">1</b></span> ❤ <span id="hp-text">100</span></div>
+          <div class="bar"><div id="hp-fill" class="fill"></div></div>
+          <div id="stam" class="bar" title="Endurance (courir, dash, double saut)"><div id="stam-fill" class="fill"></div></div>
+          <div class="bar xpbar" title="Expérience du héros"><div class="fill xp-fill"></div></div>
+        </div>
       </div>
       <div id="power" hidden></div>
       <div id="buildbar" hidden>
         <div id="build-slots"></div>
         <div id="build-hint"></div>
+        <button id="build-exit" class="btn small">✕ Quitter la construction <span class="kbd">Échap</span></button>
       </div>
       <div id="death" class="overlay" hidden>
         <div class="big">Tu es tombé…</div>
@@ -156,6 +179,7 @@
       <div class="panel skills-panel">
         <div class="panel-title">La Forge — compétences <span class="shards-inline">◆ <b id="skills-shards">0</b> éclats</span><button class="x" data-close>✕</button></div>
         <div class="hint left">Les éclats se gagnent en survivant aux nuits (1 la première nuit, puis de plus en plus). Les compétences sont permanentes.</div>
+        <div id="skill-tabs" class="tabs"></div>
         <div id="skill-trees"></div>
       </div>
     </div>
@@ -236,7 +260,7 @@
   </div>
 
   <div id="fade"></div>
-  <div id="version">ver.0.1.0</div>
+  <div id="version">ver.0.1.1</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

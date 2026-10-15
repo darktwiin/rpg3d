@@ -308,3 +308,38 @@ input, select { font: inherit; }
 .craft-card .desc { font-size: 10.5px; min-height: 0; }
 .craft-card .name { font-size: 13.5px; }
 .piece-img { width: 52px; height: 52px; }
+
+/* v0.1.1 : endurance, niveau du héros */
+#stam { height: 6px; margin-top: 4px; }
+#stam-fill { background: linear-gradient(180deg, #a8f070, #5cb83a); transition: width .08s linear; }
+#stam.tired #stam-fill { background: linear-gradient(180deg, #f0d070, #c09030); }
+#stam.flash { animation: stamflash .5s; }
+@keyframes stamflash { 30% { filter: brightness(1.8) drop-shadow(0 0 6px #ff6040); } }
+.xpbar { height: 4px; margin-top: 3px; }
+.xp-fill { background: linear-gradient(180deg, #ffe890, #e0b030); }
+.lvl { display: inline-block; padding: 0 5px; margin-right: 4px; border-radius: 4px; background: rgba(255, 220, 120, 0.2); color: #ffe08a; font-size: 12px; }
+.lvl b { color: #ffe08a !important; }
+#hero { top: 12px; left: 290px; font-size: 12px; min-width: 190px; padding: 2px 8px 4px; }
+#hero-acc { font-size: 11px; opacity: .8; margin-top: 2px; }
+#build-exit { margin: 6px auto 0; display: table; width: auto; padding: 4px 14px; pointer-events: auto; }
+
+/* Comptes (écran titre) */
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acc-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 4px; }
+#login-box .hint { font-size: 12px; margin: 2px 0 6px; text-align: center; }
+#session-box { text-align: center; margin: 4px 0 10px; font-size: 14px; }
+.linkbtn { background: none; border: 0; padding: 0; color: #9a4a1a; text-decoration: underline; cursor: pointer; font: inherit; }
+#btn-guest { display: block; margin: 8px auto 0; }
+
+/* Forge : un arbre à la fois, en grand et lisible */
+#skill-tabs { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 8px 0 4px; }
+#skill-tabs small { opacity: .75; margin-left: 4px; }
+#skill-trees { display: block; }
+.skills-panel { width: 760px; }
+.tree { padding: 14px 10px; }
+.tree-grid { height: auto; }
+.node { width: 29%; min-height: 96px; font-size: 13px; padding: 6px 8px 8px; z-index: 1; }
+.node .nname { font-size: 14.5px; }
+.node .ndesc { font-size: 12px; line-height: 1.3; }
+.node.locked { opacity: 1; filter: grayscale(0.85) brightness(0.97); }
+.node.locked .nname, .node.locked .ndesc { color: #8a7a68; }

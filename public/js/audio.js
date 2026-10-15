@@ -731,6 +731,22 @@ export class AudioEngine {
       }
     }; S.splashStep.verb = 0;
     S.jump = function (t, out) { burst(t, out, 'lowpass', 700, 0.8, 0.08, 0.15); };
+    // dash : souffle d'air qui file
+    S.dash = function (t, out) {
+      const g = self.gain(0, out);
+      const f = self.filter('bandpass', 600, 1.2, g);
+      f.frequency.setValueAtTime(500, t); f.frequency.exponentialRampToValueAtTime(2600, t + 0.18);
+      self.noise(t, 0.3, f);
+      self.env(g, t, 0.35, 0.02, 0.25);
+    }; S.dash.verb = 0.1;
+    S.levelUp = function (t, out) {
+      [67, 71, 74, 79, 83].forEach((n, i) => {
+        const g = self.gain(0, out);
+        self.osc('triangle', mtof(n), t + i * 0.08, 1.0, g);
+        self.osc('sine', mtof(n) * 2, t + i * 0.08, 0.5, self.gain(0.2, g));
+        self.env(g, t + i * 0.08, 0.12, 0.005, 0.9);
+      });
+    }; S.levelUp.verb = 0.6;
     S.land = function (t, out) { thump(t, out, 100, 50, 0.12, 0.35); burst(t, out, 'lowpass', 400, 0.8, 0.1, 0.25); };
     S.pickup = function (t, out) {
       const g = self.gain(0, out);

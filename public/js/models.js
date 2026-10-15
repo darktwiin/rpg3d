@@ -13,7 +13,7 @@ const PIRATE = ['Wood', 'Rocks', 'Gem_Blue', 'Gem_Green', 'Gem_Pink'];
 export const CHARACTERS = ['Knight', 'Barbarian', 'Mage', 'Ranger', 'Rogue',
   'Skeleton_Minion', 'Skeleton_Rogue', 'Skeleton_Mage', 'Skeleton_Warrior'];
 const ANIMS = ['Rig_Medium_General', 'Rig_Medium_MovementBasic', 'Rig_Medium_CombatMelee', 'Rig_Medium_CombatRanged',
-  'Rig_Medium_Tools', 'Rig_Medium_Special', 'Rig_Medium_Simulation'];
+  'Rig_Medium_Tools', 'Rig_Medium_Special', 'Rig_Medium_Simulation', 'Rig_Medium_MovementAdvanced'];
 // texture partagée selon le pack (préfixe du nom)
 const TEX_OF = (n) => n === 'a_sword_1handed' ? 'knight_texture' : n === 'a_mug_full' ? 'barbarian_texture'
   : ({ f: 'forest_texture', d: 'dungeon_texture', t: 'tools_bits_texture', s: 'skeleton_texture' })[n[0]];
