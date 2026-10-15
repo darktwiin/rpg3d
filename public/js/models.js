@@ -10,7 +10,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 export const KK = 0.78;
 
 const PIRATE = ['Wood', 'Rocks', 'Gem_Blue', 'Gem_Green', 'Gem_Pink'];
-export const CHARACTERS = ['Knight', 'Barbarian', 'Mage', 'Ranger', 'Rogue', 'Rogue_Hooded',
+export const CHARACTERS = ['Knight', 'Barbarian', 'Mage', 'Ranger', 'Rogue',
   'Skeleton_Minion', 'Skeleton_Rogue', 'Skeleton_Mage', 'Skeleton_Warrior'];
 const ANIMS = ['Rig_Medium_General', 'Rig_Medium_MovementBasic', 'Rig_Medium_CombatMelee', 'Rig_Medium_CombatRanged',
   'Rig_Medium_Tools', 'Rig_Medium_Special', 'Rig_Medium_Simulation'];
@@ -34,6 +34,8 @@ export async function loadModels(onProgress) {
     ['__decor', 'models/kk/decor.glb'],
     // constructions en bois (Wood Frame Base Build Set)
     ['__wood', 'models/kk/wood.glb'],
+    // armes des styles de combat (bouclier, hache de guerre, bâton, arc, flèche)
+    ['__weapons', 'models/kk/weapons.glb'],
   ];
   const texNames = [...new Set(statics.map(TEX_OF).filter(Boolean))];
   const total = jobs.length + texNames.length;
@@ -51,6 +53,10 @@ export async function loadModels(onProgress) {
     }),
   ]);
   for (const sc of GLTF.__decor.scenes) GLTF[sc.name] = { scene: sc };
+  for (const sc of GLTF.__weapons.scenes) {
+    GLTF[sc.name] = { scene: sc };
+    sc.traverse((o) => { if (o.isMesh) { o.material.metalness = 0; o.material.roughness = 0.7; } });
+  }
   // bois : couleurs unies, mates (une seule copie de chaque matériau pour tous les morceaux)
   const woodMats = new Map();
   for (const sc of GLTF.__wood.scenes) {
@@ -119,7 +125,7 @@ export function prop(name, scale = KK) {
   const o = src.clone(true);
   o.traverse((m) => {
     if (!m.isMesh) return;
-    if (name.startsWith('w_')) { /* matériaux du bois déjà prêts */ }
+    if (name.startsWith('w_') || name.startsWith('x_')) { /* matériaux déjà prêts */ }
     else if (m.material?.name !== 'glass') m.material = modelMaterial(name);
     else m.material = new THREE.MeshStandardMaterial({ color: '#ffd890', emissive: '#ffa040', emissiveIntensity: 0.8, transparent: true, opacity: 0.85 });
     m.castShadow = true; m.receiveShadow = true;

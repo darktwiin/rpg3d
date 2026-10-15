@@ -2,12 +2,13 @@
 // voleur, voleur encapuchonné), avec leurs animations (repos, marche, course, saut, coup,
 // coup reçu, mort) et les outils du pack KayKit RPG Tools tenus en main droite.
 import * as THREE from 'three';
-import { skinnedModel, staticGeometry, modelMaterial, KK } from './models.js';
+import { skinnedModel, staticGeometry, modelMaterial, prop, KK } from './models.js';
+import { classOf } from './world.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
-export const TOOLS = ['sword', 'axe', 'pick', 'hammer'];
+export const TOOLS = ['sword', 'axe', 'pick', 'hammer', 'waraxe', 'staff', 'bow'];
 
 // Durée de chaque geste et moment du coup (0..1). Chaque geste joue une animation du pack
 // KayKit Character Animations, recalée pour que l'outil frappe exactement au moment « hit » :
@@ -20,6 +21,14 @@ export const ATTACKS = {
   chop: { dur: 0.62, hit: 0.5, tool: 'axe', variants: [{ clip: 'Chopping', t0: -0.45, strike: 0.32, t1: 0.8 }] },
   mine: { dur: 0.7, hit: 0.53, tool: 'pick', variants: [{ clip: 'Pickaxing', t0: 1.2, strike: 1.98, t1: 2.6 }] },
   hammer: { dur: 0.45, hit: 0.55, tool: 'hammer', variants: [{ clip: 'Hammering', t0: 0.8, strike: 1.45, t1: 1.95 }] },
+  // styles de combat
+  cleave: { dur: 0.72, hit: 0.55, tool: 'waraxe', variants: [
+    { clip: 'Melee_2H_Attack_Chop', t0: 0.25, strike: 0.74, t1: 1.35 },
+    { clip: 'Melee_2H_Attack_Slice', t0: 0.05, strike: 0.38, t1: 0.95 },
+  ] },
+  staff: { dur: 0.6, hit: 0.55, tool: 'staff', variants: [{ clip: 'Melee_1H_Attack_Chop', t0: 0.15, strike: 0.58, t1: 1.0 }] },
+  // l'arc : on bande (Draw) puis on lâche la flèche (Release)
+  shoot: { dur: 0.95, hit: 0.78, tool: 'bow', variants: [{ clip: 'Ranged_Bow_Release', t0: 0.0, strike: 0.07, t1: 0.75, pre: { clip: 'Ranged_Bow_Draw', t0: 0.1, t1: 1.15 } }] },
 };
 
 // os du haut du corps (noms des os KayKit, sans les points)
@@ -184,18 +193,50 @@ export class CharacterRig {
     });
 
     // ---- Outils dans la main droite ----
+    this.cls = classOf(skin);
+    this.weapon = this.cls.weapon;
     this.toolMat = modelMaterial('t_axe').clone();
     this.swordMat = modelMaterial('a_sword_1handed').clone();
+    this.glowMats = [this.swordMat];
+    // arme du pack Adventurers (matériaux copiés : elle peut briller avec la Larme)
+    const weaponProp = (name) => {
+      const o = prop(name, 1);
+      o.traverse((m) => { if (m.isMesh) { m.material = m.material.clone(); this.glowMats.push(m.material); } });
+      const g = new THREE.Group(); g.add(o);
+      o.updateMatrixWorld(true);
+      g.userData.len = new THREE.Box3().setFromObject(o).max.y;
+      return g;
+    };
     this.tools = {
       sword: toolMesh('a_sword_1handed', this.swordMat, 1),
       axe: toolMesh('t_axe', this.toolMat, 1.2),
       pick: toolMesh('t_pickaxe', this.toolMat, 0.95),
       hammer: toolMesh('t_hammer', this.toolMat, 1.2),
+      waraxe: weaponProp('x_waraxe'),
+      staff: weaponProp('x_staff'),
+      bow: weaponProp('x_bow'),
     };
-    for (const k in this.tools) this.B.handR.add(this.tools[k]);
-    this.tool = 'sword';
+    this.B.handL = bone('handslotl');
+    for (const k in this.tools) (k === 'bow' ? this.B.handL : this.B.handR).add(this.tools[k]);
+    // le guerrier porte toujours son bouclier au bras gauche
+    if (this.cls.block) {
+      this.shield = weaponProp('x_shield');
+      this.B.handL.add(this.shield);
+    }
+    this.tool = this.weapon;
     this.toolPop = 1;
-    for (const k in this.tools) this.tools[k].visible = k === 'sword';
+    for (const k in this.tools) this.tools[k].visible = k === this.tool;
+    // bâton du mage : boule de feu au bout
+    if (this.weapon === 'staff') {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,240,180,1)'); gr.addColorStop(0.35, 'rgba(255,140,40,0.6)'); gr.addColorStop(1, 'rgba(255,60,0,0)');
+      x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+      this.flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      this.flame.position.y = this.tools.staff.userData.len * 0.92;
+      this.flame.scale.setScalar(0.55);
+      this.tools.staff.add(this.flame);
+    }
     this.bladeBase = new THREE.Vector3(0, 0.3, 0);
     this.bladeTip = new THREE.Vector3(0, this.tools.sword.userData.len * 0.85, 0);
 
@@ -213,10 +254,16 @@ export class CharacterRig {
     this.atkActs = {};
     for (const def of Object.values(ATTACKS)) for (const v of def.variants) {
       if (this.atkActs[v.clip]) continue;
-      const a = act(getClip(animations, v.clip, true), true);
-      a.paused = true;
-      this.atkActs[v.clip] = a;
+      for (const c of [v.clip, v.pre?.clip]) {
+        if (!c || this.atkActs[c]) continue;
+        const a = act(getClip(animations, c, true), true);
+        a.paused = true;
+        this.atkActs[c] = a;
+      }
     }
+    // parade du guerrier (haut du corps, en boucle)
+    this.blockAct = act(getClip(animations, 'Melee_Blocking', true), true);
+    this.blocking = false; this.blockK = 0;
     this.atkN = 0;
     this.A.hit.paused = true; this.A.death.paused = true;
     this.hitDur = this.A.hit.getClip().duration;
@@ -265,8 +312,7 @@ export class CharacterRig {
   setPower(on) {
     if (this.power === on) return;
     this.power = on;
-    this.swordMat.emissive.set(on ? '#2ab4ff' : '#000000');
-    this.swordMat.emissiveIntensity = on ? 0.9 : 1;
+    for (const m of this.glowMats) { m.emissive.set(on ? '#2ab4ff' : '#000000'); m.emissiveIntensity = on ? 0.9 : 1; }
     this.trail.mesh.material.uniforms.uCol.value.set(on ? 0x40c8ff : 0xd9edff);
   }
 
@@ -286,7 +332,7 @@ export class CharacterRig {
     if (this.atk || this.dead) return false;
     const def = ATTACKS[kind] || ATTACKS.slash;
     const v = def.variants[this.atkN++ % def.variants.length];
-    this.atk = { kind, t: 0, def, v, act: this.atkActs[v.clip], hitDone: false, sp: speed };
+    this.atk = { kind, t: 0, def, v, act: this.atkActs[v.clip], pre: v.pre ? this.atkActs[v.pre.clip] : null, hitDone: false, sp: speed };
     this.setTool(def.tool);
     return true;
   }
@@ -328,14 +374,24 @@ export class CharacterRig {
       a.t += dt * a.sp;
       const p = a.t / a.def.dur;
       const h = a.def.hit, v = a.v, D = a.act.getClip().duration;
-      const ct = p < h ? v.t0 + (p / h) * (v.strike - v.t0) : v.strike + Math.min(1, (p - h) / (1 - h)) * (v.t1 - v.strike);
-      a.act.time = ((ct % D) + D) % D;
       for (const k in this.atkActs) this.atkActs[k].weight = 0;
-      a.act.weight = ss(0, 0.1, p) * (1 - ss(0.85, 1, p)) * 30;
+      const w = ss(0, 0.1, p) * (1 - ss(0.85, 1, p)) * 30;
+      if (a.pre && p < h) {
+        // préparation (bander l'arc) avant le geste principal
+        a.pre.time = v.pre.t0 + (p / h) * (v.pre.t1 - v.pre.t0);
+        a.pre.weight = w;
+      } else {
+        const ct = p < h ? v.t0 + (p / h) * (v.strike - v.t0) : v.strike + Math.min(1, (p - h) / (1 - h)) * (v.t1 - v.strike);
+        a.act.time = ((ct % D) + D) % D;
+        a.act.weight = w;
+      }
       if (!a.hitDone && p >= h) { a.hitDone = true; hitNow = true; }
-      trailOn = (a.kind === 'slash' || a.kind === 'chop') && p > h - 0.2 && p < h + 0.1;
-      if (p >= 1) { this.atk = null; a.act.weight = 0; }
+      trailOn = (a.kind === 'slash' || a.kind === 'chop' || a.kind === 'cleave' || a.kind === 'staff') && p > h - 0.2 && p < h + 0.1;
+      if (p >= 1) { this.atk = null; a.act.weight = 0; if (a.pre) a.pre.weight = 0; }
     } else for (const k in this.atkActs) this.atkActs[k].weight = 0;
+    // parade
+    this.blockK += ((this.blocking && !this.atk && !this.dead ? 1 : 0) - this.blockK) * Math.min(1, dt * 12);
+    this.blockAct.weight = this.blockK * 30;
 
     // ---- Mort ----
     if (this.dead) {
@@ -343,12 +399,16 @@ export class CharacterRig {
       A.death.weight = 1000;
     } else A.death.weight = 0;
 
+    // la tête repart toujours de sa pose animée (sinon la rotation du regard s'accumule)
+    if (this._headQ) this.B.head.quaternion.copy(this._headQ);
     this.mixer.update(dt);
+    (this._headQ ||= new THREE.Quaternion()).copy(this.B.head.quaternion);
     this.root.updateMatrixWorld(true);
 
     // ---- Retouches après l'animation ----
-    if (lookYaw && !this.dead) {
-      rotateBoneWorld(this.B.head, this._up, lookYaw);
+    this.lookSm = (this.lookSm || 0) + ((this.dead ? 0 : clamp(lookYaw, -0.8, 0.8)) - (this.lookSm || 0)) * Math.min(1, dt * 8);
+    if (Math.abs(this.lookSm) > 0.001) {
+      rotateBoneWorld(this.B.head, this._up, this.lookSm);
       this.B.head.updateMatrixWorld(true);
     }
     // porter le Joyau à deux mains, devant soi
@@ -366,6 +426,8 @@ export class CharacterRig {
     const tl = this.tools[this.tool];
     tl.scale.setScalar(Math.max(0.001, ss(0, 1, this.toolPop) * (1 - this.carry)));
     tl.visible = this.carry < 0.95;
+    if (this.shield) this.shield.visible = this.carry < 0.5;
+    if (this.flame) this.flame.scale.setScalar(0.45 + Math.sin(t * 13) * 0.05 + Math.sin(t * 7.1) * 0.05);
 
     // ---- Flash rouge quand on est touché ----
     const flash = this.hurtT < 0.2 ? 1 - this.hurtT / 0.2 : 0;
@@ -377,7 +439,7 @@ export class CharacterRig {
     // ---- Traînée de l'arme (en coordonnées du monde) ----
     tl.updateMatrixWorld(true);
     this._a.copy(this.bladeBase).applyMatrix4(tl.matrixWorld);
-    this._b.copy(this.bladeTip).applyMatrix4(tl.matrixWorld);
+    this._b.set(0, (tl.userData.len || 1) * 0.85, 0).applyMatrix4(tl.matrixWorld);
     this.trail.update(t, this._a, this._b, trailOn);
 
     return hitNow;

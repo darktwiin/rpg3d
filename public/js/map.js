@@ -99,15 +99,17 @@ export class WorldMap {
       ctx.fillStyle = fill; ctx.fill();
       if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
     };
+    const far = (x, z) => scale === 1 && (Math.abs(x - d.me.x) > 36 || Math.abs(z - d.me.z) > 36);
     for (const r of d.resources) {
-      if (!r.alive) continue;
+      if (!r.alive || far(r.x, r.z)) continue;
       if (r.kind === 'tree') dot(r.x, r.z, Math.max(1.5, 1.3 * k * scale * 0.6), r.isPine ? '#1f4a24' : r.autumn ? '#b4621e' : '#2e6b28');
       else if (r.kind === 'bush') dot(r.x, r.z, Math.max(1.2, 0.5 * k * scale), '#3f7a2c');
       else dot(r.x, r.z, Math.max(1.5, r.size * k * 0.7), '#9a958d', '#555');
     }
     for (const b of d.buildings) {
+      if (far(b.x, b.z)) continue;
       const [a, c] = P(b.x, b.z);
-      ctx.fillStyle = b.type === 'roof' ? 'rgba(90,80,70,0.85)' : b.type === 'floor' || b.type === 'stairs' ? 'rgba(170,120,70,0.9)' : b.type === 'stonewall' ? '#b8b2a8' : b.type === 'spikes' ? '#c49a6a' : '#5a3a1a';
+      ctx.fillStyle = b.type === 'roof' ? 'rgba(90,80,70,0.85)' : b.type === 'path' ? 'rgba(150,145,135,0.95)' : b.type === 'floor' || b.type === 'stairs' ? 'rgba(170,120,70,0.9)' : b.type === 'stonewall' ? '#b8b2a8' : b.type === 'spikes' ? '#c49a6a' : '#5a3a1a';
       if (b.type === 'wall' || b.type === 'door' || b.type === 'stonewall' || b.type === 'window') {
         const w = b.rot ? 0.35 * k : 2 * k, h = b.rot ? 2 * k : 0.35 * k;
         ctx.fillRect(a - w / 2, c - h / 2, Math.max(w, 2), Math.max(h, 2));

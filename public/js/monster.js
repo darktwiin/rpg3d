@@ -303,7 +303,10 @@ export class MonsterRig {
     // couleurs : flash blanc quand touché, rougeoiement quand il brûle, bleu quand gelé
     const flash = this.hurtT < 0.25 ? Math.pow(1 - this.hurtT / 0.25, 1.5) : 0;
     const ice = this.frost ? 0.2 : 0;
-    for (const m of this.mats) m.emissive.setRGB(flash * 0.9 + this.burn * 0.9, flash * 0.9 + this.burn * 0.3 + ice * 0.5, flash * 0.9 + ice);
+    // en feu (bâton du mage) : lueur orange qui vacille
+    this.fireT = Math.max(0, (this.fireT || 0) - dt);
+    const fire = this.fireT > 0 ? 0.35 + Math.sin(this.time * 17) * 0.12 : 0;
+    for (const m of this.mats) m.emissive.setRGB(flash * 0.9 + this.burn * 0.9 + fire, flash * 0.9 + this.burn * 0.3 + ice * 0.5 + fire * 0.35, flash * 0.9 + ice);
     if (this.orb) this.orb.material.opacity = this.deadT >= 0 ? 0 : 0.55 + Math.sin(this.time * 5) * 0.15 + (this.atkT < 0.6 ? Math.sin(this.atkT / 0.6 * Math.PI) * 0.4 : 0);
 
     if (this.updateSkull(dt, sink)) ev.skull = true;
@@ -416,6 +419,34 @@ export class Monsters {
     return best;
   }
 
+  // Monstre visé par la caméra (tir à l'arc) : le plus proche de la ligne de visée
+  findAlongAim(pos, camera, range) {
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const o = camera.position, v = new THREE.Vector3();
+    let best = null, bs = Infinity;
+    for (const m of this.map.values()) {
+      if (m.dead || m.rig.spawnT < 1) continue;
+      const p = m.rig.root.position;
+      if (Math.hypot(p.x - pos.x, p.z - pos.z) > range) continue;
+      v.set(p.x - o.x, p.y + 1.0 - o.y, p.z - o.z);
+      const along = v.dot(dir);
+      if (along <= 0) continue;
+      const perp = Math.sqrt(Math.max(0, v.lengthSq() - along * along));
+      if (perp > 1.0 + along * 0.06) continue;
+      const score = perp + along * 0.02;
+      if (score < bs) { bs = score; best = m; }
+    }
+    return best;
+  }
+
+  // Monstre enflammé par le mage
+  ignite(id, t) {
+    const m = this.map.get(id);
+    if (!m || m.dead) return;
+    m.rig.fireT = Math.max(m.rig.fireT || 0, t);
+  }
+
   nearestDist(px, pz) {
     let bd = Infinity;
     for (const m of this.map.values()) if (!m.dead) bd = Math.min(bd, Math.hypot(m.rig.root.position.x - px, m.rig.root.position.z - pz));
@@ -489,6 +520,15 @@ export class Monsters {
       const spd = m.dead ? 0 : Math.hypot(root.position.x - m.lastX, root.position.z - m.lastZ) / Math.max(dt, 1e-4);
       m.lastX = root.position.x; m.lastZ = root.position.z;
       const ev = m.rig.update(dt, spd);
+      if (m.rig.fireT > 0 && Math.random() < dt * 30) {
+        const r = root.position;
+        this.fx.spawn({
+          geo: this.fx.box, mat: (this.flameMats ||= ['#ffd060', '#ff8a20', '#ff4a10'].map((c) => new THREE.MeshBasicMaterial({ color: c })))[Math.floor(Math.random() * 3)],
+          pos: new THREE.Vector3(r.x + (Math.random() - 0.5) * 0.6, r.y + 0.3 + Math.random() * 1.3, r.z + (Math.random() - 0.5) * 0.6),
+          vel: new THREE.Vector3((Math.random() - 0.5) * 0.4, 1.2 + Math.random(), (Math.random() - 0.5) * 0.4),
+          size: 0.06 + Math.random() * 0.06, life: 0.5, gravity: -1.5, drag: 1, spin: 5,
+        });
+      }
       if (ev.step) {
         this.audio?.play(isWater(root.position.x, root.position.z) ? 'splashStep' : 'monsterStep', root.position);
       }

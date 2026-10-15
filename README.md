@@ -1,7 +1,7 @@
 # RPG 3D — Survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.0.9**
+Version actuelle : **ver.0.1.0**
 
 ## Le village (lobby)
 On entre son pseudo et on arrive au village, où l'on voit les autres joueurs.
@@ -13,9 +13,19 @@ On entre son pseudo et on arrive au village, où l'on voit les autres joueurs.
 Les éclats se gagnent à chaque nuit survécue (1, 2, 3, 6, 10, 19…). Profils et classement sont
 enregistrés sur le serveur dans le dossier `data/` (ignoré par git).
 
+## Les classes
+Chaque apparence a son style de combat :
+| Classe | Arme | Style |
+|---|---|---|
+| Guerrier | Épée + bouclier | Coups rapides ; **clic droit maintenu** = parade (80 % des dégâts bloqués, on avance plus lentement) |
+| Barbare | Hache de guerre | Coups lents et lourds qui touchent tous les monstres devant lui |
+| Mage | Bâton de feu | Petits dégâts en zone, mais les monstres **brûlent** quelques secondes |
+| Voleuse | Arc | Tir lent mais puissant, à distance (vise avec la caméra) |
+
 ## Le principe
 - **Le jour** (4 min) : récolte du bois (arbres) et de la pierre (rochers), construis des défenses.
 - **La nuit** (2 min) : des monstres arrivent en continu pour détruire **le Joyau** (squelettes de base, squelettes encapuchonnés rapides dès la nuit 2, mages squelettes dès la nuit 5, Colosses en armure dès la nuit 8). Ils attaquent les joueurs sur leur route et cassent les murs qui les bloquent.
+- Le nombre de monstres augmente à chaque nuit et avec le nombre de joueurs. Un monstre qui poursuit un joueur pendant 8 s sans réussir à le toucher abandonne et fonce vers le Joyau jusqu'à sa mort.
 - Si le Joyau est détruit, la partie recommence. Au lever du soleil, les monstres brûlent.
 - Le Joyau peut être porté (touche **E**) et posé où vous voulez, par exemple dans votre base.
 
@@ -30,7 +40,8 @@ enregistrés sur le serveur dans le dossier `data/` (ignoré par git).
 | ZQSD / flèches | Se déplacer |
 | Maj | Courir |
 | Espace | Sauter |
-| Clic gauche | Épée / hache (arbre) / pioche (rocher) |
+| Clic gauche | Attaque de la classe / hache (arbre) / pioche (rocher) |
+| Clic droit (maintenu) | Parade au bouclier (Guerrier) |
 | B | Fenêtre de construction (choisir une pièce) |
 | F | Déconstruire (dans le menu de construction) |
 | E | Prendre / poser le Joyau |
@@ -50,6 +61,7 @@ L'inventaire (bois, pierre, brindilles) est commun à tout le groupe. Les buisso
 | Porte | 3 bois |
 | Escalier (monte d'un étage) | 3 bois |
 | Toit | 1 bois + 3 brindilles |
+| Dalle de chemin (+60 % de vitesse dessus) | 1 pierre |
 | Mur de pierre* | 4 pierre |
 | Pieux* | 2 bois + 1 pierre |
 | Tour d'archer* | 5 bois + 3 pierre |

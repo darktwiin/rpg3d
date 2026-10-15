@@ -245,7 +245,7 @@ class Room {
     // La nuit, les monstres arrivent en continu : dès qu'un meurt, un autre le remplace
     if (this.isNight()) {
       this.spawnCd -= dt;
-      const target = W.nightTarget(this.night, this.players.size);
+      const target = W.nightTarget(this.night, this.players.size, (this.time - W.DAY_LEN) / W.NIGHT_LEN);
       let alive = 0;
       for (const m of this.monsters.values()) if (!m.dead) alive++;
       while (alive < target && this.spawnCd <= 0) {
@@ -273,6 +273,7 @@ class Room {
 
     this.updateShots(now);
     this.updateMonsters(dt, now);
+    this.updateBurns(dt);
     this.updateSpikes(dt);
     this.updateTowers(dt);
 
@@ -288,7 +289,7 @@ class Room {
     const target = W.nightTarget(this.night, this.players.size);
     this.broadcast({ type: 'clock', time: this.time, night: this.night });
     this.broadcast({ type: 'phase', phase: 'night', night: this.night });
-    this.sys(`🌙 Nuit ${this.night} — ${target} monstres rôdent en permanence jusqu'à l'aube. Défendez le Joyau !`, 'night');
+    this.sys(`🌙 Nuit ${this.night} — ${target} monstres pour commencer, puis de plus en plus jusqu'à l'aube. Défendez le Joyau !`, 'night');
   }
 
   pickRelic(p) {
@@ -541,9 +542,13 @@ class Room {
   // ---------------- Joueurs ----------------
   damagePlayer(p, dmg, from) {
     if (p.dead || p.invuln || Date.now() < (p.protectUntil || 0)) return;
+    if (from && from.T) from.lastDmgT = Date.now() / 1000;   // le monstre a touché sa cible
+    // parade du guerrier : le bouclier encaisse presque tout
+    const blocked = p.blocking ? W.classOf(p.skin).block : 0;
+    if (blocked) dmg *= blocked;
     p.hp -= dmg * p.mods.armor;
     p.lastDamage = Date.now() / 1000;
-    this.broadcast({ type: 'pHp', id: p.id, hp: Math.max(0, Math.round(p.hp)), max: p.mods.maxHp, hurt: true });
+    this.broadcast({ type: 'pHp', id: p.id, hp: Math.max(0, Math.round(p.hp)), max: p.mods.maxHp, hurt: true, blocked: !!blocked });
     if (p.hp <= 0) {
       p.dead = true;
       if (this.gem.carrier === p.id) this.dropGem(p.x, p.z, null);
@@ -599,25 +604,66 @@ class Room {
     this.monsters.delete(m.id);
     this.broadcast({ type: 'mDie', id: m.id, burn: !!burn });
   }
-  hitMonster(p, id) {
-    const m = this.monsters.get(String(id));
-    if (!m || m.dead || p.dead) return;
+  // Coup d'un joueur : chaque style de combat a ses dégâts, son rythme et sa portée
+  hitMonster(p, id, d = {}) {
+    if (p.dead) return;
+    const cls = W.classOf(p.skin);
+    const m = id != null ? this.monsters.get(String(id)) : null;
+    if (id != null && (!m || m.dead)) return;
     const now = Date.now();
-    if (now - (p.lastSword || 0) < 280 / p.mods.atkSpeed) return;
+    if (now - (p.lastSword || 0) < cls.cd * 1000 * 0.85 / p.mods.atkSpeed) return;
     p.lastSword = now;
     // Larme de la cascade : tue en un coup pendant la nuit choisie
-    const dmg = p.oneShot && this.isNight() && this.night === p.oneShot ? 99999 : W.SWORD_DMG * p.mods.dmg;
-    const targets = [m];
-    if (p.mods.cleave) for (const o of this.monsters.values()) if (o !== m && !o.dead && Math.hypot(o.x - p.x, o.z - p.z) < 3.2) targets.push(o);
+    const one = p.oneShot && this.isNight() && this.night === p.oneShot;
+    const dmg = one ? 99999 : cls.dmg * p.mods.dmg;
+    let targets = [];
+    if (cls.aoe) {
+      // mage : boule de feu autour du point d'impact (pas trop loin du joueur)
+      let cx = m ? m.x : num(d.x, p.x), cz = m ? m.z : num(d.z, p.z);
+      const dd = Math.hypot(cx - p.x, cz - p.z);
+      if (dd > cls.reach + 1) { cx = p.x + (cx - p.x) / dd * cls.reach; cz = p.z + (cz - p.z) / dd * cls.reach; }
+      for (const o of this.monsters.values()) if (!o.dead && Math.hypot(o.x - cx, o.z - cz) < cls.aoe) targets.push(o);
+    } else {
+      if (!m) return;
+      const dist = Math.hypot(m.x - p.x, m.z - p.z);
+      if (dist > (cls.ranged ? cls.range + 2 : cls.reach + 0.6)) return;
+      targets = [m];
+      // barbare (ou compétence « balayage ») : tous les monstres devant lui
+      const cl = cls.cleave || (p.mods.cleave ? 3.2 : 0);
+      if (cl && !cls.ranged) {
+        const fx = (m.x - p.x) / (dist || 1), fz = (m.z - p.z) / (dist || 1);
+        for (const o of this.monsters.values()) {
+          if (o === m || o.dead) continue;
+          const ox = o.x - p.x, oz = o.z - p.z, od = Math.hypot(ox, oz);
+          if (od < cl && (ox * fx + oz * fz) / (od || 1) > 0.1) targets.push(o);
+        }
+      }
+    }
     for (const t of targets) {
-      const dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz);
-      if (d > 3.6) continue;
+      const dx = t.x - p.x, dz = t.z - p.z, dd = Math.hypot(dx, dz);
       t.hp -= dmg;
-      if (d > 0.01) { t.x += dx / d * 0.45 / t.T.scale; t.z += dz / d * 0.45 / t.T.scale; }
-      t.aggro = p.id;
+      const push = cls.ranged ? 0.25 : cls.cleave ? 0.6 : 0.45;
+      if (dd > 0.01) { t.x += dx / dd * push / t.T.scale; t.z += dz / dd * push / t.T.scale; }
+      if (!t.gemOnly) t.aggro = p.id;
       t.cd = Math.max(t.cd, 0.4);
+      if (cls.burn && t.hp > 0) {
+        t.burnT = cls.burn.dur; t.burnDps = cls.burn.dps * p.mods.dmg; t.burnBy = p.id;
+        this.broadcast({ type: 'mBurn', id: t.id, t: cls.burn.dur });
+      }
       this.broadcast({ type: 'mHurt', id: t.id, hp: Math.max(0, t.hp), by: p.id });
       if (t.hp <= 0) this.killMonster(t, false);
+    }
+  }
+
+  // Brûlure (mage) : dégâts sur la durée
+  updateBurns(dt) {
+    for (const m of this.monsters.values()) {
+      if (m.dead || !(m.burnT > 0)) continue;
+      m.burnT -= dt;
+      m.hp -= m.burnDps * dt;
+      m.burnSync = (m.burnSync || 0) - dt;
+      if (m.hp <= 0) { this.broadcast({ type: 'mHurt', id: m.id, hp: 0, by: m.burnBy, burn: true }); this.killMonster(m, false); continue; }
+      if (m.burnSync <= 0) { m.burnSync = 0.5; this.broadcast({ type: 'mHurt', id: m.id, hp: Math.round(m.hp), burn: true }); }
     }
   }
 
@@ -682,9 +728,12 @@ class Room {
       // Cible : le Joyau, sauf si un joueur passe trop près
       let tx = gp.x, tz = gp.z, tr = 1.3, tk = { kind: 'gem' };
       let aggroP = m.aggro ? this.players.get(m.aggro) : null;
-      if (aggroP && (aggroP.dead || Math.hypot(aggroP.x - m.x, aggroP.z - m.z) > 14 || (!T.ranged && this.perched(aggroP)))) { aggroP = null; m.aggro = null; }
+      if (aggroP && (aggroP.dead || Math.hypot(aggroP.x - m.x, aggroP.z - m.z) > 14 || (!T.ranged && this.perched(aggroP))
+        || (m.gemOnly && Math.hypot(aggroP.x - m.x, aggroP.z - m.z) > T.reach + 1.5))) { aggroP = null; m.aggro = null; }
       if (!aggroP) {
-        let bd = T.ranged ? 12 : 7;
+        // un monstre qui a abandonné la poursuite ne s'occupe plus que du Joyau
+        // (il frappe seulement un joueur collé à lui, qui lui barre la route)
+        let bd = m.gemOnly ? T.reach + 0.6 : T.ranged ? 12 : 7;
         for (const p of alive) {
           // un monstre de corps à corps ne peut pas atteindre un joueur perché en hauteur
           if (!T.ranged && this.perched(p)) continue;
@@ -692,6 +741,11 @@ class Room {
         }
         if (aggroP) m.aggro = aggroP.id;
       }
+      // poursuite trop longue sans réussir à toucher : il laisse tomber et repart vers le Joyau
+      if (aggroP) {
+        if (m.chaseId !== aggroP.id) { m.chaseId = aggroP.id; m.chaseT = now; }
+        if (!m.gemOnly && now - Math.max(m.chaseT, m.lastDmgT || 0) > W.CHASE_GIVEUP) { m.gemOnly = true; m.aggro = null; aggroP = null; }
+      } else m.chaseId = null;
       if (aggroP && this.gem.carrier !== aggroP.id) { tx = aggroP.x; tz = aggroP.z; tr = 0.4; tk = { kind: 'player', id: aggroP.id }; }
 
       const dx = tx - m.x, dz = tz - m.z, dist = Math.hypot(dx, dz);
@@ -842,7 +896,8 @@ wss.on('connection', (ws) => {
           p.x = clamp(num(d.x), -60, 60); p.y = num(d.y); p.z = clamp(num(d.z), -60, 60); p.ry = num(d.ry);
           hub.broadcast({ type: 'hubMove', id: p.id, x: p.x, y: p.y, z: p.z, ry: p.ry, s: clamp(num(d.s), 0, 12), g: d.g !== false }, p);
           break;
-        case 'act': hub.broadcast({ type: 'act', id: p.id, k: 'slash' }, p); break;
+        case 'act': hub.broadcast({ type: 'act', id: p.id, k: ['slash', 'cleave', 'staff', 'shoot'].includes(d.k) ? d.k : 'slash' }, p); break;
+        case 'block': hub.broadcast({ type: 'act', id: p.id, k: 'block', on: !!d.on }, p); break;
         case 'chat': {
           const text = String(d.text || '').trim().slice(0, 200);
           const now = Date.now();
@@ -900,10 +955,17 @@ wss.on('connection', (ws) => {
         R.broadcast({ type: 'move', id: p.id, x: p.x, y: p.y, z: p.z, ry: p.ry, s: clamp(num(d.s), 0, 12), g: d.g !== false, tl: clamp(Math.floor(num(d.tl)), 0, 3) }, p);
         break;
       case 'act':
-        R.broadcast({ type: 'act', id: p.id, k: ['slash', 'chop', 'mine', 'hammer'].includes(d.k) ? d.k : 'slash', sp: clamp(num(d.sp, 1), 0.5, 3) }, p);
+        R.broadcast({
+          type: 'act', id: p.id, k: ['slash', 'chop', 'mine', 'hammer', 'cleave', 'staff', 'shoot'].includes(d.k) ? d.k : 'slash', sp: clamp(num(d.sp, 1), 0.5, 3),
+          to: d.to && typeof d.to === 'object' ? { x: num(d.to.x), y: num(d.to.y), z: num(d.to.z) } : undefined,
+        }, p);
         break;
       case 'hit': R.hitResource(p, d.id); break;
-      case 'hitM': R.hitMonster(p, d.id); break;
+      case 'hitM': R.hitMonster(p, d.id, d); break;
+      case 'block':
+        p.blocking = !!d.on && W.classOf(p.skin).block > 0;
+        R.broadcast({ type: 'act', id: p.id, k: 'block', on: p.blocking }, p);
+        break;
       case 'build': R.build(p, d); break;
       case 'demolish': R.demolish(p, d.id); break;
       case 'gemPick': R.pickGem(p); break;

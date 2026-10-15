@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.0.9';
+export const VERSION = '0.1.0';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -38,18 +38,28 @@ export const TANK_NIGHT = 8;
 
 // Apparences jouables (pack KayKit Adventurers). Le Ranger (cape bleue) est réservé au forgeron.
 export const SKINS = [
-  { id: 'Knight', name: 'Chevalier' },
-  { id: 'Barbarian', name: 'Barbare' },
-  { id: 'Mage', name: 'Mage' },
-  { id: 'Rogue', name: 'Voleuse' },
-  { id: 'Rogue_Hooded', name: 'Voleuse encapuchonnée' },
+// Chaque apparence a son style de combat.
+  { id: 'Knight', name: 'Guerrier', role: 'Épée + bouclier (clic droit : parer)' },
+  { id: 'Barbarian', name: 'Barbare', role: 'Hache de guerre' },
+  { id: 'Mage', name: 'Mage', role: 'Bâton de feu (zone + brûlure)' },
+  { id: 'Rogue', name: 'Voleuse', role: 'Arc (lent, puissant, à distance)' },
 ];
 export const skinOk = (s) => SKINS.some((k) => k.id === s);
+// Styles de combat (dégâts de base, temps entre deux coups en secondes, portée…)
+export const CLASSES = {
+  Knight: { kind: 'slash', weapon: 'sword', dmg: 20, cd: 0.42, reach: 3.6, block: 0.2 },          // parade : 80 % de dégâts en moins
+  Barbarian: { kind: 'cleave', weapon: 'waraxe', dmg: 30, cd: 0.7, reach: 3.9, cleave: 3.4 },   // touche tous les monstres devant lui
+  Mage: { kind: 'staff', weapon: 'staff', dmg: 8, cd: 0.62, reach: 4.2, aoe: 2.8, burn: { dps: 7, dur: 4 } },
+  Rogue: { kind: 'shoot', weapon: 'bow', dmg: 40, cd: 1.0, range: 26, ranged: true },
+};
+export const classOf = (skin) => CLASSES[skin] || CLASSES.Knight;
 export const MONSTER_HP = MONSTERS.brute.hp;
 // Nombre de monstres présents en même temps pendant la nuit
-export function nightTarget(night, players) {
-  return Math.round((5 + 2 * (night - 1)) * Math.pow(1.2, Math.max(0, players - 1)));
+// k = avancement de la nuit (0 au début, 1 à l'aube) : ils sont deux fois plus nombreux à la fin
+export function nightTarget(night, players, k = 0) {
+  return Math.round((5 + 3 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)));
 }
+export const CHASE_GIVEUP = 8;   // secondes de poursuite sans toucher le joueur avant d'abandonner
 export const SPAWN_MIN = 42, SPAWN_MAX = 58;   // distance d'apparition autour du Joyau
 
 // ---------- Progression ----------
@@ -85,6 +95,7 @@ export const BUILD_RANGE = 7;
 export const PIECES = {
   floor: { name: 'Plancher', cost: { wood: 2, stone: 1 }, hp: 250 },
   base: { name: 'Charpente', cost: { wood: 4, stone: 0 }, hp: 350 },
+  path: { name: 'Dalle de chemin', cost: { wood: 0, stone: 1 }, hp: 150 },
   wall: { name: 'Mur', cost: { wood: 2, stone: 0 }, hp: 400, blocks: true },
   window: { name: 'Fenêtre', cost: { wood: 2, stone: 0 }, hp: 340, blocks: true },
   roof: { name: 'Toit', cost: { wood: 1, twig: 3 }, hp: 250 },
@@ -95,11 +106,12 @@ export const PIECES = {
   tower: { name: 'Tour d’archer', cost: { wood: 5, stone: 3 }, hp: 500, tower: true, skill: 'c_tower' },
   frost: { name: 'Tour de givre', cost: { wood: 3, stone: 5 }, hp: 500, tower: true, skill: 'c_frost' },
 };
-export const PIECE_ORDER = ['floor', 'base', 'wall', 'window', 'door', 'stairs', 'roof', 'stonewall', 'spikes', 'tower', 'frost'];
+export const PIECE_ORDER = ['floor', 'base', 'wall', 'window', 'door', 'stairs', 'roof', 'path', 'stonewall', 'spikes', 'tower', 'frost'];
 export const TOWER = { range: 15, rate: 0.33, dmg: 1, heavyDmg: 3 };
 export const FROST = { range: 8, slow: 0.45, pulse: 1 };
 export const isWallType = (t) => t === 'wall' || t === 'door' || t === 'stonewall' || t === 'window';
 export const SPIKE_DPS = 14;
+export const PATH_SPEED = 1.6;   // +60 % de vitesse sur les dalles de chemin
 
 // ---------- Compétences (achetées à la forge avec les éclats) ----------
 // col/row : position dans l'arbre ; req : compétences nécessaires avant
@@ -356,6 +368,7 @@ export function wallBox(b) {
 }
 export function pieceTop(b) {
   if (b.type === 'floor') return b.y;
+  if (b.type === 'path') return -999;   // dalle collée au terrain : on marche sur le sol
   if (b.type === 'base') return b.y + WALL_H;
   if (b.type === 'roof') return b.y + 0.35;
   if (b.type === 'spikes') return b.y;
@@ -371,7 +384,7 @@ export function distToBox(px, pz, box) {
 // Deux pièces du même « emplacement » ne peuvent pas se superposer
 // (un plancher et un objet posé dessus — escalier, charpente, tour… — peuvent cohabiter ;
 //  la hauteur fait partie de l'emplacement pour pouvoir construire des étages)
-const SLOT_GROUP = { floor: 'f', base: 'o', stairs: 'o', spikes: 'o', tower: 'o', frost: 'o', wall: 'w', door: 'w', stonewall: 'w', window: 'w', roof: 'r' };
+const SLOT_GROUP = { floor: 'f', path: 'f', base: 'o', stairs: 'o', spikes: 'o', tower: 'o', frost: 'o', wall: 'w', door: 'w', stonewall: 'w', window: 'w', roof: 'r' };
 export function slotKey(type, x, z, rot, y = 0) {
   const g = SLOT_GROUP[type] || type;
   return `${g}:${Math.round(x * 2)}:${Math.round(z * 2)}:${g === 'w' ? rot : 0}:${Math.round(y)}`;
@@ -380,7 +393,7 @@ export function slotKey(type, x, z, rot, y = 0) {
 // Soutien des étages : une pièce en hauteur (lv > 0) doit reposer sur une autre pièce soutenue.
 // Renvoie l'ensemble des id soutenus (les autres s'écroulent).
 export function supportedSet(list) {
-  const top = (b) => (b.type === 'floor' ? b.y : b.type === 'roof' ? null : b.y + WALL_H);
+  const top = (b) => (b.type === 'floor' ? b.y : b.type === 'roof' || b.type === 'path' ? null : b.y + WALL_H);
   const ok = new Set(), queue = [];
   for (const b of list) if (!b.lv) { ok.add(b.id); queue.push(b); }
   while (queue.length) {

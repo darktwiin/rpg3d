@@ -14,7 +14,7 @@ import { WorldMap } from './map.js';
 import { Village, villageHeight, SPOTS, SPAWN } from './village.js';
 import { Features } from './features.js';
 import { settings, saveSettings, keyLabel, ACTIONS, DEFAULT_KEYS, lsGet, lsSet } from './settings.js';
-import { loadModels, modelIcon, propIcon, staticGeometry, atlasMaterial, characterPortrait } from './models.js';
+import { loadModels, modelIcon, propIcon, staticGeometry, atlasMaterial, characterPortrait, prop } from './models.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -155,9 +155,18 @@ canvas.addEventListener('mousedown', (e) => {
     if (game.build.on) placePiece();
   }
   if (e.button === 2 && game.build.on) demolishPiece();
+  else if (e.button === 2) setBlock(true);
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-addEventListener('mouseup', (e) => { if (e.button === 0) mouseHeld = false; });
+addEventListener('mouseup', (e) => { if (e.button === 0) mouseHeld = false; if (e.button === 2) setBlock(false); });
+// Parade du guerrier (clic droit maintenu)
+function setBlock(on) {
+  if (!me.rig || !me.rig.cls.block) return;
+  if (on && (me.dead || game.build.on || (inGame() && gem.state.carrier === me.id))) on = false;
+  if (me.rig.blocking === on) return;
+  me.rig.blocking = on;
+  send({ type: 'block', on });
+}
 addEventListener('mousemove', (e) => {
   if (!isLocked()) return;
   const s = 0.0025 * settings.sens / 100;
@@ -215,6 +224,8 @@ addEventListener('keydown', (e) => {
     renderKeybinds();
     return;
   }
+  if (e.code === 'Escape' && !$('keys-panel').hidden) { $('keys-panel').hidden = true; $('options').hidden = false; return; }
+  if (e.code === 'Escape' && !$('options').hidden) { $('options').hidden = true; return; }
   const ae = document.activeElement;
   if (ae && ['INPUT', 'SELECT'].includes(ae.tagName) && ae.id !== 'chat-input') return;
   if (game.mode === 'chat') {
@@ -367,6 +378,8 @@ $('btn-fullscreen').onclick = () => {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen?.().catch(() => {});
 };
+$('btn-keys').onclick = () => { $('options').hidden = true; $('keys-panel').hidden = false; renderKeybinds(); audio.play('ui'); };
+$('btn-keys-back').onclick = $('keys-close').onclick = () => { $('keys-panel').hidden = true; $('options').hidden = false; audio.play('ui'); };
 $('btn-keys-reset').onclick = () => { settings.keys = { ...DEFAULT_KEYS }; saveSettings(); renderKeybinds(); };
 function renderKeybinds() {
   const box = $('keybinds');
@@ -462,13 +475,17 @@ const handlers = {
     const o = others.get(d.id);
     if (!o) return;
     o.target.set(d.x, d.y, d.z); o.ry = d.ry; o.s = d.s; o.g = d.g;
-    if (!o.rig.attacking) o.rig.setTool(TOOLS[d.tl] || 'sword');
+    if (!o.rig.attacking) o.rig.setTool(TOOLS[d.tl] || o.rig.weapon);
   },
   act: (d) => {
     const o = others.get(d.id);
     if (!o) return;
+    if (d.k === 'block') { o.rig.blocking = !!d.on; return; }
     o.rig.attack(d.k, d.sp || 1);
-    if (d.k === 'slash') audio.play('swing', o.rig.root.position);
+    if (d.k === 'slash' || d.k === 'cleave' || d.k === 'staff') audio.play('swing', o.rig.root.position);
+    // flèche des autres joueurs : partie au moment où la corde est lâchée
+    if (d.k === 'shoot' && d.to) setTimeout(() => { if (o.rig) shootArrow(o.rig, d.to, null); }, 0.95 * 0.78 * 1000 / (d.sp || 1));
+    if (d.k === 'staff' && d.to) setTimeout(() => fireBurst(new THREE.Vector3(d.to.x, heightAt(d.to.x, d.to.z), d.to.z)), 0.6 * 0.55 * 1000 / (d.sp || 1));
   },
   inv: (d) => {
     // inventaire commun au groupe
@@ -527,8 +544,9 @@ const handlers = {
   m: (d) => monsters.sync(d.l),
   mAtk: (d) => monsters.attack(d.id),
   mShot: (d) => monsters.shot(d),
+  mBurn: (d) => monsters.ignite(d.id, d.t),
   mHurt: (d) => {
-    if (d.spike) { const m = monsters.map.get(d.id); if (m) { m.hp = d.hp; m.rig.setHp(d.hp / m.max); m.rig.hurt(); } return; }
+    if (d.spike || d.burn) { const m = monsters.map.get(d.id); if (m) { m.hp = d.hp; m.rig.setHp(d.hp / m.max); if (d.spike) m.rig.hurt(); } return; }
     monsters.hurt(d.id, d.hp);
     if (d.by !== me.id) { const m = monsters.map.get(d.id); if (m) audio.play('swordHit', m.rig.root.position); }
   },
@@ -538,7 +556,12 @@ const handlers = {
       const before = me.hp;
       me.hp = d.hp;
       if (d.max) me.maxHp = d.max;
-      if (d.hurt && d.hp < before) {
+      if (d.hurt && d.hp < before && d.blocked) {
+        // coup paré par le bouclier
+        audio.play('shieldBlock', me.pos);
+        camShake = 0.12;
+        popup('Paré !', '#ffe08a');
+      } else if (d.hurt && d.hp < before) {
         me.rig?.hurt();
         audio.play('playerHurt');
         vignetteT = 1;
@@ -772,7 +795,10 @@ function renderSkins() {
     img.alt = s.name;
     const lab = document.createElement('span');
     lab.textContent = s.name;
-    b.append(img, lab);
+    const role = document.createElement('small');
+    role.textContent = s.role;
+    b.title = s.name + ' — ' + s.role;
+    b.append(img, lab, role);
     b.onclick = () => { chosenSkin = s.id; lsSet('rpg3d_skin', s.id); audio.init(); audio.play('ui'); renderSkins(); };
     box.append(b);
   }
@@ -1111,6 +1137,7 @@ const PIECE_ICONS = {
   stonewall: '<svg width="44" height="34" viewBox="0 0 44 34"><rect x="4" y="6" width="36" height="26" fill="#a8a296" stroke="#55524c"/><path d="M4 14 H40 M4 22 H40 M14 6 V14 M28 6 V14 M10 14 V22 M24 14 V22 M36 14 V22 M16 22 V32 M30 22 V32" stroke="#6a665e"/><rect x="6" y="2" width="8" height="5" fill="#a8a296"/><rect x="18" y="2" width="8" height="5" fill="#a8a296"/><rect x="30" y="2" width="8" height="5" fill="#a8a296"/></svg>',
   tower: '<svg width="44" height="36" viewBox="0 0 44 36"><path d="M10 34 L14 14 M34 34 L30 14 M12 26 H32" stroke="#6a4528" stroke-width="3"/><rect x="9" y="11" width="26" height="5" fill="#b07a46"/><rect x="10" y="6" width="24" height="5" fill="#8a6040"/><path d="M8 6 L22 0 L36 6 Z" fill="#6e6c68"/><path d="M22 9 L34 13" stroke="#333" stroke-width="2"/></svg>',
   frost: '<svg width="44" height="36" viewBox="0 0 44 36"><rect x="16" y="14" width="12" height="20" fill="#a8a296"/><rect x="13" y="12" width="18" height="4" fill="#bbb5aa"/><path d="M22 0 L27 7 L22 12 L17 7 Z" fill="#9ad8ff" stroke="#3aa8ff"/><ellipse cx="22" cy="7" rx="12" ry="3" fill="none" stroke="#6ac8ff"/></svg>',
+  path: '<svg width="44" height="30" viewBox="0 0 44 30"><path d="M3 17 L22 8 L41 17 L22 26 Z" fill="#8f8a80" stroke="#4a4640"/><path d="M12 12.5 L31 21.5 M22 8 L22 26 M31 12.5 L12 21.5" stroke="#5d5850" stroke-width="1.5"/><path d="M34 6 l4 -3 M37 9 l5 -2" stroke="#ffd060" stroke-width="2" stroke-linecap="round"/></svg>',
   spikes: '<svg width="44" height="30" viewBox="0 0 44 30"><rect x="4" y="24" width="36" height="4" fill="#7a5a3a"/><path d="M8 24 L11 6 L14 24 M16 24 L19 2 L22 24 M24 24 L27 6 L30 24 M32 24 L35 4 L38 24" fill="#c49a6a" stroke="#6a4a2a"/></svg>',
 };
 // pièces en bois : images rendues à partir des modèles 3D
@@ -1120,6 +1147,7 @@ for (const [type, model] of [['floor', 'w_floor1'], ['base', 'w_base4'], ['wall'
 const RES_ICON = { wood: '<span class="ico wood"></span>', stone: '<span class="ico stone"></span>', twig: '<span class="ico twig"></span>' };
 const PIECE_INFO = {
   floor: 'Plancher : au sol, sur une charpente, sur des murs ou en balcon à côté d’un autre plancher.',
+  path: 'Dalle de pierre : +60 % de vitesse quand on marche dessus (encore plus en courant).',
   base: 'Charpente sur pilotis : on marche dessus et on pose l’étage suivant par-dessus.',
   window: 'Mur avec une ouverture pour surveiller. Bloque les monstres.',
   wall: 'Bloque les monstres. Ils devront le casser.',
@@ -1131,7 +1159,7 @@ const PIECE_INFO = {
   tower: 'Tire des flèches sur les monstres proches.',
   frost: 'Ralentit déplacement et attaques des monstres autour.',
 };
-const CRAFT_GROUPS = [['Structure en bois', ['floor', 'base', 'wall', 'window', 'door', 'stairs', 'roof']], ['Défenses', ['stonewall', 'spikes', 'tower', 'frost']]];
+const CRAFT_GROUPS = [['Structure en bois', ['floor', 'base', 'wall', 'window', 'door', 'stairs', 'roof']], ['Chemins', ['path']], ['Défenses', ['stonewall', 'spikes', 'tower', 'frost']]];
 const costHtml = (c) => W.RES_KEYS.filter((k) => c[k]).map((k) => `<span class="chip ${serverInv[k] >= c[k] || game.god.free ? '' : 'miss'}">${RES_ICON[k]}${c[k]}</span>`).join('');
 
 // Petit bandeau pendant qu'on pose une pièce
@@ -1263,29 +1291,111 @@ function interact() {
 
 // ===================== Attaque =====================
 let currentTarget = null, currentMonster = null;
+let lastAtk = 0;
 function tryAttack() {
-  if (!me.rig || me.rig.attacking || me.dead || (inGame() && gem.state.carrier === me.id)) return;
-  if (inHub()) { if (me.rig.attack('slash', mods.atkSpeed)) { send({ type: 'act', k: 'slash' }); audio.play('swing', me.pos); } return; }
+  if (!me.rig || me.rig.attacking || me.dead || me.rig.blocking || (inGame() && gem.state.carrier === me.id)) return;
+  const cls = me.rig.cls;
+  const now = performance.now() / 1000;
+  if (inHub()) { if (me.rig.attack(cls.kind, mods.atkSpeed)) { send({ type: 'act', k: cls.kind }); audio.play('swing', me.pos); } return; }
   const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
-  const mon = monsters.findInFront(me.pos.x, me.pos.z, fx, fz, REACH + 0.6);
+  // la voleuse vise loin avec son arc ; les autres frappent au corps à corps
+  const mon = cls.ranged ? (currentTarget ? null : monsters.findAlongAim(me.pos, camera, cls.range)) : monsters.findInFront(me.pos.x, me.pos.z, fx, fz, cls.reach - 1.4);
   const t = mon ? null : currentTarget;
-  const kind = t ? (t.kind === 'tree' ? 'chop' : t.kind === 'rock' ? 'mine' : 'slash') : 'slash';
-  const sp = kind === 'slash' && !t ? mods.atkSpeed : mods.harvestSpeed;
+  const kind = t ? (t.kind === 'tree' ? 'chop' : t.kind === 'rock' ? 'mine' : cls.kind) : cls.kind;
+  const combat = kind === cls.kind;
+  // temps entre deux coups propre à chaque style
+  if (combat && now - lastAtk < cls.cd / mods.atkSpeed * 0.95) return;
+  const sp = combat ? Math.max(1, (cls.kind === 'shoot' ? 0.95 : 0.6) / (cls.cd / mods.atkSpeed)) * (cls.kind === 'shoot' ? 1 : mods.atkSpeed) : mods.harvestSpeed;
+  if (combat) lastAtk = now;
   me.rig.attack(kind, sp);
   me.attackTarget = t;
   me.attackMonster = mon;
   if (mon) me.attackDir = Math.atan2(mon.rig.root.position.x - me.pos.x, mon.rig.root.position.z - me.pos.z);
   else if (t) me.attackDir = Math.atan2(t.x - me.pos.x, t.z - me.pos.z);
   else me.attackDir = Math.atan2(fx, fz);
-  send({ type: 'act', k: kind, sp });
-  if (kind === 'slash') audio.play('swing', me.pos);
+  // point visé (flèche, boule de feu)
+  me.aimTo = mon ? { x: mon.rig.root.position.x, y: mon.rig.root.position.y + 1.1, z: mon.rig.root.position.z }
+    : kind === 'shoot' ? aimFar(cls.range) : kind === 'staff' ? { x: me.pos.x + fx * 2.2, y: me.pos.y, z: me.pos.z + fz * 2.2 } : null;
+  send({ type: 'act', k: kind, sp, to: me.aimTo });
+  if (kind === 'slash' || kind === 'cleave' || kind === 'staff') audio.play('swing', me.pos);
+}
+// point au loin dans la direction de la caméra (tir dans le vide)
+function aimFar(range) {
+  camera.getWorldDirection(_ray);
+  return { x: me.pos.x + _ray.x * range, y: me.pos.y + 1.4 + _ray.y * range, z: me.pos.z + _ray.z * range };
+}
+
+// ---------- Flèches (voleuse) ----------
+const arrows = [];
+function shootArrow(rig, to, mon) {
+  const from = new THREE.Vector3();
+  (rig.B.handL || rig.root).getWorldPosition(from);
+  const target = new THREE.Vector3(to.x, to.y, to.z);
+  const mesh = prop('x_arrow', 1.1);
+  mesh.position.copy(from);
+  worldRoot.add(mesh);
+  const dist = from.distanceTo(target);
+  arrows.push({ mesh, from, to: target, t: 0, dur: Math.max(0.08, dist / 45), mon, arc: dist * 0.04 });
+  audio.play('bow', from);
+}
+function updateArrows(dt) {
+  for (let i = arrows.length - 1; i >= 0; i--) {
+    const a = arrows[i];
+    a.t += dt;
+    const k = Math.min(1, a.t / a.dur);
+    const prev = a.mesh.position.clone();
+    // la cible bouge : la flèche la suit
+    if (a.mon && !a.mon.dead) a.to.set(a.mon.rig.root.position.x, a.mon.rig.root.position.y + 1.1, a.mon.rig.root.position.z);
+    a.mesh.position.lerpVectors(a.from, a.to, k);
+    a.mesh.position.y += Math.sin(k * Math.PI) * a.arc;
+    a.mesh.lookAt(a.mesh.position.clone().add(a.mesh.position.clone().sub(prev)));
+    if (k >= 1) {
+      worldRoot.remove(a.mesh);
+      arrows.splice(i, 1);
+      if (a.mon && a.mon.id && !a.mon.dead && a.mine) { send({ type: 'hitM', id: a.mon.id }); audio.play('swordHit', a.to); }
+      fx.spawn({ geo: fx.box, mat: fx.mats.wood, pos: a.to, vel: new THREE.Vector3(0, 2, 0), size: 0.04, life: 0.4, gravity: 10 });
+    }
+  }
+}
+
+function shootArrowMine(mon) {
+  const to = me.aimTo || aimFar(me.rig.cls.range);
+  shootArrow(me.rig, to, mon && !mon.dead ? mon : null);
+  arrows[arrows.length - 1].mine = true;
+}
+
+// ---------- Feu du mage ----------
+const fireMats = ['#ffd060', '#ff8a20', '#ff4a10'].map((c) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.9 }));
+function fireBurst(p) {
+  for (let i = 0; i < 26; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.random() * W.CLASSES.Mage.aoe;
+    fx.spawn({ geo: fx.box, mat: fireMats[i % 3], pos: new THREE.Vector3(p.x + Math.cos(a) * r * 0.3, p.y + 0.2, p.z + Math.sin(a) * r * 0.3),
+      vel: new THREE.Vector3(Math.cos(a) * r * 1.6, 1.5 + Math.random() * 2.5, Math.sin(a) * r * 1.6), size: 0.08 + Math.random() * 0.1, life: 0.6 + Math.random() * 0.4, gravity: -1, drag: 2.5, spin: 6 });
+  }
+  fx.puff(new THREE.Vector3(p.x, p.y + 0.3, p.z), 0xff9a40, 5, 0.7);
+  audio.play('fire', p);
 }
 function onToolHit() {
   if (!inGame()) return;
   const mon = me.attackMonster;
+  const cls = me.rig.cls, k = me.rig.atk?.kind ?? me.lastKind;
+  if (k === 'shoot') {
+    const a = shootArrowMine(mon);
+    void a;
+    return;
+  }
+  if (k === 'staff') {
+    // boule de feu : brûle tous les monstres autour du point d'impact
+    const p = mon && !mon.dead ? mon.rig.root.position : new THREE.Vector3(me.aimTo?.x ?? me.pos.x, 0, me.aimTo?.z ?? me.pos.z);
+    const c = new THREE.Vector3(p.x, heightAt(p.x, p.z), p.z);
+    fireBurst(c);
+    send({ type: 'hitM', id: mon && !mon.dead ? mon.id : null, x: +c.x.toFixed(2), z: +c.z.toFixed(2) });
+    camShake = 0.12;
+    return;
+  }
   if (mon) {
     const p = mon.rig.root.position;
-    if (!mon.dead && Math.hypot(p.x - me.pos.x, p.z - me.pos.z) < REACH + 1.6) {
+    if (!mon.dead && Math.hypot(p.x - me.pos.x, p.z - me.pos.z) < cls.reach + 0.6) {
       send({ type: 'hitM', id: mon.id });
       audio.play('swordHit', p);
       camShake = 0.1;
@@ -1389,7 +1499,10 @@ function updatePlayer(dt) {
   const moving = fx || fz;
   const running = pressed('run');
   let speed = (running ? RUN_SPEED : WALK_SPEED) * mods.speed;
-  if (rig.attacking) speed *= 0.3;
+  if (rig.attacking) speed *= rig.atk?.kind === 'shoot' ? 0.5 : 0.3;
+  if (rig.blocking) speed *= 0.5;
+  // dalles de chemin : on va beaucoup plus vite (le sprint aussi)
+  if (inGame() && buildings.onPath(me.pos.x, me.pos.z, me.pos.y)) speed *= W.PATH_SPEED;
   if (carrying && !mods.carry) speed *= 0.82;
   const inWater = inGame() && W.isWater(me.pos.x, me.pos.z) && me.pos.y < W.waterLevelAt(me.pos.x);
   if (inWater) speed *= 0.6;
@@ -1428,9 +1541,9 @@ function updatePlayer(dt) {
   // Outil en main selon ce qu'on vise
   if (!rig.attacking) {
     if (game.build.on) rig.setTool('hammer');
-    else if (currentMonster) rig.setTool('sword');
-    else if (currentTarget) rig.setTool(currentTarget.kind === 'tree' ? 'axe' : currentTarget.kind === 'rock' ? 'pick' : 'sword');
-    else rig.setTool('sword');
+    else if (currentMonster) rig.setTool(rig.weapon);
+    else if (currentTarget) rig.setTool(currentTarget.kind === 'tree' ? 'axe' : currentTarget.kind === 'rock' ? 'pick' : rig.weapon);
+    else rig.setTool(rig.weapon);
   }
 
   const camFacing = Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw));
@@ -1567,16 +1680,18 @@ function tick(dt) {
     buildings.update(dt, ps);
     nature.update(dt, time, wind.uWind.value, focus, nightAmount);
     updateFlyers(dt);
+    updateArrows(dt);
     hudT -= dt;
     if (hudT <= 0) {
       hudT = 0.2; updateClockHud(); updatePowerHud();
       me.rig?.setPower(!!powerActive(me.power));
       for (const o of others.values()) o.rig.setPower(!!powerActive(o.power));
     }
+    // mini-carte redessinée à chaque image (elle tourne avec la caméra) ; grande carte 10 fois par seconde
+    worldMap.drawMini($('minimap'), mapData());
     mapT -= dt;
     if (mapT <= 0) {
       mapT = 0.1;
-      worldMap.drawMini($('minimap'), mapData());
       if (game.mode === 'map') drawBigMap();
     }
   } else {
@@ -1608,7 +1723,8 @@ updateHelp();
 // ===================== Outils de test (console du navigateur) =====================
 window.__W = W;
 window.__game = {
-  me, nature, others, camera, monsters, buildings, gem, game, keys, tryAttack, send, audio, village, profile, renderer, flyers,
+  me, nature, others, camera, monsters, buildings, gem, game, keys, tryAttack, send, audio, village, profile, renderer, flyers, setBlock,
+  mySkin: (s) => ensureMyRig(me.color, me.name, s),
   setView: (yaw, pitch, dist) => { camYaw = yaw; camPitch = pitch; camDist = dist; },
   pause: (v = true) => { paused = v; },
   advance: (sec, step = 1 / 30) => {

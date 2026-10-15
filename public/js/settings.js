@@ -9,7 +9,7 @@ export const DEFAULT_KEYS = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', run: 'ShiftLeft',
   interact: 'KeyE', build: 'KeyB', demolish: 'KeyF', map: 'KeyM', chat: 'Enter',
 };
-const DEFAULTS = { master: 100, music: 60, amb: 70, sfx: 80, sens: 100, quality: 'high', keys: { ...DEFAULT_KEYS } };
+const DEFAULTS = { master: 20, music: 60, amb: 70, sfx: 80, sens: 100, quality: 'high', keys: { ...DEFAULT_KEYS } };
 
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -20,6 +20,8 @@ export const settings = (() => {
   const out = { ...DEFAULTS, ...s, keys: { ...DEFAULT_KEYS, ...(s.keys || {}) } };
   // v0.0.5 : construction passe sur B, déconstruire sur F
   if ((s.kv || 0) < 2) { if (out.keys.build === 'KeyF') out.keys.build = 'KeyB'; out.keys.demolish = 'KeyF'; out.kv = 2; }
+  // v0.1.0 : volume général à 20 % par défaut (le jeu était trop fort au lancement)
+  if ((out.kv || 0) < 3) { out.master = 20; out.kv = 3; }
   const legacyQ = lsGet('rpg3d_quality');
   if (!s.quality && legacyQ) out.quality = legacyQ;
   return out;

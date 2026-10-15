@@ -215,15 +215,28 @@
           <option value="low">Bas (PC moins puissant)</option>
         </select>
       </label>
-      <button id="btn-fullscreen" class="btn small">Plein écran</button>
-      <div class="opt-section">Touches <span class="hint">(clique puis appuie sur une touche)</span></div>
+      <div class="opt-buttons">
+        <button id="btn-keys" class="btn small">⌨ Touches</button>
+        <button id="btn-fullscreen" class="btn small">Plein écran</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Touches (sous-fenêtre des options) -->
+  <div id="keys-panel" class="overlay" hidden>
+    <div class="panel keys-panel">
+      <div class="panel-title">Touches <button id="keys-close" class="x">✕</button></div>
+      <div class="hint">Clique sur une touche puis appuie sur la nouvelle.</div>
       <div id="keybinds"></div>
-      <button id="btn-keys-reset" class="btn small ghost">Touches par défaut</button>
+      <div class="opt-buttons">
+        <button id="btn-keys-reset" class="btn small ghost">Touches par défaut</button>
+        <button id="btn-keys-back" class="btn small">Retour</button>
+      </div>
     </div>
   </div>
 
   <div id="fade"></div>
-  <div id="version">ver.0.0.9</div>
+  <div id="version">ver.0.1.0</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

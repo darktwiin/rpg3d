@@ -177,7 +177,7 @@ export class AudioEngine {
     this.duskRise = this.osc('sine', 220, t, 1e6, this.gain(0.05, this.duskMix));
     // Bourdons de la nuit
     this.nightF = this.filter('lowpass', 260, 3, this.gain(0.9, this.nightMix));
-    this.nightOsc = [41.2, 43.65, 61.7].map((f) => this.osc('sawtooth', f, t, 1e6, this.gain(0.32, this.nightF)));
+    this.nightOsc = [36.7, 55].map((f) => this.osc('sawtooth', f, t, 1e6, this.gain(0.2, this.nightF)));
     const lfo = ctx.createOscillator(); lfo.frequency.value = 0.06;
     const lg = this.gain(140); lfo.connect(lg); lg.connect(this.nightF.frequency); lfo.start();
     this.nightHigh = this.gain(0.0, this.nightMix);
@@ -213,19 +213,20 @@ export class AudioEngine {
     this.riverG.gain.setTargetAtTime(clamp(1 - riverDist / 28, 0, 1) ** 1.6 * 0.22, t, 0.3);
     this.fallG.gain.setTargetAtTime(clamp(1 - fall / 45, 0, 1) ** 1.8 * 0.5, t, 0.3);
 
-    // Musique du jour
-    const BEAT = 60 / 68;
+    // Musique : jour (thème folk, flûte + luth), crépuscule (tension), nuit (tambours de guerre)
+    this.danger = danger;
+    const BEAT = 60 / 92;
     while (this.nextBeat < t + 0.25) {
       if (day > 0.02) this.dayBeat(this.beat, this.nextBeat, BEAT);
-      if (dusk > 0.02) this.duskBeat(this.beat, this.nextBeat, BEAT, duskK);
+      if (dusk > 0.02 && this.beat % 2 === 0) this.duskBeat(this.beat >> 1, this.nextBeat, BEAT * 2, duskK);
       this.beat++;
       this.nextBeat += BEAT;
     }
-    // Musique de la nuit (lente)
+    const NB = 60 / 104;
     while (this.nextNight < t + 0.3) {
-      if (night > 0.02) this.nightBar(this.nightBeat, this.nextNight);
+      if (night > 0.02) this.nightBar(this.nightBeat, this.nextNight, NB);
       this.nightBeat++;
-      this.nextNight += 4;
+      this.nextNight += NB;
     }
     // Battement de cœur
     this.heartK += (danger - this.heartK) * Math.min(1, dt * 2);
@@ -244,30 +245,46 @@ export class AudioEngine {
     if (E.whisper < 0) { E.whisper = rnd(10, 22); if (night > 0.5) this.whisper(); }
   }
 
-  // ---------- Jour : nappes douces + mélodie pentatonique ----------
+  // ---------- Jour : petite ballade folk en ré dorien (flûte, luth, bourdon, tambourin) ----------
+  // 4 temps par mesure, 16 mesures : A (flûte) puis B (luth seul, plus calme)
   dayBeat(b, t, BEAT) {
-    const CH = [
-      { root: 48, notes: [48, 52, 55, 59, 64] },   // Do maj7
-      { root: 45, notes: [45, 52, 55, 60, 64] },   // La m7
-      { root: 41, notes: [41, 48, 52, 57, 60] },   // Fa maj7
-      { root: 43, notes: [43, 50, 55, 59, 62] },   // Sol
-    ];
-    const bar = Math.floor(b / 8) % 4, inBar = b % 8;
-    const ch = CH[bar];
-    if (inBar === 0) {
-      for (const n of ch.notes.slice(1)) this.pad(n, t, BEAT * 8.2, 0.022, this.dayMix);
-      this.softBass(ch.root - 12, t, BEAT * 7, this.dayMix);
-      if (Math.random() < 0.5) this.arp(ch.notes.map((n) => n + 24), t + BEAT * 0.5, BEAT / 4);
+    const PROG = [[50, 0], [48, 1], [46, 2], [48, 1], [50, 0], [45, 3], [46, 2], [45, 3]]; // Rém, Do, Sib, Do, Rém, La, Sib, La
+    const CHORD = [[0, 3, 7], [0, 4, 7], [0, 4, 7], [0, 3, 7]];
+    const bar = Math.floor(b / 4), beat = b % 4;
+    const [root, ci] = PROG[bar % 8];
+    const ch = CHORD[ci].map((i) => root + i);
+    const section = Math.floor(bar / 8) % 2;  // 0 : flûte, 1 : luth seul
+    if (beat === 0) {
+      this.drone(root - 12, t, BEAT * 4.2);
+      if (bar % 8 === 0 && Math.random() < 0.6) this.chime(root + 36, t);
     }
-    // Mélodie : marche aléatoire sur la gamme pentatonique
-    const SCALE = [72, 74, 76, 79, 81, 84, 86, 88];
-    const play = (time, p) => {
-      if (Math.random() > p) return;
-      this.melodyNote = clamp(this.melodyNote + pick([-2, -1, -1, 1, 1, 2, 0]), 0, SCALE.length - 1);
-      this.pluck(SCALE[this.melodyNote], time, 0.05);
-    };
-    const restBar = Math.floor(b / 16) % 3 === 2; // respiration
-    if (!restBar) { play(t, inBar % 2 === 0 ? 0.6 : 0.35); play(t + BEAT / 2, 0.15); }
+    // luth : arpège en croches
+    const ARP = [0, 1, 2, 1, 0, 2, 1, 2];
+    for (let i = 0; i < 2; i++) {
+      const k = ARP[(beat * 2 + i) % 8];
+      const n = ch[k] + 12 + (k === 0 && i === 1 ? 12 : 0);
+      if (section === 1 || i === 0 || Math.random() < 0.7) this.lute(n, t + i * BEAT / 2, section ? 0.05 : 0.035);
+    }
+    // tambourin doux
+    if (beat === 0 || beat === 2) this.frameDrum(t, beat === 0 ? 0.11 : 0.06);
+    if (section === 0 && Math.random() < 0.25) this.shaker(t + BEAT / 2);
+    // flûte : phrases écrites (degrés de la gamme, durée en croches)
+    if (section === 0 && beat === 0) {
+      const PH = this._phrases ||= [
+        [[4, 2], [3, 1], [2, 1], [1, 2], [2, 2]], [[2, 3], [4, 1], [5, 2], [4, 2]], [[7, 2], [6, 1], [5, 1], [4, 4]],
+        [[4, 1], [5, 1], [6, 2], [5, 2], [3, 2]], [[2, 2], [4, 2], [3, 1], [2, 1], [0, 2]], [[0, 4], [-1, 2], [0, 2]],
+        [[5, 2], [4, 2], [2, 2], [4, 2]], [[3, 3], [2, 1], [1, 2], [-1, 2]],
+      ];
+      const SC = [62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81];
+      const base = SC.indexOf(root + 12) >= 0 ? SC.indexOf(root + 12) : SC.findIndex((x) => x >= root + 12);
+      const ph = PH[(bar + (Math.random() < 0.3 ? 4 : 0)) % PH.length];
+      let tt = t;
+      for (const [deg, len] of ph) {
+        const i = clamp(base + deg + 2, 0, SC.length - 1);
+        this.flute(SC[i] + 12, tt, len * BEAT / 2);
+        tt += len * BEAT / 2;
+      }
+    }
   }
   pad(note, t, dur, vol, dest) {
     const g = this.gain(0, dest);
@@ -279,24 +296,59 @@ export class AudioEngine {
     g.gain.linearRampToValueAtTime(vol * 0.8, t + dur * 0.7);
     g.gain.linearRampToValueAtTime(0.0001, t + dur);
   }
-  softBass(note, t, dur, dest) {
-    const g = this.gain(0, dest);
-    this.osc('sine', mtof(note), t, dur, g);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.05, t + 0.4);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  drone(note, t, dur) {
+    for (const [n, v] of [[note, 0.05], [note + 7, 0.025], [note + 12, 0.015]]) {
+      const g = this.gain(0, this.dayMix);
+      const f = this.filter('lowpass', 700, 0.4, g);
+      this.osc('triangle', mtof(n), t, dur, f).detune.value = rnd(-4, 4);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(v, t + 0.6);
+      g.gain.linearRampToValueAtTime(v * 0.7, t + dur - 0.4);
+      g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    }
   }
-  pluck(note, t, vol) {
+  lute(note, t, vol) {
     const g = this.gain(0, this.dayMix);
-    g.connect(this.delay);
-    const f = mtof(note);
-    this.osc('sine', f, t, 1.8, g);
-    const g2 = this.gain(0.25, g);
-    this.osc('triangle', f * 2, t, 0.6, g2);
-    this.env(g, t, vol, 0.006, 1.6);
+    const f = this.filter('lowpass', 3200, 1.5, g);
+    f.frequency.setValueAtTime(3200, t); f.frequency.exponentialRampToValueAtTime(600, t + 0.4);
+    const fr = mtof(note);
+    this.osc('triangle', fr, t, 1.2, f);
+    this.osc('square', fr * 1.003, t, 0.25, this.gain(0.25, f));
+    this.env(g, t, vol, 0.003, 1.1);
   }
-  arp(notes, t, step) {
-    notes.forEach((n, i) => this.pluck(n, t + i * step, 0.022));
+  flute(note, t, dur) {
+    const g = this.gain(0, this.dayMix); g.connect(this.delay);
+    const fr = mtof(note);
+    const o = this.osc('sine', fr, t, dur + 0.1, g);
+    this.osc('triangle', fr * 2, t, dur + 0.1, this.gain(0.08, g));
+    const vib = this.ctx.createOscillator(); vib.frequency.value = 5.2;
+    const vg = this.gain(0); vib.connect(vg); vg.connect(o.frequency); vib.start(t); vib.stop(t + dur + 0.1);
+    vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(fr * 0.008, t + Math.min(0.4, dur));
+    const ng = this.gain(0, g); this.noise(t, 0.12, this.filter('bandpass', fr * 2, 3, ng)); this.env(ng, t, 0.3, 0.01, 0.1);
+    const v = 0.04;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(v, t + 0.05);
+    g.gain.setValueAtTime(v * 0.85, t + Math.max(0.06, dur - 0.08));
+    g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.08);
+  }
+  frameDrum(t, v) {
+    const g = this.gain(0, this.dayMix);
+    const o = this.osc('sine', 110, t, 0.3, g); o.frequency.exponentialRampToValueAtTime(70, t + 0.15);
+    this.env(g, t, v, 0.004, 0.22);
+    const ng = this.gain(0, this.dayMix); this.noise(t, 0.08, this.filter('bandpass', 900, 1, ng)); this.env(ng, t, v * 0.3, 0.002, 0.06);
+  }
+  shaker(t) {
+    const g = this.gain(0, this.dayMix);
+    this.noise(t, 0.06, this.filter('highpass', 6000, 0.7, g));
+    this.env(g, t, 0.03, 0.005, 0.05);
+  }
+  chime(note, t) {
+    [0, 7, 12].forEach((d, i) => {
+      const g = this.gain(0, this.dayMix); g.connect(this.delay);
+      this.osc('sine', mtof(note + d), t + i * 0.18, 2.4, g);
+      this.osc('sine', mtof(note + d) * 2.76, t + i * 0.18, 0.6, this.gain(0.12, g));
+      this.env(g, t + i * 0.18, 0.025, 0.004, 2.2);
+    });
   }
 
   // ---------- Crépuscule : pulsation qui accélère ----------
@@ -322,33 +374,61 @@ export class AudioEngine {
     }
   }
 
-  // ---------- Nuit : nappes sombres, boîte à musique déréglée ----------
-  nightBar(b, t) {
-    const roots = [40, 41, 40, 38];
-    const r = roots[b % 4];
-    for (const n of [r, r + 3, r + 6, r + 13]) {
-      const g = this.gain(0, this.nightMix);
-      const f = this.filter('lowpass', 520, 1.5, g);
-      const o1 = this.osc('sawtooth', mtof(n), t, 4.4, f); o1.detune.value = -9;
-      const o2 = this.osc('sawtooth', mtof(n), t, 4.4, f); o2.detune.value = 11;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.018, t + 2);
-      g.gain.linearRampToValueAtTime(0.0001, t + 4.3);
+  // ---------- Nuit : ostinato grave, chœur sombre, tambours de guerre (plus forts quand les monstres approchent) ----------
+  nightBar(b, t, NB) {
+    const d = this.danger || 0;
+    const bar = Math.floor(b / 8), step = b % 8;
+    const ROOTS = [38, 38, 34, 36];   // Ré, Ré, Sib, Do
+    const r = ROOTS[bar % 4];
+    // ostinato de cordes (croches) : 1-1-5-1-b6-5-1-b3
+    const OST = [0, 0, 7, 0, 8, 7, 0, 3];
+    const g = this.gain(0, this.nightMix);
+    const f = this.filter('lowpass', 380 + d * 900, 2, g);
+    this.osc('sawtooth', mtof(r + OST[step]), t, NB * 0.9, f);
+    this.osc('sawtooth', mtof(r + OST[step] - 12), t, NB * 0.9, this.gain(0.5, f));
+    this.env(g, t, step === 0 ? 0.06 : 0.04, 0.01, NB * 0.8);
+    // chœur (voyelle « ah » : dents de scie filtrées en formants)
+    if (step === 0 && bar % 2 === 0) {
+      for (const n of [r + 24, r + 27, r + 31]) {
+        const cg = this.gain(0, this.nightMix);
+        for (const [fq, q] of [[750, 8], [1150, 10]]) {
+          const o = this.osc('sawtooth', mtof(n), t, NB * 16, this.filter('bandpass', fq, q, cg));
+          o.detune.value = rnd(-8, 8);
+        }
+        cg.gain.setValueAtTime(0.0001, t);
+        cg.gain.linearRampToValueAtTime(0.05, t + NB * 6);
+        cg.gain.linearRampToValueAtTime(0.0001, t + NB * 16);
+      }
     }
-    if (b % 2 === 1 && Math.random() < 0.7) this.musicBox(t + rnd(0, 1.5));
+    // tambours : motif lourd, plus présent avec le danger
+    const DR = [1, 0, 0, 0.5, 0, 0, 0.7, 0.4];
+    if (DR[step]) this.taiko(t, DR[step] * (0.35 + d * 0.65));
+    if (d > 0.4 && (step === 2 || step === 5)) this.taiko(t, 0.2 * d, 160);
+    // cloche funèbre
+    if (b % 64 === 0) this.bell(r + 24, t);
+    if (bar % 4 === 3 && step === 4 && Math.random() < 0.5) this.musicBox(t);
+  }
+  taiko(t, v, f0 = 90) {
+    const g = this.gain(0, this.nightMix);
+    const o = this.osc('sine', f0, t, 0.6, g); o.frequency.exponentialRampToValueAtTime(f0 * 0.45, t + 0.35);
+    this.env(g, t, v, 0.004, 0.5);
+    const ng = this.gain(0, this.nightMix); this.noise(t, 0.12, this.filter('lowpass', 1200, 1, ng)); this.env(ng, t, v * 0.35, 0.002, 0.1);
+  }
+  bell(note, t) {
+    for (const [m, v] of [[1, 0.05], [2.4, 0.03], [3.0, 0.02], [4.5, 0.012]]) {
+      const g = this.gain(0, this.nightMix);
+      this.osc('sine', mtof(note) * m, t, 6, g);
+      this.env(g, t, v, 0.005, 5.5);
+    }
   }
   musicBox(t) {
-    const SC = [69, 72, 75, 76, 77, 81, 84];
-    let n = pick(SC);
-    for (let i = 0; i < 4 + Math.floor(Math.random() * 3); i++) {
-      const tt = t + i * rnd(0.45, 0.8);
+    const SC = [74, 77, 81, 82, 86, 85];
+    for (let i = 0; i < 4; i++) {
+      const n = pick(SC), tt = t + i * 0.42;
       const g = this.gain(0, this.nightMix);
-      const o = this.osc('sine', mtof(n), tt, 2.5, g);
-      const vib = this.ctx.createOscillator(); vib.frequency.value = 5;
-      const vg = this.gain(mtof(n) * 0.012); vib.connect(vg); vg.connect(o.frequency); vib.start(tt); vib.stop(tt + 2.5);
-      o.detune.setValueAtTime(0, tt); o.detune.linearRampToValueAtTime(-30, tt + 2.4);
-      this.env(g, tt, 0.035, 0.01, 2.2);
-      n = pick(SC);
+      const o = this.osc('sine', mtof(n), tt, 2, g);
+      o.detune.setValueAtTime(0, tt); o.detune.linearRampToValueAtTime(-25, tt + 1.9);
+      this.env(g, tt, 0.025, 0.01, 1.8);
     }
   }
   nightEvent() {
@@ -804,6 +884,19 @@ export class AudioEngine {
       o.frequency.exponentialRampToValueAtTime(f0 * 1.5, t + 0.05);
       self.env(g, t, 0.06, 0.003, 0.07);
     }; S.collect.verb = 0;
+    // bouclier qui pare un coup : choc métallique
+    S.shieldBlock = function (t, out) {
+      ring(t, out, [[620, 1], [1480, 0.6], [2350, 0.35], [3900, 0.15]], 0.35, 0.16);
+      thump(t, out, 180, 90, 0.1, 0.4);
+      burst(t, out, 'highpass', 2500, 0.8, 0.06, 0.3);
+    }; S.shieldBlock.range = 12;
+    // boule de feu du mage
+    S.fire = function (t, out) {
+      const g = burst(t, out, 'lowpass', 900, 0.7, 0.55, 0.55, 0.01);
+      void g;
+      burst(t, out, 'bandpass', 2400, 0.9, 0.35, 0.25, 0.02);
+      thump(t, out, 120, 50, 0.3, 0.45);
+    }; S.fire.range = 16;
     // bûche qui tombe au sol : petit « toc » boisé
     S.logDrop = function (t, out) {
       const f = rnd(380, 520);

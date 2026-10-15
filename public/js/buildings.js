@@ -72,6 +72,22 @@ export function stoneTexture() {
     }
   });
 }
+// pavés de la dalle de chemin
+function pathTexture() {
+  return canvasTex(256, 256, (ctx, w) => {
+    ctx.fillStyle = '#5d5850'; ctx.fillRect(0, 0, w, w);
+    const n = 4;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const s = w / n, x = i * s + (j % 2 ? s / 2 : 0), y = j * s;
+      for (const ox of [0, -w]) {
+        const g = 140 + Math.random() * 40;
+        ctx.fillStyle = `rgb(${g},${g - 6},${g - 16})`;
+        ctx.beginPath(); ctx.roundRect(x + ox + 4, y + 4, s - 8, s - 8, 10); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(x + ox + 8, y + 7, s - 22, 6);
+      }
+    }
+  });
+}
 export function shingleTexture() {
   return canvasTex(256, 256, (ctx, w, h) => {
     ctx.fillStyle = '#4b4a48'; ctx.fillRect(0, 0, w, h);
@@ -108,6 +124,7 @@ export class Buildings {
       ice: new THREE.MeshStandardMaterial({ color: '#bfe8ff', emissive: '#4ab8ff', emissiveIntensity: 1.2, roughness: 0.15, transparent: true, opacity: 0.9 }),
       rune: new THREE.MeshStandardMaterial({ color: '#9ad8ff', emissive: '#3aa8ff', emissiveIntensity: 1.4 }),
       doorLeaf: new THREE.MeshStandardMaterial({ map: planks, color: '#d08850', roughness: 0.85 }),
+      path: new THREE.MeshStandardMaterial({ map: pathTexture(), roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2 }),
     };
     this.bars = new Map();
     this.blueprint = new THREE.MeshStandardMaterial({ color: '#9fd0ff', emissive: '#2a5a90', transparent: true, opacity: 0.45, depthWrite: false });
@@ -191,6 +208,13 @@ export class Buildings {
       hinge.add(handle);
       g.userData.hinge = hinge;
       if (dh > 0.05) add(new THREE.BoxGeometry(1.8, dh + 0.2, 0.2), m('stone'), 0, -dh / 2, 0);
+    } else if (type === 'path') {
+      // dalle de pierre qui épouse le terrain (posée par add() / showGhost())
+      const geo = new THREE.PlaneGeometry(1.96, 1.96, 6, 6);
+      geo.rotateX(-Math.PI / 2);
+      const mesh = add(geo, matOverride || this.mats.path, 0, 0, 0);
+      mesh.castShadow = false;
+      g.userData.conform = mesh;
     } else if (type === 'stonewall') {
       const dh = Math.max(0, drop);
       add(new THREE.BoxGeometry(2.04, WALL_H + dh, 0.42), m('stoneWall'), 0, (WALL_H - dh) / 2, 0);
@@ -309,6 +333,7 @@ export class Buildings {
     const drop = b.lv ? 0 : this.dropFor(b);
     const mesh = this.makeMesh(b.type, drop, null, variantOf(b.id));
     mesh.position.set(b.x, b.y, b.z);
+    this.conform(mesh, b.x, b.y, b.z);
     mesh.rotation.y = this.rotY(b);
     this.scene.add(mesh);
     const box = isWallType(b.type) ? wallBox(b) : PIECES[b.type].tower ? { x: b.x, z: b.z, hx: 0.85, hz: 0.85 } : { x: b.x, z: b.z, hx: 1, hz: 1 };
@@ -357,7 +382,7 @@ export class Buildings {
   }
 
   barHeight(e) {
-    return { floor: 0.7, base: 2.5, wall: 2.5, window: 2.5, door: 2.5, stonewall: 2.7, roof: 1.6, stairs: 2.5, spikes: 1.0, tower: 5.9, frost: 4.9 }[e.type] || 2;
+    return { floor: 0.7, path: 0.6, base: 2.5, wall: 2.5, window: 2.5, door: 2.5, stonewall: 2.7, roof: 1.6, stairs: 2.5, spikes: 1.0, tower: 5.9, frost: 4.9 }[e.type] || 2;
   }
   drawBar(e) {
     let bar = this.bars.get(e.id);
@@ -468,7 +493,26 @@ export class Buildings {
     return b.y - minH;
   }
 
-  floors() { return [...this.map.values()].filter((b) => b.type === 'floor'); }
+  floors() { return [...this.map.values()].filter((b) => b.type === 'floor' || b.type === 'path'); }
+
+  // la dalle suit les bosses du terrain
+  conform(group, x, y, z) {
+    const mesh = group.userData.conform;
+    if (!mesh) return;
+    const p = mesh.geometry.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setY(i, heightAt(x + p.getX(i), z + p.getZ(i)) - y + 0.05);
+    p.needsUpdate = true;
+    mesh.geometry.computeVertexNormals();
+  }
+
+  // le joueur marche-t-il sur une dalle de chemin ?
+  onPath(x, z, feetY) {
+    const cx = Math.round(x / GRID) * GRID, cz = Math.round(z / GRID) * GRID;
+    for (const b of this.map.values()) {
+      if (b.type === 'path' && b.state === 'done' && Math.abs(b.x - cx) < 0.1 && Math.abs(b.z - cz) < 0.1 && feetY < heightAt(x, z) + 0.6) return true;
+    }
+    return false;
+  }
 
   // ----- Collisions -----
   // Hauteur du sol sous les pieds (terrain ou plancher / toit sur lequel on peut monter)
@@ -508,6 +552,7 @@ export class Buildings {
   // Hauteurs possibles pour une pièce à cet endroit : le sol, puis tout ce qui peut la porter
   // (dessus d'une charpente ou d'un mur, plancher voisin, plancher sous un escalier…)
   levelsFor(type, x, z, rot) {
+    if (type === 'path') return [{ y: Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c))), lv: 0 }];
     const near = (b, d = 1.15) => Math.abs(b.x - x) <= d && Math.abs(b.z - z) <= d;
     const same = (b) => Math.abs(b.x - x) < 0.1 && Math.abs(b.z - z) < 0.1;
     const out = [];
@@ -596,6 +641,10 @@ export class Buildings {
     }
     this.ghost.visible = true;
     this.ghost.position.set(plan.x, plan.y, plan.z);
+    if (plan.type === 'path' && (this.ghost.userData.cx !== plan.x || this.ghost.userData.cz !== plan.z)) {
+      this.conform(this.ghost, plan.x, plan.y, plan.z);
+      this.ghost.userData.cx = plan.x; this.ghost.userData.cz = plan.z;
+    }
     this.ghost.rotation.y = this.rotY(plan);
   }
 

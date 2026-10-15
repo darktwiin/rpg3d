@@ -51,7 +51,7 @@ html, body { font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif; }
   text-shadow: 0 2px 0 #803030;
 }
 /* panneaux qui défilent : le ruban reste à l'intérieur (sinon il serait coupé) */
-.options-panel .panel-title, .craft-panel .panel-title, .skills-panel .panel-title { margin-top: -6px; }
+.options-panel .panel-title, .craft-panel .panel-title, .skills-panel .panel-title, .keys-panel .panel-title { margin-top: -6px; }
 .shards-inline { color: #fff; margin: 0 0 0 8px; font-size: 15px; }
 .shards-inline b { color: #fff; }
 
@@ -229,7 +229,7 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 #map-hint { color: var(--cream); }
 
 /* Mort / fin de partie */
-.big { font-family: inherit; font-weight: 900; color: #fff; text-shadow: 0 3px 0 #803030, 0 6px 20px #000; }
+.overlay .big:not(.chip) { font-family: inherit; font-weight: 900; color: #fff; text-shadow: 0 3px 0 #803030, 0 6px 20px #000; }
 #death .big, #gameover .big {
   padding: 4px 60px 14px; background: url(ui/banner_hanging.png) center / 100% 100% no-repeat;
   font-size: 34px;
