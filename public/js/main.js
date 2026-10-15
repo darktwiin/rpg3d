@@ -206,6 +206,7 @@ function setMode(m) {
   game.mode = m;
   const map = { pause: 'pause', admin: 'admin', map: 'mapview', skills: 'skills', board: 'board', launch: 'launch', players: 'players', craft: 'craft', recap: 'recap', hero: 'heropanel' };
   for (const id of PANELS) $(id).hidden = map[m] !== id;
+  if (m === 'pause') $('btn-quit').hidden = !inGame();
   $('mapview').classList.toggle('tp', m === 'map' && game.tpMode);
   if (m !== 'map') game.tpMode = false;
   const needsMouse = m && m !== 'chat' && !(m === 'map' && !game.tpMode);
@@ -216,6 +217,12 @@ function setMode(m) {
 function closePanel() { setMode(null); lockMouse(); audio.play('ui'); }
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = closePanel; });
 $('btn-resume').onclick = () => { audio.play('ui'); setMode(null); lockMouse(); };
+// Quitter le jeu : ferme la fenêtre du lanceur (dans un navigateur, l'onglet ne peut pas toujours se fermer seul)
+$('btn-exit').onclick = () => {
+  audio.play('ui');
+  window.close();
+  setTimeout(() => { if (!window.closed) toast('Tu peux fermer cet onglet pour quitter le jeu.'); }, 300);
+};
 $('btn-quit').onclick = () => {
   if (inGame()) { send({ type: 'backToHub' }); fade(); }
   setMode(null);
@@ -295,7 +302,7 @@ function openChat() {
   $('chat').classList.add('open');
   chatInput.hidden = false;
   chatInput.value = '';
-  chatInput.placeholder = inGame() ? 'Écris un message… (/god, /aide)' : 'Écris un message à tout le village…';
+  chatInput.placeholder = inGame() ? 'Écris un message à ton groupe…' : 'Écris un message à tout le village…';
   setTimeout(() => chatInput.focus(), 0);
 }
 function closeChat(relock) {
@@ -723,7 +730,7 @@ const handlers = {
     game.god = { on: d.on, invuln: d.invuln, free: d.free };
     $('admin-invuln').checked = d.invuln;
     $('admin-free').checked = d.free;
-    if (first) { addChat({ sys: 'info', text: 'Mode admin activé. Tape /god pour rouvrir le panneau.' }); openAdmin(); }
+    if (first) { addChat({ sys: 'info', text: 'Mode admin activé.' }); openAdmin(); }
     renderBuildBar();
   },
   tp: (d) => { me.pos.set(d.x, heightAt(d.x, d.z) + 0.5, d.z); me.vy = 0; me.grounded = false; camTarget.copy(me.pos); },

@@ -963,7 +963,8 @@ class Room {
   command(p, text) {
     const cmd = text.split(/\s+/)[0].toLowerCase();
     if (cmd === '/god') {
-      if (!(this.solo || p.id === this.hostId)) return send(p.ws, { type: 'chat', sys: 'warn', text: "Seul le chef du groupe peut utiliser /god." });
+      // commande cachée : pour les autres joueurs elle n'existe pas
+      if (!(this.solo || p.id === this.hostId)) return send(p.ws, { type: 'chat', sys: 'warn', text: `Commande inconnue : ${cmd}` });
       if (!this.adminUsed) {
         this.adminUsed = true;
         this.sys('⚙ Mode admin activé : cette partie ne rapporte plus d’éclats ni de place au classement.', 'warn');
@@ -972,7 +973,7 @@ class Room {
       send(p.ws, { type: 'god', on: true, invuln: !!p.invuln, free: !!p.free });
       return;
     }
-    if (cmd === '/aide' || cmd === '/help') return send(p.ws, { type: 'chat', sys: 'info', text: 'Commandes : /god (chef du groupe : panneau admin), /aide' });
+    if (cmd === '/aide' || cmd === '/help') return send(p.ws, { type: 'chat', sys: 'info', text: 'Commandes : /aide' });
     send(p.ws, { type: 'chat', sys: 'warn', text: `Commande inconnue : ${cmd}` });
   }
   admin(p, d) {
