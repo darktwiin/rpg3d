@@ -17,11 +17,11 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const LOOK = {
   brute: { model: 'Skeleton_Minion', size: 1.0, right: 's_Blade', left: null, idle: 'Skeletons_Idle', move: 'Skeletons_Walking', gait: 2.0,
     atk: { clip: 'Melee_1H_Attack_Slice_Diagonal', t0: 0.1, strike: 0.42, t1: 0.95 } },
-  runner: { model: 'Skeleton_Rogue', size: 0.92, right: 's_Blade', left: null, idle: 'Idle_B', move: 'Running_A', gait: 6.0,
+  runner: { model: 'Skeleton_Rogue', size: 0.83, right: 's_Blade', left: null, idle: 'Idle_B', move: 'Running_A', gait: 6.0,
     atk: { clip: 'Melee_1H_Attack_Stab', t0: 0.05, strike: 0.38, t1: 0.95 } },
   spitter: { model: 'Skeleton_Mage', size: 1.0, right: 's_Staff', left: null, idle: 'Skeletons_Idle', move: 'Skeletons_Walking', gait: 1.8,
     atk: { clip: 'Ranged_Magic_Shoot', t0: 0.0, strike: 0.42, t1: 0.92 } },
-  tank: { model: 'Skeleton_Warrior', size: 1.15, right: 's_Axe', left: 's_Shield_Large_A', idle: 'Melee_Blocking', move: 'Walking_A', gait: 2.4,
+  tank: { model: 'Skeleton_Warrior', size: 1.38, right: 's_Axe', left: 's_Shield_Large_A', idle: 'Melee_Blocking', move: 'Walking_A', gait: 2.4,
     atk: { clip: 'Melee_1H_Attack_Chop', t0: 0.15, strike: 0.58, t1: 1.05 } },
 };
 

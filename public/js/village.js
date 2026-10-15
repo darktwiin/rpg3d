@@ -5,9 +5,10 @@ import { plankTexture, stoneTexture, shingleTexture } from './buildings.js';
 import { Particles } from './nature.js';
 import { noise3 } from './world.js';
 import { decorateVillage, Blacksmith } from './villageDecor.js';
+import { buildMedieval } from './villageMedieval.js';
 import { KK } from './models.js';
 
-export const VILLAGE_RADIUS = 40;
+export const VILLAGE_RADIUS = 32.6;   // on reste dans les remparts (grilles aux portes)
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 // Relief du village : plat au centre, collines tout autour
@@ -155,7 +156,7 @@ export class Village {
     this.buildPortal(M);
     this.buildForge(M);
     this.buildBoard(M);
-    this.buildHouses(M);
+    buildMedieval(this, villageHeight);   // maisons, quartier extérieur, château, grilles
     this.buildLanterns(M);
     this.buildTrees(nature);
     // décor KayKit (remparts, bannières, tonneaux, étals…) et le forgeron
@@ -380,6 +381,7 @@ export class Village {
       const a = rand() * Math.PI * 2, r = 37 + rand() * 28;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       if (Math.abs(x) < 5) continue;  // garder les portes dégagées
+      if (this.noTree?.some((n) => Math.hypot(n.x - x, n.z - z) < n.r)) continue;
       // arbres du pack KayKit Forest, comme dans le monde
       const proto = nature.palms[i % nature.palms.length];
       const g = new THREE.Group();

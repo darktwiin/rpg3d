@@ -14,6 +14,7 @@ import { WorldMap } from './map.js';
 import { Village, villageHeight, SPOTS, SPAWN } from './village.js';
 import { Features } from './features.js';
 import { settings, saveSettings, keyLabel, ACTIONS, DEFAULT_KEYS, lsGet, lsSet } from './settings.js';
+import { HeroPage, Loots } from './hero.js';
 import { loadModels, modelIcon, propIcon, staticGeometry, atlasMaterial, characterPortrait, prop } from './models.js';
 
 const $ = (id) => document.getElementById(id);
@@ -100,9 +101,13 @@ const me = {
   inv: { wood: 0, stone: 0, twig: 0 }, name: '', color: 0x2e6fd8, power: 0,
   stam: 100, stamIdle: 0, tired: false, dash: null, jumps: 0, jumpHeld: false,
 };
-const profile = { token: lsGet('rpg3d_token') || '', shards: 0, skills: [], best: 0, xp: 0, account: lsGet('rpg3d_account') || null };
+const profile = { token: lsGet('rpg3d_token') || '', shards: 0, skills: [], best: 0, xp: 0, account: lsGet('rpg3d_account') || null, items: [], equip: {} };
+// caractéristiques = compétences + niveau du héros + équipement porté
+function computeMods() { return W.applyGear(W.skillMods(profile.skills, W.levelOf(profile.xp)), profile.items, profile.equip, me.skin); }
 let mods = W.skillMods([]);
 const others = new Map();
+let heroPage = null;
+const loots = new Loots(worldRoot);
 const game = {
   scene: 'title',   // 'title' | 'hub' | 'game'
   solo: false, host: null, survived: 0,
@@ -196,10 +201,10 @@ addEventListener('wheel', (e) => {
 }, { passive: true });
 
 // ===================== Panneaux =====================
-const PANELS = ['pause', 'admin', 'mapview', 'skills', 'board', 'launch', 'players', 'craft'];
+const PANELS = ['pause', 'admin', 'mapview', 'skills', 'board', 'launch', 'players', 'craft', 'recap', 'heropanel'];
 function setMode(m) {
   game.mode = m;
-  const map = { pause: 'pause', admin: 'admin', map: 'mapview', skills: 'skills', board: 'board', launch: 'launch', players: 'players', craft: 'craft' };
+  const map = { pause: 'pause', admin: 'admin', map: 'mapview', skills: 'skills', board: 'board', launch: 'launch', players: 'players', craft: 'craft', recap: 'recap', hero: 'heropanel' };
   for (const id of PANELS) $(id).hidden = map[m] !== id;
   $('mapview').classList.toggle('tp', m === 'map' && game.tpMode);
   if (m !== 'map') game.tpMode = false;
@@ -216,6 +221,16 @@ $('btn-quit').onclick = () => {
   setMode(null);
 };
 $('btn-pause-options').onclick = () => openOptions();
+// Réinitialiser l'arbre de compétences (3 éclats) : un 2ᵉ clic confirme
+$('skills-reset').onclick = () => {
+  const b = $('skills-reset');
+  if (!profile.skills.length) { toast('Aucune compétence à réinitialiser.'); return; }
+  if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Sûr ? Clique encore pour confirmer'; audio.play('ui'); setTimeout(() => { delete b.dataset.sure; b.textContent = '↺ Réinitialiser l’arbre (3 ◆)'; }, 4000); return; }
+  delete b.dataset.sure; b.textContent = '↺ Réinitialiser l’arbre (3 ◆)';
+  send({ type: 'resetSkills' }); audio.play('anvil', village.anvilPos);
+};
+$('recap-forge').onclick = () => { audio.play('ui'); openSkills(); };
+$('recap-hero').onclick = () => { audio.play('ui'); openHero(); };
 
 // ===================== Clavier =====================
 let rebinding = null, lastEscT = -9;
@@ -256,6 +271,7 @@ addEventListener('keydown', (e) => {
   // Invitation : Y / N
   if (game.invite && (e.code === 'KeyY' || e.code === 'KeyN')) { answerInvite(e.code === 'KeyY'); return; }
   if (game.mode === 'craft' && e.code === K.build) { closePanel(); return; }
+  if (game.mode === 'hero' && e.code === K.inventory) { closePanel(); return; }
   if (e.code === K.chat || e.code === 'NumpadEnter') { e.preventDefault(); if (!game.mode) openChat(); return; }
   if (inHub() && e.code === 'Tab') { if (game.mode === 'players') closePanel(); else if (!game.mode) openPlayers(); return; }
   if (inGame() && e.code === K.map) { toggleMap(false); return; }
@@ -263,6 +279,9 @@ addEventListener('keydown', (e) => {
   if (e.code === K.run) tryDash();
   if (inGame() && e.code === K.build) openCraft();
   if (inGame() && game.build.on && e.code === K.demolish) demolishPiece();
+  if (inGame() && game.build.on && e.code === K.repair) repairPiece();
+  if (e.code === K.punch) punchAlly();
+  if (e.code === K.inventory) { openHero(); return; }
   if (e.code === K.interact) interact();
   if (game.build.on && /^Digit[1-9]$/.test(e.code)) selectPiece(+e.code.slice(5) - 1);
 });
@@ -415,8 +434,8 @@ addEventListener('layoutready', () => { renderKeybinds(); renderBuildBar(); });
 function updateHelp() {
   const K = settings.keys;
   $('help').textContent = inHub()
-    ? `${keyLabel(K.interact)} : interagir · Tab : joueurs · ${keyLabel(K.chat)} : chat · Échap : menu`
-    : `Clic : frapper · ${keyLabel(K.build)} : construction · ${keyLabel(K.interact)} : Joyau · ${keyLabel(K.map)} : carte · ${keyLabel(K.chat)} : chat · Échap : menu`;
+    ? `${keyLabel(K.interact)} : interagir · ${keyLabel(K.inventory)} : héros & inventaire · ${keyLabel(K.punch)} : coup de poing · Tab : joueurs · ${keyLabel(K.chat)} : chat · Échap : menu`
+    : `Clic : frapper · ${keyLabel(K.build)} : construction · ${keyLabel(K.interact)} : Joyau · ${keyLabel(K.inventory)} : inventaire · ${keyLabel(K.map)} : carte · ${keyLabel(K.chat)} : chat · Échap : menu`;
   $('launch-key').textContent = keyLabel(K.interact);
 }
 
@@ -451,7 +470,7 @@ const handlers = {
     profile.xp = d.xp;
     if (d.gain) popup(`+${d.gain} XP`, '#ffe08a');
     if (d.level > before) {
-      mods = W.skillMods(profile.skills, d.level);
+      mods = computeMods();
       showBanner(`Niveau ${d.level} !`, `+2 PV et +1 % de dégâts`, 2500);
       audio.play('levelUp');
     }
@@ -459,11 +478,14 @@ const handlers = {
   },
   profile: (d) => {
     const before = profile.shards;
-    Object.assign(profile, { token: d.token, shards: d.shards, skills: d.skills, best: d.best, xp: d.xp || 0, account: d.account || null });
+    Object.assign(profile, { token: d.token, shards: d.shards, skills: d.skills, best: d.best, xp: d.xp || 0, account: d.account || null, items: d.items || [], equip: d.equip || {} });
     lsSet('rpg3d_token', d.token);
     if (d.account) lsSet('rpg3d_account', d.account);
-    mods = W.skillMods(profile.skills, W.levelOf(profile.xp));
+    if (d.skin && d.skin !== me.skin && me.rig) ensureMyRig(me.color, me.name, d.skin);
+    else if (d.skin) me.skin = d.skin;
+    mods = computeMods();
     updateHeroHud();
+    if (game.mode === 'hero') heroPage.render();
     $('shards-n').textContent = profile.shards;
     if (game.mode === 'skills') renderSkills();
     if (inGame() && d.shards > before) popup(`+${d.shards - before} ◆ éclats`, '#d8b8ff');
@@ -476,6 +498,23 @@ const handlers = {
   },
   leaderboard: (d) => { game.board = d.board; village.drawBoard(d.board); if (game.mode === 'board') renderBoard(); },
   hubWelcome: (d) => enterHub(d),
+  hubSkin: (d) => {
+    if (d.id === me.id) { ensureMyRig(me.color, me.name, d.skin); mods = computeMods(); if (game.mode === 'hero') heroPage.render(); return; }
+    const o = others.get(d.id);
+    if (o) { const p = game.hubPlayers.get(d.id) || {}; p.skin = d.skin; removeOther(d.id); addOther({ ...p, id: d.id, name: o.name, color: o.color, skin: d.skin, x: o.target.x, y: o.target.y, z: o.target.z, ry: o.ry }); }
+  },
+  lootAdd: (d) => loots.add(d.loot),
+  lootDel: (d) => {
+    const l = loots.map.get(d.id);
+    loots.remove(d.id);
+    const R = W.RARITIES[d.item.r];
+    if (d.by === me.id) {
+      popup(`${R.name} : ${d.item.name}`, R.color);
+      audio.play(d.item.r >= 3 ? 'levelUp' : 'gemPick', l ? new THREE.Vector3(l.x, l.y, l.z) : me.pos);
+      toast(`Nouvel objet : ${d.item.name} — touche ${keyLabel(settings.keys.inventory)} pour l’équiper`);
+    }
+    addChat({ sys: 'info', text: `🎁 ${d.name} a trouvé ${d.item.name} (${R.name})` });
+  },
   hubJoin: (d) => { game.hubPlayers.set(d.player.id, d.player); addOther(d.player); if (game.mode === 'players') renderPlayers(); },
   hubLeave: (d) => { game.hubPlayers.delete(d.id); removeOther(d.id); if (game.mode === 'players') renderPlayers(); },
   hubMove: (d) => {
@@ -555,7 +594,10 @@ const handlers = {
     if (d.id === me.id) me.power = d.night; else { const o = others.get(d.id); if (o) o.power = d.night; }
     updatePowerHud();
   },
-  bHp: (d) => buildings.setHp(d.id, d.hp),
+  bHp: (d) => {
+    buildings.setHp(d.id, d.hp);
+    if (d.repaired) { const b = buildings.map.get(d.id); if (b) { audio.play('buildDone', new THREE.Vector3(b.x, b.y + 1, b.z)); fx.puff(new THREE.Vector3(b.x, b.y + 1, b.z), 0xffe0a0, 8, 0.8); } }
+  },
   resHit: (d) => {
     nature.setHp(d.id, d.hp);
     if (d.by !== me.id) {
@@ -640,9 +682,22 @@ const handlers = {
   gem: (d) => {
     const wasCarrier = gem.state.carrier;
     gem.set(d.gem);
-    if (d.ev === 'pick') audio.play('gemPick', gem.pos);
-    if (d.ev === 'drop' && wasCarrier) audio.play('gemDrop', gem.pos);
+    if (d.ev === 'pick') { audio.play('gemPick', gem.pos); game.gemCarryEnd = performance.now() + W.GEM_CARRY * 1000; }
+    if (d.ev === 'drop') { if (wasCarrier) audio.play('gemDrop', gem.pos); game.gemReady = performance.now() + W.GEM_REST * 1000; }
     updateGemHud();
+  },
+  punch: (d) => {
+    const victim = d.to === me.id ? me.rig : others.get(d.to)?.rig;
+    const pos = d.to === me.id ? me.pos : victim?.root.position;
+    if (pos) { audio.play('punch', pos); fx.puff(new THREE.Vector3(pos.x, pos.y + 1.2, pos.z), 0xfff0c0, 6, 0.5); }
+    victim?.knock(d.stun);
+    if (d.to === me.id) {
+      me.stunT = d.stun; me.knockDir = d.dir; me.knockV = 6;
+      if (me.dash) me.dash = null;
+      camShake = 0.25;
+      const from = others.get(d.from);
+      popup(`💫 ${from ? from.name : 'Quelqu’un'} t’a assommé !`, '#ffe08a');
+    }
   },
   gemHit: (d) => {
     gem.state.hp = d.hp;
@@ -679,6 +734,7 @@ const handlers = {
     $('gameover').hidden = false;
     $('gameover-text').textContent = `Nuits survécues : ${d.survived}`;
     $('gameover-shards').textContent = d.admin ? 'Partie admin : pas d’éclats ni de classement' : `Éclats gagnés : ${d.shards} ◆`;
+    game.recap = d;
     audio.stinger('night');
     if (isLocked()) document.exitPointerLock();
   },
@@ -720,11 +776,17 @@ function enterHub(d) {
   const first = game.scene === 'title';
   game.scene = 'hub';
   game.over = false;
+  loots.clear();
   me.id = d.you.id;
   ensureMyRig(d.you.color, d.you.name, d.you.skin);
   me.rig.revive(); me.rig.setHp(1); me.rig.carrying = false;
   me.dead = false; me.hp = me.maxHp;
   me.pos.set(d.you.x, 0, d.you.z); me.vy = 0; me.ry = d.you.ry;
+  if (game.recap) {
+    const r = game.recap; game.recap = null;
+    $('recap-score').innerHTML = `Nuits survécues : <b>${r.survived}</b>` + (r.admin ? '' : ` · Éclats gagnés : <b>${r.shards} ◆</b>`) + ` · Tu as maintenant <b>${profile.shards} ◆</b>`;
+    setTimeout(() => { if (game.scene === 'hub' && !game.mode) setMode('recap'); }, 900);
+  }
   me.stam = mods.stamina; me.tired = false; me.dash = null; me.jumps = 0;
   camYaw = 0; camPitch = 0.25;
   camTarget.copy(me.pos);
@@ -756,6 +818,7 @@ function enterGame(d) {
   game.over = false;
   game.solo = d.solo; game.host = d.host;
   game.survived = d.survived || 0;
+  loots.clear();
   me.stam = mods.stamina; me.tired = false; me.dash = null; me.jumps = 0;
   game.clock.time = d.clock.time; game.clock.night = d.clock.night;
   me.id = d.you.id;
@@ -815,6 +878,7 @@ function renderLogin() {
   $('session-box').hidden = !acc;
   $('session-name').textContent = acc || '';
   $('btn-enter').hidden = !acc;
+  $('skins').hidden = !!acc; $('skins-label').hidden = !!acc;
   $('btn-guest').hidden = !!acc;
 }
 function enterVillage(mode) {
@@ -1260,7 +1324,7 @@ function renderBuildBar() {
   $('build-slots').innerHTML = `<div class="build-current">${PIECE_ICONS[type]}<div><div class="name">${W.PIECES[type].name}</div><div class="costs">${game.god.free ? 'Gratuit (admin)' : costHtml(c)}</div></div></div>`;
   const lv = game.build.plan?.lv ?? 0;
   $('build-slots').innerHTML += `<div class="build-level">${lv ? 'Étage ' + lv : 'Rez-de-chaussée'}</div>`;
-  $('build-hint').innerHTML = `Clic gauche : poser · <span class="kbd">${keyLabel(settings.keys.demolish)}</span> / clic droit : déconstruire · Molette : étage · Maj + molette : changer · <span class="kbd">${keyLabel(settings.keys.build)}</span> : menu`;
+  $('build-hint').innerHTML = `Clic gauche : poser · <span class="kbd">${keyLabel(settings.keys.demolish)}</span> / clic droit : déconstruire (½ rendu) · <span class="kbd">${keyLabel(settings.keys.repair)}</span> : réparer · Molette : étage · Maj + molette : changer · <span class="kbd">${keyLabel(settings.keys.build)}</span> : menu`;
 }
 
 // Fenêtre de construction (touche B)
@@ -1273,7 +1337,7 @@ function openCraft() {
 function renderCraft() {
   $('craft-inv').innerHTML = W.RES_KEYS.map((k) => `<span class="chip big">${RES_ICON[k]}<b>${me.inv[k]}</b> ${W.RES_NAMES[k]}</span>`).join('') + '<span class="hint">Inventaire commun au groupe</span>';
   const box = $('craft-groups');
-  box.innerHTML = '';
+  box.innerHTML = `<div class="craft-rules">♻ <b>Déconstruire</b> (${keyLabel(settings.keys.demolish)} ou clic droit) rend <b>la moitié</b> des matériaux · 🔨 <b>Réparer</b> (${keyLabel(settings.keys.repair)}) une pièce abîmée coûte la moitié de son prix × la part de vie perdue${mods.repair ? ' · ✔ Entretien : tes constructions se réparent gratuitement le jour' : ''}</div>`;
   for (const [title, types] of CRAFT_GROUPS) {
     const h = document.createElement('div'); h.className = 'craft-title'; h.textContent = title; box.append(h);
     const grid = document.createElement('div'); grid.className = 'craft-grid';
@@ -1335,11 +1399,13 @@ function aimPoint() {
   return _rayPos;
 }
 function updateBuild() {
+  buildingAimed = null;
   if (!game.build.on || game.mode) { buildings.showGhost(null); buildings.showGrid(0, 0, false); game.build.plan = null; return; }
   const type = W.PIECE_ORDER[game.build.piece];
   const aim = aimPoint();
   buildings.showGrid(Math.round(aim.x / W.GRID) * W.GRID, Math.round(aim.z / W.GRID) * W.GRID, true);
   const plan = buildings.plan(type, aim, me.pos, nature.list, serverInv, game.god.free, mods, camYaw, game.build.lift || 0);
+  { const pk = buildings.pick(aim); buildingAimed = pk && pk.state === 'done' && pk.hp < pk.max ? pk : null; }
   if (plan.lv !== game.build.plan?.lv) { game.build.plan = plan; renderBuildBar(); }
   game.build.plan = plan;
   buildings.showGhost(plan);
@@ -1352,6 +1418,39 @@ function placePiece() {
   if (!p.ok) { audio.play('ui'); if (p.reason) toast(p.reason); return; }
   send({ type: 'build', piece: p.type, x: p.x, z: p.z, y: p.y, rot: p.rot, lv: p.lv });
   if (me.rig.attack('hammer')) send({ type: 'act', k: 'hammer' });
+}
+// Page du héros / inventaire (touche I)
+function openHero() {
+  if (!playing() || me.dead) return;
+  heroPage ||= new HeroPage({ profile, me, getMods: () => mods, send, audio, inHub, setMode, toast });
+  heroPage.open();
+  audio.play('ui');
+}
+let buildingAimed = null;
+function repairPiece() {
+  const b = buildings.pick(aimPoint());
+  if (!b || b.hp >= b.max) { toast('Vise une construction abîmée pour la réparer'); return; }
+  send({ type: 'repair', id: b.id });
+  if (me.rig.attack('hammer')) send({ type: 'act', k: 'hammer' });
+}
+// Coup de poing à un allié tout proche (il est assommé et roule par terre)
+let lastPunch = 0;
+function punchAlly() {
+  if (me.dead || !me.rig || me.rig.attacking || me.stunT > 0) return;
+  const now = performance.now() / 1000;
+  if (now - lastPunch < W.PUNCH.cd) return;
+  let best = null, bd = W.PUNCH.reach + 0.4;
+  for (const o of others.values()) {
+    const p = o.rig.root.position, d = Math.hypot(p.x - me.pos.x, p.z - me.pos.z);
+    if (d < bd && !o.rig.dead) { bd = d; best = o; }
+  }
+  if (!best) { toast('Approche-toi d’un allié pour lui mettre un coup de poing'); return; }
+  lastPunch = now;
+  const p = best.rig.root.position;
+  me.attackDir = Math.atan2(p.x - me.pos.x, p.z - me.pos.z);
+  me.rig.attack('punch', 1);
+  send({ type: 'act', k: 'punch' });
+  send({ type: 'punch', id: best.id });
 }
 function demolishPiece() {
   const b = buildings.pick(aimPoint());
@@ -1390,8 +1489,9 @@ function tryAttack() {
   if (!me.rig || me.rig.attacking || me.dead || me.rig.blocking || (inGame() && gem.state.carrier === me.id)) return;
   const cls = me.rig.cls;
   const now = performance.now() / 1000;
-  if (inHub()) { if (me.rig.attack(cls.kind, mods.atkSpeed)) { send({ type: 'act', k: cls.kind }); audio.play('swing', me.pos); } return; }
   const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
+  // au village : on frappe dans le vide, devant la caméra (avant, la direction restait celle du départ)
+  if (inHub()) { if (me.rig.attack(cls.kind, mods.atkSpeed)) { me.attackDir = Math.atan2(fx, fz); send({ type: 'act', k: cls.kind }); audio.play('swing', me.pos); } return; }
   // la voleuse vise loin avec son arc ; les autres frappent au corps à corps
   const mon = cls.ranged || cls.missile ? (currentTarget ? null : monsters.findAlongAim(me.pos, camera, cls.range)) : monsters.findInFront(me.pos.x, me.pos.z, fx, fz, cls.reach - 1.4);
   const t = mon ? null : currentTarget;
@@ -1675,7 +1775,14 @@ function updatePlayer(dt) {
   const rig = me.rig;
   const carrying = inGame() && gem.state.carrier === me.id;
   rig.carrying = carrying;
-  const canMove = !me.dead && (!game.mode || game.mode === 'map');
+  if (me.stunT > 0) me.stunT -= dt;
+  const stunned = me.stunT > 0;
+  const canMove = !me.dead && !stunned && (!game.mode || game.mode === 'map');
+  if (stunned && me.knockV > 0) {
+    // glissade après le coup de poing
+    me.pos.x += Math.sin(me.knockDir) * me.knockV * dt; me.pos.z += Math.cos(me.knockDir) * me.knockV * dt;
+    me.knockV = Math.max(0, me.knockV - 7 * dt);
+  }
   let fx = 0, fz = 0;
   if (canMove) {
     if (pressed('forward') || keys.ArrowUp) fz += 1;
@@ -1692,7 +1799,9 @@ function updatePlayer(dt) {
   if (rig.attacking) speed *= rig.atk?.kind === 'shoot' ? 0.5 : 0.3;
   if (rig.blocking) speed *= 0.5;
   // dalles de chemin : on va beaucoup plus vite (le sprint aussi)
-  if (inGame() && buildings.onPath(me.pos.x, me.pos.z, me.pos.y)) speed *= W.PATH_SPEED;
+  const onPath = inGame() && buildings.onPath(me.pos.x, me.pos.z, me.pos.y);
+  if (onPath) speed *= W.PATH_SPEED;
+  if (onPath !== game.onPath) { game.onPath = onPath; $('path-boost').classList.toggle('on', onPath); }
   if (carrying && !mods.carry) speed *= 0.82;
   const inWater = inGame() && W.isWater(me.pos.x, me.pos.z) && me.pos.y < W.waterLevelAt(me.pos.x);
   if (inWater) speed *= 0.6;
@@ -1761,7 +1870,7 @@ function updatePlayer(dt) {
   if (me.tired && me.stam > mods.stamina * 0.3) me.tired = false;
   updateStamHud();
 
-  if (mouseHeld && isLocked() && !game.mode && !game.build.on) tryAttack();
+  if (mouseHeld && isLocked() && !game.mode && !game.build.on && !stunned) tryAttack();
 
   // Outil en main selon ce qu'on vise
   if (!rig.attacking) {
@@ -1815,8 +1924,15 @@ function updatePlayer(dt) {
   } else ch.classList.remove('active');
 
   if (!me.dead && !carrying && features.distToRelic(me.pos.x, me.pos.z) < 2.4) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Prendre la Larme de la cascade`; }
-  else if (!me.dead && carrying) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Poser le Joyau`; }
-  else if (!me.dead && !gem.state.carrier && Math.hypot(gem.pos.x - me.pos.x, gem.pos.z - me.pos.z) < 2.6) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Prendre le Joyau`; }
+  else if (!me.dead && carrying) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Poser le Joyau <span class="gem-timer">${Math.max(0, Math.ceil(((game.gemCarryEnd || 0) - performance.now()) / 1000))} s</span>`; }
+  else if (!me.dead && !gem.state.carrier && Math.hypot(gem.pos.x - me.pos.x, gem.pos.z - me.pos.z) < 2.6) {
+    const rest = Math.ceil(((game.gemReady || 0) - performance.now()) / 1000);
+    pr.style.display = 'block'; pr.innerHTML = rest > 0 ? `Le Joyau se repose… <span class="gem-timer">${rest} s</span>` : `<kbd>${K}</kbd> Prendre le Joyau`;
+  }
+  else if (!me.dead && game.build.on && buildingAimed && buildingAimed.hp < buildingAimed.max) {
+    const c = W.repairCost(buildingAimed, mods);
+    pr.style.display = 'block'; pr.innerHTML = `<kbd>${keyLabel(settings.keys.repair)}</kbd> Réparer ${W.PIECES[buildingAimed.type].name} (${Math.round(buildingAimed.hp)}/${buildingAimed.max}) · ${game.god.free ? 'gratuit' : costHtml(c) || 'gratuit'}`;
+  }
   else pr.style.display = 'none';
 
   if (me.dead) {
@@ -1906,6 +2022,7 @@ function tick(dt) {
     nature.update(dt, time, wind.uWind.value, focus, nightAmount);
     updateFlyers(dt);
     updateArrows(dt);
+  if (inGame()) loots.update(dt, me.dead ? null : me.pos, send);
   updateFireballs(dt);
     hudT -= dt;
     if (hudT <= 0) {
@@ -1951,7 +2068,8 @@ window.__W = W;
 window.__game = {
   me, nature, others, camera, monsters, buildings, gem, game, keys, tryAttack, send, audio, village, profile, renderer, flyers, setBlock,
   mySkin: (s) => ensureMyRig(me.color, me.name, s),
-  testSkills: (l) => { mods = W.skillMods(l, W.levelOf(profile.xp)); me.stam = mods.stamina; },
+  testSkills: (l) => { profile.skills = l; mods = computeMods(); me.stam = mods.stamina; },
+  get heroPage() { return heroPage; }, get loots() { return loots; }, profile,
   get mods() { return mods; },
   setView: (yaw, pitch, dist) => { camYaw = yaw; camPitch = pitch; camDist = dist; },
   pause: (v = true) => { paused = v; },

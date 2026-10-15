@@ -10,6 +10,10 @@ const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+const HIT_SFX = new Set(['monsterHurt', 'monsterDie', 'monsterBurn', 'skullDrop', 'thud']);
+// sons d'os des squelettes : un peu remontés pour retrouver le volume des anciens cris
+const BONE_SFX = new Set(['monsterGrowl', 'monsterAttack', 'monsterHurt', 'monsterDie', 'monsterBurn', 'monsterSpawn', 'runnerGrowl', 'runnerAttack', 'spitterGrowl', 'monsterStep']);
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -569,8 +573,16 @@ export class AudioEngine {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const fn = this.sfx[name];
     if (!fn) return;
-    const out = this.spatial(pos, fn.range || 9, fn.verb ?? 0.25);
+    // coups en zone sur un gros groupe : au plus 3 bruits d'impact / de mort en même temps (volume normal)
+    if (HIT_SFX.has(name)) {
+      const now = this.ctx.currentTime;
+      this.hitRecent = (this.hitRecent || []).filter((x) => now - x < 0.25);
+      if (this.hitRecent.length >= 3) return;
+      this.hitRecent.push(now);
+    }
+    let out = this.spatial(pos, fn.range || 9, fn.verb ?? 0.25);
     if (!out) return;
+    if (BONE_SFX.has(name)) { const g = this.gain(1.5); g.connect(out); out = g; }
     fn.call(this, this.ctx.currentTime + 0.01, out);
   }
 
@@ -1088,6 +1100,64 @@ export class AudioEngine {
     S.sparkHit = function (t, out) {
       burst(t, out, 'highpass', 5000, 0.7, 0.05, 0.25);
     }; S.sparkHit.verb = 0;
+    // ---------- v0.1.2 : squelettes = os qui s'entrechoquent (plus de voix « rétro ») ----------
+    const clack = (t, out, vol, p = 1) => {
+      burst(t, out, 'bandpass', 2400 * p, 5, 0.025, vol, 0.001);
+      ring(t, out, [[820 * p, 1], [2050 * p, 0.5], [3300 * p, 0.25]], 0.06, vol * 0.35);
+    };
+    const rattle = (t, out, n, spread, vol, p = 1) => {
+      for (let i = 0; i < n; i++) clack(t + Math.random() * spread, out, vol * rnd(0.5, 1), p * rnd(0.85, 1.2));
+    };
+    const hollow = (t, out, dur, f, vol) => {
+      // souffle creux dans un crâne
+      const g = self.gain(0, out);
+      const flt = self.filter('bandpass', f, 9, g);
+      flt.frequency.setValueAtTime(f, t); flt.frequency.linearRampToValueAtTime(f * rnd(0.7, 0.9), t + dur);
+      self.noise(t, dur, flt, 0.7);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + dur * 0.35); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    };
+    const whoosh = (t, out, dur, vol, f0 = 400, f1 = 1600) => {
+      const g = self.gain(0, out);
+      const flt = self.filter('bandpass', f0, 1.4, g);
+      flt.frequency.setValueAtTime(f0, t); flt.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.6);
+      self.noise(t, dur, flt);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + dur * 0.5); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    };
+    S.monsterGrowl = function (t, out) { rattle(t, out, 7, 0.35, 0.09, 0.9); hollow(t, out, rnd(0.8, 1.2), rnd(380, 520), 0.07); };
+    S.monsterGrowl.range = 11; S.monsterGrowl.verb = 0.3;
+    S.monsterAttack = function (t, out) { rattle(t, out, 3, 0.1, 0.1); whoosh(t + 0.35, out, 0.3, 0.18); clack(t + 0.55, out, 0.12, 0.8); };
+    S.monsterAttack.range = 12; S.monsterAttack.verb = 0.25;
+    S.monsterHurt = function (t, out) {
+      burst(t, out, 'highpass', 1600, 0.8, 0.04, 0.25, 0.001);   // os qui craque
+      thump(t, out, 160, 80, 0.08, 0.25);
+      rattle(t + 0.02, out, 4, 0.15, 0.1);
+    }; S.monsterHurt.range = 12;
+    S.monsterDie = function (t, out) {
+      // le squelette s'effondre : une pluie d'os
+      for (let i = 0; i < 14; i++) clack(t + 0.05 + i * 0.045 + Math.random() * 0.05, out, 0.13 * (1 - i / 18), rnd(0.75, 1.15));
+      thump(t + 0.25, out, 110, 50, 0.2, 0.3);
+    }; S.monsterDie.range = 14; S.monsterDie.verb = 0.35;
+    S.monsterBurn = function (t, out) { S.monsterDie.call(self, t, out); burst(t, out, 'lowpass', 1200, 0.7, 0.6, 0.18, 0.02); };
+    S.monsterBurn.range = 14;
+    S.monsterSpawn = function (t, out) {
+      burst(t, out, 'lowpass', 260, 0.7, 0.9, 0.22, 0.2);   // la terre remue
+      for (let i = 0; i < 10; i++) clack(t + 0.3 + i * 0.07 + Math.random() * 0.04, out, 0.04 + i * 0.008, rnd(0.8, 1.1));
+    }; S.monsterSpawn.range = 16; S.monsterSpawn.verb = 0.4;
+    S.runnerGrowl = function (t, out) { rattle(t, out, 10, 0.3, 0.07, 1.35); hollow(t, out, 0.5, rnd(900, 1200), 0.05); };
+    S.runnerGrowl.range = 10; S.runnerGrowl.verb = 0.2;
+    S.runnerAttack = function (t, out) { whoosh(t + 0.08, out, 0.2, 0.16, 700, 2600); clack(t + 0.2, out, 0.12, 1.3); };
+    S.runnerAttack.range = 10;
+    S.spitterGrowl = function (t, out) { hollow(t, out, rnd(1.2, 1.7), rnd(600, 750), 0.09); rattle(t + 0.3, out, 4, 0.4, 0.06, 0.8); };
+    S.spitterGrowl.range = 11; S.spitterGrowl.verb = 0.4;
+    S.monsterStep = function (t, out) { clack(t, out, 0.035, rnd(0.7, 0.9)); };
+    // coup de poing comique : « pof » + petites étoiles
+    S.punch = function (t, out) {
+      thump(t, out, 180, 70, 0.12, 0.5);
+      burst(t, out, 'lowpass', 1400, 0.8, 0.07, 0.4, 0.001);
+      [88, 92, 95].forEach((n, i) => { const g = self.gain(0, out); self.osc('sine', mtof(n), t + 0.12 + i * 0.07, 0.25, g); self.env(g, t + 0.12 + i * 0.07, 0.05, 0.004, 0.22); });
+    }; S.punch.range = 12;
+    S.monsterStep.range = 7; S.monsterStep.verb = 0;
+
     this._sfx = S;
     return S;
   }

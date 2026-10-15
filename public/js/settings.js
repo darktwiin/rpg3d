@@ -3,11 +3,11 @@
 export const ACTIONS = [
   ['forward', 'Avancer'], ['back', 'Reculer'], ['left', 'Gauche'], ['right', 'Droite'],
   ['jump', 'Sauter'], ['run', 'Courir'], ['interact', 'Interagir / Joyau'], ['build', 'Menu construction'], ['demolish', 'Déconstruire'],
-  ['map', 'Carte'], ['chat', 'Chat'],
+  ['map', 'Carte'], ['chat', 'Chat'], ['repair', 'Réparer (construction)'], ['punch', 'Coup de poing (allié)'], ['inventory', 'Inventaire / héros'],
 ];
 export const DEFAULT_KEYS = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', run: 'ShiftLeft',
-  interact: 'KeyE', build: 'KeyB', demolish: 'KeyF', map: 'KeyM', chat: 'Enter',
+  interact: 'KeyE', build: 'KeyB', demolish: 'KeyF', map: 'KeyM', chat: 'Enter', repair: 'KeyR', punch: 'KeyG', inventory: 'KeyI',
 };
 const DEFAULTS = { master: 20, music: 60, amb: 70, sfx: 80, sens: 100, quality: 'high', keys: { ...DEFAULT_KEYS } };
 

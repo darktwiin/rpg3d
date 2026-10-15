@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RPG 3D — Survie</title>
+  <link rel="icon" href="favicon.png">
+  <title>Nuit Blanche</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="ui.css">
   <script type="importmap">
@@ -15,7 +16,7 @@
   <!-- ======================= ÉCRAN TITRE ======================= -->
   <div id="title" class="screen">
     <div class="panel lobby-panel">
-      <h1>RPG 3D</h1>
+      <h1>Nuit Blanche</h1>
       <div class="subtitle">Survie · Construction · Jusqu'à 4 joueurs</div>
       <div id="login-box">
         <div class="field-row">
@@ -35,7 +36,7 @@
       <div id="session-box" hidden>
         Connecté en tant que <b id="session-name"></b> · <button id="btn-logout" class="linkbtn">changer de compte</button>
       </div>
-      <div class="field-label">Ton apparence</div>
+      <div class="field-label" id="skins-label">Ton héros <small>(choisi à la création — ensuite au village, touche I, pour 3 ◆)</small></div>
       <div id="skins"></div>
       <button id="btn-enter" class="btn primary">Entrer au village</button>
       <button id="btn-guest" class="btn small ghost">Jouer en invité (sans compte)</button>
@@ -75,6 +76,7 @@
       </div>
       <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas><div id="minimap-n">N</div></div>
       <div id="status"></div>
+      <div id="path-boost">⚡ Chemin : +15 % de vitesse</div>
       <div id="bottom-left">
         <div id="inv">
           <div class="res"><span class="ico wood"></span><b id="inv-wood">0</b> Bois</div>
@@ -179,8 +181,61 @@
       <div class="panel skills-panel">
         <div class="panel-title">La Forge — compétences <span class="shards-inline">◆ <b id="skills-shards">0</b> éclats</span><button class="x" data-close>✕</button></div>
         <div class="hint left">Les éclats se gagnent en survivant aux nuits (1 la première nuit, puis de plus en plus). Les compétences sont permanentes.</div>
+        <div class="skills-tools"><button id="skills-reset" class="btn small ghost">↺ Réinitialiser l'arbre (3 ◆)</button><span class="hint">Tous tes éclats dépensés te sont rendus, moins 3.</span></div>
         <div id="skill-tabs" class="tabs"></div>
         <div id="skill-trees"></div>
+      </div>
+    </div>
+
+    <!-- Héros : caractéristiques, équipement porté, inventaire (touche I) -->
+    <div id="heropanel" class="overlay" hidden>
+      <div class="panel hero-panel">
+        <div class="panel-title">Héros &amp; inventaire <button class="x" data-close>✕</button></div>
+        <div class="hero-grid">
+          <div class="hero-col hero-stats">
+            <div class="hero-head"><img id="hero-face" alt=""><div><b id="hero-name"></b><div id="hero-class"></div><div id="hero-level"></div></div></div>
+            <div class="bar xpbar"><div class="fill xp-fill"></div></div>
+            <div id="hero-statlist"></div>
+            <button id="hero-class-btn" class="btn small">Changer de classe (3 ◆)</button>
+            <div id="hero-classes" hidden></div>
+          </div>
+          <div class="hero-col hero-doll">
+            <div class="doll">
+              <img id="hero-portrait" alt="">
+              <div class="slot" data-slot="hat" style="left:8px;top:14px"></div>
+              <div class="slot" data-slot="chest" style="left:8px;top:104px"></div>
+              <div class="slot" data-slot="ring" style="left:8px;top:194px"></div>
+              <div class="slot" data-slot="weapon" style="right:8px;top:14px"></div>
+              <div class="slot" data-slot="boots" style="right:8px;top:194px"></div>
+            </div>
+            <div id="hero-sel" class="hero-sel"></div>
+          </div>
+          <div class="hero-col hero-inv">
+            <div class="inv-head"><span>Objets <b id="hero-count">0</b> / 60</span><span class="hint">Trié par rareté · double-clic : équiper</span></div>
+            <div id="hero-items"></div>
+          </div>
+        </div>
+        <div id="item-tip" class="item-tip" hidden></div>
+      </div>
+    </div>
+
+    <!-- Après une défaite : comment devenir plus fort -->
+    <div id="recap" class="overlay" hidden>
+      <div class="panel recap-panel">
+        <div class="panel-title">Le Joyau est tombé… <button class="x" data-close>✕</button></div>
+        <div id="recap-score" class="recap-score"></div>
+        <div class="recap-title">Comment tenir plus longtemps ?</div>
+        <div class="recap-steps">
+          <div class="recap-step"><div class="n">1</div><div><b>La Forge</b> (au village) : dépense tes <b>éclats ◆</b> dans 4 arbres de compétences — Constructeur (murs plus solides, tours), Récolteur (plus de ressources), Combattant (dégâts, vie) et Mobilité (dash, double saut). Chaque nuit survécue rapporte des éclats, de plus en plus.</div></div>
+          <div class="recap-step"><div class="n">2</div><div><b>L'équipement</b> : les monstres lâchent parfois des objets (arme, armure, chapeau, bottes, anneau). Plus la nuit est avancée, plus ils sont rares et puissants. Ouvre ton inventaire avec <span class="kbd">I</span> pour les équiper.</div></div>
+          <div class="recap-step"><div class="n">3</div><div><b>Le niveau du héros</b> : chaque monstre tué et chaque nuit survécue donnent de l'expérience. Chaque niveau donne de la vie et des dégâts en plus.</div></div>
+          <div class="recap-step"><div class="n">4</div><div><b>Le jour compte</b> : récolte beaucoup, entoure le Joyau de murs et de tours, répare tes constructions (<span class="kbd">R</span> en construction) et pose des dalles de chemin pour te déplacer plus vite.</div></div>
+        </div>
+        <div class="recap-buttons">
+          <button id="recap-forge" class="btn primary">Aller à la forge</button>
+          <button id="recap-hero" class="btn">Ouvrir l'inventaire</button>
+          <button class="btn ghost" data-close>Fermer</button>
+        </div>
       </div>
     </div>
 
@@ -260,7 +315,7 @@
   </div>
 
   <div id="fade"></div>
-  <div id="version">ver.0.1.1</div>
+  <div id="version">ver.0.1.3</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.1.1';
+export const VERSION = '0.1.3';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -29,12 +29,23 @@ export const MAX_PLAYERS = 4;
 // Les trois sortes de monstres
 export const MONSTERS = {
   brute: { name: 'Rôdeur', hp: 60, speed: 3.5, dmgP: 16, dmgGem: 25, dmgB: 40, reach: 1.5, cd: 1.7, hitAt: 0.5, scale: 1, radius: 0.5 },
-  runner: { name: 'Griffu', hp: 30, speed: 6.4, dmgP: 8, dmgGem: 12, dmgB: 20, reach: 1.15, cd: 1.0, hitAt: 0.3, scale: 0.6, radius: 0.32 },
+  runner: { name: 'Griffu', hp: 30, speed: 6.4, dmgP: 8, dmgGem: 12, dmgB: 20, reach: 1.1, cd: 1.0, hitAt: 0.3, scale: 0.54, radius: 0.29 },
   spitter: { name: 'Mage squelette', hp: 45, speed: 2.6, dmgP: 22, dmgGem: 30, dmgB: 30, reach: 13, cd: 4.5, hitAt: 1.0, scale: 0.95, radius: 0.5, ranged: true },
   // Colosse : guerrier en armure avec hache et bouclier, à partir de la nuit 8
-  tank: { name: 'Colosse', hp: 160, speed: 2.7, dmgP: 26, dmgGem: 40, dmgB: 70, reach: 1.7, cd: 2.1, hitAt: 0.6, scale: 1.15, radius: 0.62 },
+  tank: { name: 'Colosse', hp: 160, speed: 2.7, dmgP: 26, dmgGem: 40, dmgB: 70, reach: 2.0, cd: 2.1, hitAt: 0.6, scale: 1.38, radius: 0.75 },
 };
 export const TANK_NIGHT = 8;
+// Joyau : on ne peut le porter que 10 s, puis il faut attendre 10 s avant de le reprendre
+export const GEM_CARRY = 10, GEM_REST = 10;
+// Déconstruire rend la moitié des matériaux ; réparer coûte la moitié du prix × la part de vie perdue
+export const refundOf = (type) => { const c = PIECES[type].cost, out = {}; for (const r of RES_KEYS) out[r] = Math.ceil((c[r] || 0) / 2); return out; };
+export function repairCost(b, mods) {
+  const c = pieceCost(b.type, mods), k = Math.max(0, 1 - b.hp / b.max), out = {};
+  for (const r of RES_KEYS) out[r] = Math.ceil((c[r] || 0) * 0.5 * k);
+  return out;
+}
+// Coup de poing entre alliés (pour rire) : assomme 2 s
+export const PUNCH = { reach: 1.8, stun: 2, cd: 1.2 };
 
 // Apparences jouables (pack KayKit Adventurers). Le Ranger (cape bleue) est réservé au forgeron.
 export const SKINS = [
@@ -58,7 +69,7 @@ export const MONSTER_HP = MONSTERS.brute.hp;
 // Nombre de monstres présents en même temps pendant la nuit
 // k = avancement de la nuit (0 au début, 1 à l'aube) : ils sont deux fois plus nombreux à la fin
 export function nightTarget(night, players, k = 0) {
-  return Math.round((10 + 6 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)));
+  return Math.round(1.2 * (10 + 6 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)));
 }
 export const CHASE_GIVEUP = 8;   // secondes de poursuite sans toucher le joueur avant d'abandonner
 export const SPAWN_MIN = 68, SPAWN_MAX = 88;   // distance d'apparition autour du Joyau
@@ -401,7 +412,8 @@ export function stairsHeight(b, x, z) {
   const dx = x - b.x, dz = z - b.z;
   if (Math.abs(dx) > 1 || Math.abs(dz) > 1) return null;
   const t = [dz, dx, -dz, -dx][b.rot & 3];
-  return b.y + Math.min(1, Math.max(0, (t + 1) / 2)) * WALL_H;
+  // la rampe atteint le haut un peu avant le bord : on passe sans sauter sur le mur ou le plancher d'en haut
+  return b.y + Math.min(1, Math.max(0, (t + 1) / 1.7)) * WALL_H;
 }
 export function wallBox(b) {
   // Rectangle au sol d'un mur : centre, demi-longueurs en x et z
@@ -450,4 +462,86 @@ export function supportedSet(list) {
     }
   }
   return ok;
+}
+
+
+// ============================================================================
+// Équipement : objets lâchés par les monstres (1 %), rareté selon la nuit
+// ============================================================================
+export const RARITIES = [
+  { id: 0, name: 'Commun', color: '#b8b8b8', night: 1, suffix: '' },
+  { id: 1, name: 'Peu commun', color: '#5fd35f', night: 2, suffix: ' du veilleur', k: 0.10, cap: 0.75 },
+  { id: 2, name: 'Rare', color: '#4a9dff', night: 5, suffix: ' de la garde', k: 0.04, cap: 0.55 },
+  { id: 3, name: 'Épique', color: '#b56cff', night: 10, suffix: ' runique', k: 0.025, cap: 0.5 },
+  { id: 4, name: 'Légendaire', color: '#ffd23f', night: 15, suffix: ' légendaire', k: 0.025, cap: 0.5 },
+  { id: 5, name: 'Mythique', color: '#ff8a2a', night: 20, suffix: ' mythique', k: 0.02, cap: 0.5 },
+];
+export const DROP_CHANCE = 0.01;
+// Chances de chaque rareté à la nuit n : chaque rareté débloquée commence à 10 % et monte avec les nuits,
+// en « prenant » sa part sur les raretés du dessous (les plus basses ne disparaissent jamais).
+export function rarityOdds(night) {
+  const n = Math.max(1, night);
+  const share = RARITIES.map((r) => (r.id === 0 || n < r.night ? 0 : Math.min(r.cap, 0.10 + r.k * (n - r.night))));
+  const out = new Array(RARITIES.length).fill(0);
+  let rest = 1;
+  for (let i = RARITIES.length - 1; i >= 1; i--) { out[i] = share[i] * rest; rest -= out[i]; }
+  out[0] = rest;
+  return out;
+}
+export function rollRarity(night, rnd = Math.random) {
+  const o = rarityOdds(night);
+  let x = rnd();
+  for (let i = o.length - 1; i >= 0; i--) { if (x < o[i]) return i; x -= o[i]; }
+  return 0;
+}
+// Emplacements : l'arme et la tenue dépendent de la classe
+export const SLOTS = [
+  { id: 'hat', name: 'Chapeau', stat: 'hp' },
+  { id: 'chest', name: 'Tenue', stat: 'hp', byClass: true },
+  { id: 'weapon', name: 'Arme', stat: 'dmg', byClass: true },
+  { id: 'ring', name: 'Anneau', stat: 'dmg' },
+  { id: 'boots', name: 'Bottes', stat: 'spd' },
+];
+export const SLOT_BY_ID = Object.fromEntries(SLOTS.map((s) => [s.id, s]));
+export const ITEM_BASE = {
+  hat: 'Chapeau', ring: 'Anneau', boots: 'Bottes',
+  chest: { Knight: 'Plastron', Barbarian: 'Peau de bête', Mage: 'Robe', Rogue: 'Gilet' },
+  weapon: { Knight: 'Épée', Barbarian: 'Hache', Mage: 'Bâton', Rogue: 'Arc' },
+};
+export const CLASS_NAMES = { Knight: 'Guerrier', Barbarian: 'Barbare', Mage: 'Mage', Rogue: 'Voleuse' };
+const STAT_BASE = { weapon: 4, ring: 2.5, chest: 8, hat: 5, boots: 2 };   // % de dégâts, PV, % de vitesse
+const RARITY_MUL = [1, 1.6, 2.4, 3.5, 5, 7];
+export const INV_MAX = 60;
+export const CLASS_CHANGE_COST = 3;
+export const SKILL_RESET_COST = 3;
+export function makeItem(slot, cls, r, night, rnd = Math.random) {
+  const S = SLOT_BY_ID[slot];
+  const v = STAT_BASE[slot] * RARITY_MUL[r] * (1 + 0.04 * Math.max(0, night - 1)) * (0.85 + rnd() * 0.3);
+  const base = S.byClass ? ITEM_BASE[slot][cls] : ITEM_BASE[slot];
+  return {
+    id: Math.floor(rnd() * 2 ** 40).toString(36) + Date.now().toString(36).slice(-4),
+    slot, cls: S.byClass ? cls : null, r, lvl: night, name: base + RARITIES[r].suffix,
+    stat: S.stat, val: S.stat === 'hp' ? Math.round(v) : Math.round(v * 10) / 10,
+  };
+}
+export function randomItem(night, preferCls, rnd = Math.random) {
+  const slot = SLOTS[Math.floor(rnd() * SLOTS.length)].id;
+  const classes = Object.keys(CLASS_NAMES);
+  const cls = preferCls && rnd() < 0.6 ? preferCls : classes[Math.floor(rnd() * classes.length)];
+  return makeItem(slot, cls, rollRarity(night, rnd), night, rnd);
+}
+export const statLabel = (it) => it.stat === 'hp' ? `+${it.val} PV` : it.stat === 'dmg' ? `+${it.val} % de dégâts` : `+${it.val} % de vitesse`;
+// L'équipement porté modifie les caractéristiques (après les compétences et le niveau)
+export function applyGear(mods, items = [], equip = {}, cls = null) {
+  let dmg = 0, hp = 0, spd = 0;
+  for (const slot in equip) {
+    const it = items.find((i) => i.id === equip[slot]);
+    if (!it || it.slot !== slot || (it.cls && cls && it.cls !== cls)) continue;
+    if (it.stat === 'dmg') dmg += it.val; else if (it.stat === 'hp') hp += it.val; else spd += it.val;
+  }
+  mods.dmg *= 1 + dmg / 100;
+  mods.maxHp += hp;
+  mods.speed *= 1 + Math.min(40, spd) / 100;
+  mods.gear = { dmg, hp, spd };
+  return mods;
 }

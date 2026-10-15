@@ -534,7 +534,7 @@ export class Buildings {
       const tower = PIECES[b.type].tower;
       if (b.type !== 'wall' && b.type !== 'stonewall' && b.type !== 'window' && !tower) continue; // les portes laissent passer les joueurs
       if (tower && pos.y > b.y + 3.0) continue;
-      if (!tower && pos.y > b.y + WALL_H - 0.1 || pos.y + 1.7 < b.y - b.drop - 0.2) continue;
+      if (!tower && pos.y > b.y + WALL_H - 0.45 || pos.y + 1.7 < b.y - b.drop - 0.2) continue;
       const box = b.box;
       const dx = pos.x - box.x, dz = pos.z - box.z;
       const px = box.hx + radius - Math.abs(dx), pz = box.hz + radius - Math.abs(dz);

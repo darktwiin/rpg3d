@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { CAVES, CLIFF, WATERFALL, WATER_LEVEL, RELIC_POS, heightAt, noise3, seededRandom } from './world.js';
 import { stoneTexture } from './buildings.js';
-import { staticGeometry, atlasTexture } from './models.js';
+import { staticGeometry, atlasTexture, prop } from './models.js';
 
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -36,12 +36,12 @@ void main() {
 // Dôme de roche creux avec une ouverture (une arche) vers l'entrée
 function caveDome(c, mat, seed) {
   const R = c.r + 0.9;
-  const geo = new THREE.SphereGeometry(1, 48, 22, 0, Math.PI * 2, 0, Math.PI / 2).toNonIndexed();
+  const geo = new THREE.SphereGeometry(1, 30, 12, 0, Math.PI * 2, 0, Math.PI / 2).toNonIndexed();
   const p = geo.attributes.position;
   const v = new THREE.Vector3();
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
-    const n = noise3(v.x * 3 + seed, v.y * 3, v.z * 3) * 0.12 + noise3(v.x * 8 + seed, v.y * 8, v.z * 8) * 0.04;
+    const n = noise3(v.x * 2.2 + seed, v.y * 2.2, v.z * 2.2) * 0.2 + noise3(v.x * 6 + seed, v.y * 6, v.z * 6) * 0.07;
     p.setXYZ(i, v.x * R * (1 + n), v.y * c.h * (1 + n * 0.6) - 0.3, v.z * R * (1 + n));
   }
   // découpe de l'arche : on enlève les triangles du côté de l'entrée, en bas
@@ -66,6 +66,15 @@ function caveDome(c, mat, seed) {
   const uv = new Float32Array(keep.length * 6);
   for (let i = 0; i < keep.length * 3; i++) { uv[i * 2] = (pos[i * 3] + pos[i * 3 + 2]) * 0.15; uv[i * 2 + 1] = pos[i * 3 + 1] * 0.15; }
   out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  // couleurs de roche par facette (et un peu de mousse sur le dessus)
+  const col = new Float32Array(keep.length * 9), cA = new THREE.Color('#6f675c'), cB = new THREE.Color('#8f8676'), moss = new THREE.Color('#5d7a3a'), tmp = new THREE.Color();
+  for (let f = 0; f < keep.length; f++) {
+    const y = (pos[f * 9 + 1] + pos[f * 9 + 4] + pos[f * 9 + 7]) / 3;
+    tmp.copy(cA).lerp(cB, (noise3(pos[f * 9] * 0.7 + seed, y * 0.7, pos[f * 9 + 2] * 0.7) * 0.5 + 0.5));
+    if (y > c.h * 0.72) tmp.lerp(moss, Math.min(1, (y / c.h - 0.72) * 3.5));
+    for (let k = 0; k < 3; k++) { col[f * 9 + k * 3] = tmp.r; col[f * 9 + k * 3 + 1] = tmp.g; col[f * 9 + k * 3 + 2] = tmp.b; }
+  }
+  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const mesh = new THREE.Mesh(out, mat);
   mesh.castShadow = true; mesh.receiveShadow = true;
   mesh.position.set(c.x, c.floor, c.z);
@@ -81,6 +90,8 @@ export class Features {
     const tex = stoneTexture();
     tex.repeat.set(1, 1);
     this.rockMat = new THREE.MeshStandardMaterial({ map: tex, color: '#8a857c', roughness: 0.95, flatShading: true, side: THREE.DoubleSide });
+    // dôme des grottes : roche à facettes, couleurs par face (plus de texture répétée)
+    this.domeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true, side: THREE.DoubleSide });
     // gemmes du Pirate Kit, qui brillent dans le noir
     this.crystalMat = {
       grotto: new THREE.MeshStandardMaterial({ map: atlasTexture(), emissive: '#2ab4ff', emissiveIntensity: 0.55, roughness: 0.15, flatShading: true }),
@@ -101,19 +112,39 @@ export class Features {
     CAVES.forEach((c, ci) => {
       const g = new THREE.Group();
       this.scene.add(g);
-      const { mesh, R, ang } = caveDome(c, this.rockMat, ci * 10);
+      const { mesh, R, ang } = caveDome(c, this.domeMat, ci * 10);
       g.add(mesh);
       this.colliders.push({ c, R, ang });
-      // blocs de roche autour de l'arche et sur le dôme
-      for (let i = 0; i < 14; i++) {
-        const a = rand() * Math.PI * 2;
-        let da = Math.atan2(Math.sin(a - ang), Math.cos(a - ang));
-        if (Math.abs(da) < 0.45) continue;
-        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8 + rand() * 1.3, 0), this.rockMat);
-        b.position.set(c.x + Math.cos(a) * (R + 0.4), c.floor + rand() * 1.2, c.z + Math.sin(a) * (R + 0.4));
-        b.rotation.set(rand() * 3, rand() * 3, 0);
-        b.castShadow = true;
-        g.add(b);
+      // une vraie colline de rochers (pack KayKit Forest) recouvre le dôme, avec une arche à l'entrée
+      const ROCKS = ['f_Rock_1_A', 'f_Rock_1_C', 'f_Rock_1_E', 'f_Rock_1_H', 'f_Rock_2_A', 'f_Rock_2_C', 'f_Rock_2_E', 'f_Rock_3_A', 'f_Rock_3_C', 'f_Rock_3_E', 'f_Rock_3_H', 'f_Rock_3_K'];
+      const rock = (name, x, y, z, s, ry, rx = 0) => { const o = prop(name, s); o.position.set(x, y, z); o.rotation.set(rx, ry, 0); g.add(o); return o; };
+      const ring = c.id === 'cavern' ? 1 : 0.55;
+      for (let i = 0; i < Math.round(26 * ring); i++) {
+        const a = (i + rand() * 0.6) / Math.round(26 * ring) * Math.PI * 2;
+        const da = Math.atan2(Math.sin(a - ang), Math.cos(a - ang));
+        if (Math.abs(da) < 0.42) continue;   // l'entrée reste libre
+        const d = R + 0.2 + rand() * 1.4, h = rand();
+        rock(ROCKS[i % ROCKS.length], c.x + Math.cos(a) * d, c.floor - 0.6 + h * 2.2, c.z + Math.sin(a) * d, 2.6 + rand() * 2.4, rand() * 6.3, (rand() - 0.5) * 0.4);
+      }
+      if (c.id === 'cavern') {
+        // rochers sur le haut du dôme
+        for (let i = 0; i < 9; i++) {
+          const a = rand() * Math.PI * 2, d = rand() * R * 0.7;
+          const y = c.floor + c.h * Math.sqrt(Math.max(0, 1 - (d / R) ** 2)) - 0.9;
+          rock(ROCKS[(i * 5) % ROCKS.length], c.x + Math.cos(a) * d, y, c.z + Math.sin(a) * d, 2.2 + rand() * 2, rand() * 6.3);
+        }
+        // arche de l'entrée : deux piliers et un linteau
+        const ex = Math.cos(ang), ez = Math.sin(ang), px = -ez, pz = ex;
+        for (const s of [-1, 1]) rock('f_Rock_3_K', c.x + ex * (R + 0.9) + px * s * 3.7, c.floor - 0.3, c.z + ez * (R + 0.9) + pz * s * 3.7, 3.2, rand() * 6.3);
+        rock('f_Rock_1_E', c.x + ex * (R + 0.2), c.floor + 4.1, c.z + ez * (R + 0.2), 3.4, ang);
+        // buissons et arbres morts sur la colline
+        for (let i = 0; i < 10; i++) {
+          const a = rand() * Math.PI * 2, d = R * (0.5 + rand() * 0.7);
+          if (Math.abs(Math.atan2(Math.sin(a - ang), Math.cos(a - ang))) < 0.5) continue;
+          const y = c.floor + c.h * Math.sqrt(Math.max(0, 1 - Math.min(1, d / (R + 1)) ** 2)) - 0.3;
+          const name = i % 3 === 0 ? 'f_Tree_Bare_1_A' : ['f_Bush_1_B', 'f_Bush_2_A', 'f_Bush_3_A', 'f_Bush_4_B'][i % 4];
+          rock(name, c.x + Math.cos(a) * d, y, c.z + Math.sin(a) * d, i % 3 === 0 ? 1.2 : 1.6, rand() * 6.3);
+        }
       }
       // stalactites et cristaux lumineux
       const cm = this.crystalMat[c.id];

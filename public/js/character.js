@@ -8,7 +8,7 @@ import { classOf } from './world.js';
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
-export const TOOLS = ['sword', 'axe', 'pick', 'hammer', 'waraxe', 'staff', 'bow'];
+export const TOOLS = ['sword', 'axe', 'pick', 'hammer', 'waraxe', 'staff', 'bow', 'fist'];
 
 // Durée de chaque geste et moment du coup (0..1). Chaque geste joue une animation du pack
 // KayKit Character Animations, recalée pour que l'outil frappe exactement au moment « hit » :
@@ -30,6 +30,8 @@ export const ATTACKS = {
   ] },
   // mage : il lance une boule de feu avec son bâton
   staff: { dur: 0.62, hit: 0.5, tool: 'staff', variants: [{ clip: 'Ranged_Magic_Shoot', t0: 0.05, strike: 0.36, t1: 0.9 }] },
+  // coup de poing (pour rire, entre alliés)
+  punch: { dur: 0.45, hit: 0.5, tool: 'fist', variants: [{ clip: 'Melee_1H_Attack_Stab', t0: 0.1, strike: 0.4, t1: 0.8 }] },
   // l'arc : on bande (Draw) puis on lâche la flèche (Release)
   shoot: { dur: 0.95, hit: 0.78, tool: 'bow', variants: [{ clip: 'Ranged_Bow_Release', t0: 0.0, strike: 0.07, t1: 0.75, pre: { clip: 'Ranged_Bow_Draw', t0: 0.1, t1: 1.15 } }] },
 };
@@ -218,7 +220,11 @@ export class CharacterRig {
       waraxe: weaponProp('x_waraxe', 0.82),
       staff: weaponProp('x_staff'),
       bow: weaponProp('x_bow'),
+      fist: new THREE.Group(),
     };
+    this.tools.fist.userData.len = 0.2;
+    // l'arc était tenu à l'envers (corde vers l'extérieur) : demi-tour autour de sa longueur
+    this.tools.bow.children[0].rotation.y = Math.PI;
     this.B.handL = bone('handslotl');
     for (const k in this.tools) (k === 'bow' ? this.B.handL : this.B.handR).add(this.tools[k]);
     // le guerrier porte toujours son bouclier au bras gauche
@@ -245,6 +251,7 @@ export class CharacterRig {
 
     // ---- Animations ----
     this.mixer = new THREE.AnimationMixer(scene);
+    this.animations = animations;
     const act = (c, loop = true) => { const a = this.mixer.clipAction(c); a.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity); a.clampWhenFinished = !loop; a.play(); a.weight = 0; return a; };
     this.A = {
       idle: act(getClip(animations, 'Idle_A')), walk: act(getClip(animations, 'Walking_A')), run: act(getClip(animations, 'Running_A')),
@@ -341,6 +348,13 @@ export class CharacterRig {
     a.reset(); a.paused = false; a.timeScale = 1.6; a.play();
   }
   flip() { this.flipT = 0; }
+  // assommé par un coup de poing : tombe et roule par terre
+  knock(dur = 2) {
+    this.knockT = 0; this.knockDur = dur;
+    const d = this.knockAct || (this.knockAct = this.mixer.clipAction(getClip(this.animations, 'Death_B')));
+    d.setLoop(THREE.LoopOnce, 1); d.clampWhenFinished = true;
+    d.reset(); d.timeScale = 1.6; d.play();
+  }
 
   attack(kind, speed = 1) {
     if (this.atk || this.dead) return false;
@@ -416,6 +430,17 @@ export class CharacterRig {
     }
     // ---- Salto du double saut ----
     this.flipT += dt;
+    // ---- Assommé ----
+    if (this.knockAct) {
+      if (this.knockT != null && this.knockT < this.knockDur) {
+        this.knockT += dt;
+        const k = this.knockT, D = this.knockDur;
+        this.knockAct.weight = (k < 0.15 ? k / 0.15 : k > D - 0.4 ? Math.max(0, (D - k) / 0.4) : 1) * 200;
+        // roule sur le côté pendant la première seconde
+        this.body.rotation.z = k < 0.9 ? ss(0, 0.9, k) * Math.PI * 2 : 0;
+        this._knocked = true;
+      } else if (this._knocked) { this.knockAct.weight = 0; this.body.rotation.z = 0; this._knocked = false; }
+    }
     if (this.flipT < 0.5 || this._flipping) {
       // rotation autour des hanches (≈ 0,9 m)
       const ang = this.flipT < 0.42 && !this.dead ? ss(0, 0.42, this.flipT) * Math.PI * 2 : 0, c = 0.9;

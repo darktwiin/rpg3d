@@ -343,3 +343,63 @@ input, select { font: inherit; }
 .node .ndesc { font-size: 12px; line-height: 1.3; }
 .node.locked { opacity: 1; filter: grayscale(0.85) brightness(0.97); }
 .node.locked .nname, .node.locked .ndesc { color: #8a7a68; }
+
+.craft-rules { font-size: 12.5px; color: var(--ink-soft); margin: 2px 0 8px; padding: 6px 8px; background: rgba(176,112,64,0.12); border-radius: 6px; }
+.gem-timer { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: rgba(200,160,255,0.25); color: #f0ddff; font-weight: 800; }
+#path-boost { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); color: #ffe08a; font-weight: 800; font-size: 13px; text-shadow: 0 1px 2px #000; opacity: 0; transition: opacity .2s; }
+#path-boost.on { opacity: 1; }
+
+/* Après une défaite */
+.recap-panel { width: 640px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); overflow-y: auto; padding: 18px 22px; box-sizing: border-box; }
+.recap-panel .panel-title { margin-top: -6px; }
+.recap-score { text-align: center; font-size: 15px; margin-bottom: 10px; }
+.recap-score b { font-size: 18px; }
+.recap-title { font-weight: 900; font-size: 16px; margin: 6px 0 8px; color: #9a4a1a; }
+.recap-steps { display: grid; gap: 8px; }
+.recap-step { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; font-size: 13.5px; line-height: 1.4; background: rgba(176,112,64,0.12); padding: 8px 10px; border-radius: 8px; }
+.recap-step .n { width: 30px; height: 30px; border-radius: 50%; background: #c05040; color: #fff; font-weight: 900; display: grid; place-items: center; }
+.recap-buttons { display: flex; gap: 8px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+
+/* ---------- Héros & inventaire ---------- */
+.hero-panel { width: 940px; max-width: calc(100vw - 24px); max-height: calc(100vh - 30px); overflow-y: auto; padding: 16px 18px; box-sizing: border-box; }
+.hero-panel .panel-title { margin-top: -6px; }
+.hero-grid { display: grid; grid-template-columns: 250px 300px 1fr; gap: 12px; }
+.hero-col { background: rgba(176,112,64,0.12); border: 2px solid rgba(176,112,64,0.35); border-radius: 8px; padding: 10px; min-height: 380px; }
+.hero-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.hero-head img { width: 64px; height: 64px; object-fit: cover; object-position: top; border-radius: 8px; background: #e0b080; border: 2px solid #9a6a3a; }
+#hero-name { font-size: 16px; }
+#hero-class, #hero-level { font-size: 12.5px; color: var(--ink-soft); }
+#hero-statlist { margin: 10px 0; display: grid; gap: 4px; }
+.stat-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; background: rgba(255,250,235,0.6); border-radius: 6px; font-size: 13px; }
+.stat-row b { font-size: 14px; }
+.stat-row .gear { color: #2a8a2a; font-size: 11px; margin-left: 4px; }
+#hero-class-btn { width: 100%; }
+#hero-classes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+#hero-classes button { font-size: 12px; padding: 6px 4px; }
+.doll { position: relative; height: 270px; }
+.doll img { position: absolute; left: 50%; top: 0; transform: translateX(-50%); height: 270px; pointer-events: none; }
+.slot { position: absolute; width: 70px; height: 70px; border-radius: 8px; background: rgba(60,36,16,0.18); border: 2px dashed rgba(122,74,34,0.55); display: grid; place-items: center; cursor: pointer; box-sizing: border-box; }
+.slot .ph { font-size: 10.5px; color: var(--ink-soft); text-align: center; line-height: 1.1; }
+.slot.filled { border-style: solid; }
+.item-ico { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 6px; position: relative; }
+.item-ico img, .item-ico svg { width: 78%; height: 78%; object-fit: contain; }
+#hero-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 6px; max-height: 360px; overflow-y: auto; padding: 2px; }
+.inv-cell { aspect-ratio: 1; border-radius: 8px; border: 2px solid; cursor: pointer; box-sizing: border-box; position: relative; }
+.inv-cell.sel { outline: 3px solid #c05040; outline-offset: 1px; }
+.inv-cell.worn::after { content: '✔'; position: absolute; right: 2px; top: 0; font-size: 11px; color: #2a8a2a; font-weight: 900; }
+.inv-cell.other { opacity: .55; }
+.inv-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 13px; }
+.inv-head .hint { font-size: 11px; }
+.hero-sel { margin-top: 10px; min-height: 96px; font-size: 13px; }
+.hero-sel .nm { font-weight: 900; font-size: 15px; }
+.hero-sel .btns { display: flex; gap: 6px; margin-top: 6px; }
+.item-tip { position: fixed; z-index: 80; pointer-events: none; min-width: 190px; max-width: 260px; padding: 8px 10px; background: rgba(40,24,10,0.95); color: #fff4dc; border: 2px solid #b07040; border-radius: 8px; font-size: 12.5px; line-height: 1.35; }
+.item-tip .nm { font-weight: 900; font-size: 14px; }
+.item-tip .up { color: #7fe07f; } .item-tip .down { color: #ff8a7a; }
+@media (max-width: 900px) { .hero-grid { grid-template-columns: 1fr; } }
+/* Coffre au sol (objet lâché) */
+[hidden] { display: none !important; }
+.recap-buttons .btn { width: auto; flex: 1 1 160px; }
+.skills-tools { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 6px; }
+.skills-tools .hint { margin: 0; font-size: 12px; }
+#skills-reset { width: 290px; white-space: nowrap; }

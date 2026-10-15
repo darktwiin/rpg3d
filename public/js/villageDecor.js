@@ -9,14 +9,21 @@ import { getClip } from './character.js';
 const rnd = (() => { let s = 1337; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; })();
 
 // Fusionne tous les objets fixes par matériau (quelques appels de dessin au lieu de centaines)
-function bake(root, group) {
+// attributs compressés (modèles quantifiés) -> flottants, sinon la fusion les écrase
+function toFloat(attr) {
+  if (attr.array instanceof Float32Array && !attr.isInterleavedBufferAttribute) return attr;
+  const n = attr.count, sz = attr.itemSize, out = new Float32Array(n * sz);
+  for (let i = 0; i < n; i++) for (let k = 0; k < sz; k++) out[i * sz + k] = attr.getComponent ? attr.getComponent(i, k) : [attr.getX(i), attr.getY(i), attr.getZ(i), attr.getW?.(i)][k];
+  return new THREE.BufferAttribute(out, sz);
+}
+export function bake(root, group) {
   group.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
   const byMat = new Map();
   group.traverse((o) => {
     if (!o.isMesh || o.userData.keep) return;
     let g = o.geometry.clone();
-    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); else g.setAttribute(k, toFloat(g.attributes[k]));
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     if (g.index) g = g.toNonIndexed();
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
@@ -33,8 +40,12 @@ function bake(root, group) {
 export function decorateVillage(v, SPOTS, villageHeight) {
   const tmp = new THREE.Group();     // tout ce qui sera fusionné
   v.root.add(tmp);
+  // bannières visibles des deux côtés (elles n'avaient qu'une face)
+  const bannerMat = modelMaterial('d_banner_red').clone();
+  bannerMat.side = THREE.DoubleSide;
   const put = (name, x, z, ry = 0, s = 1, y = null, parent = tmp) => {
     const o = prop(name, KK * s);
+    if (name.startsWith('d_banner')) o.traverse((m) => { if (m.isMesh) m.material = bannerMat; });
     o.position.set(x, y ?? villageHeight(x, z), z);
     o.rotation.y = ry;
     parent.add(o);
@@ -108,8 +119,8 @@ export function decorateVillage(v, SPOTS, villageHeight) {
   for (const sz of [-1, 1]) {
     const x = B.x - 0.4, z = B.z + sz * 2.4;
     v.add(tmp, new THREE.CylinderGeometry(0.06, 0.08, 3.6, 8), v.M.log, x, 1.8, z);
-    v.add(tmp, new THREE.BoxGeometry(0.08, 0.08, 1.4), v.M.log, x, 3.55, z);
-    put(sz > 0 ? 'd_banner_patternA_yellow' : 'd_banner_patternA_red', x + 0.25, z, -Math.PI / 2, 0.75, 3.62 - 3.73 * KK * 0.75);
+    v.add(tmp, new THREE.BoxGeometry(0.1, 0.1, 1.4), v.M.log, x + 0.13, 3.55, z);
+    put(sz > 0 ? 'd_banner_patternA_yellow' : 'd_banner_patternA_red', x + 0.17, z, -Math.PI / 2, 0.75, 3.6 - 3.73 * KK * 0.75);
     coll(x, z, 0.25);
   }
 
@@ -120,8 +131,9 @@ export function decorateVillage(v, SPOTS, villageHeight) {
     const r = 13.2, x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (Math.abs(x) < 3) continue;
     v.add(tmp, new THREE.CylinderGeometry(0.07, 0.09, 4.2, 8), v.M.log, x, 2.1, z);
-    v.add(tmp, new THREE.BoxGeometry(0.08, 0.08, 1.3), v.M.log, x, 4.1, z).rotation.y = -a;
-    put(cols[i], x - Math.cos(a) * 0.3, z - Math.sin(a) * 0.3, -a - Math.PI / 2, 0.7, 4.15 - 3.73 * KK * 0.7);
+    // traverse accrochée contre le mât, côté place, et la bannière juste dessous
+    v.add(tmp, new THREE.BoxGeometry(0.1, 0.1, 1.3), v.M.log, x - Math.cos(a) * 0.14, 4.1, z - Math.sin(a) * 0.14).rotation.y = -a;
+    put(cols[i], x - Math.cos(a) * 0.18, z - Math.sin(a) * 0.18, -a - Math.PI / 2, 0.7, 4.12 - 3.73 * KK * 0.7);
     coll(x, z, 0.25);
   }
 

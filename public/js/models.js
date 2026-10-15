@@ -36,6 +36,8 @@ export async function loadModels(onProgress) {
     ['__wood', 'models/kk/wood.glb'],
     // armes des styles de combat (bouclier, hache de guerre, bâton, arc, flèche)
     ['__weapons', 'models/kk/weapons.glb'],
+    // village médiéval (Medieval Village Pack) : maisons, moulin, clocher, puits, étals…
+    ['__village', 'models/kk/village.glb'],
   ];
   const texNames = [...new Set(statics.map(TEX_OF).filter(Boolean))];
   const total = jobs.length + texNames.length;
@@ -53,6 +55,10 @@ export async function loadModels(onProgress) {
     }),
   ]);
   for (const sc of GLTF.__decor.scenes) GLTF[sc.name] = { scene: sc };
+  for (const sc of GLTF.__village.scenes) {
+    GLTF[sc.name] = { scene: sc };
+    sc.traverse((o) => { if (o.isMesh) { o.material.metalness = 0; o.material.roughness = Math.max(0.75, o.material.roughness); } });
+  }
   for (const sc of GLTF.__weapons.scenes) {
     GLTF[sc.name] = { scene: sc };
     sc.traverse((o) => { if (o.isMesh) { o.material.metalness = 0; o.material.roughness = 0.7; } });
@@ -125,7 +131,7 @@ export function prop(name, scale = KK) {
   const o = src.clone(true);
   o.traverse((m) => {
     if (!m.isMesh) return;
-    if (name.startsWith('w_') || name.startsWith('x_')) { /* matériaux déjà prêts */ }
+    if (name.startsWith('w_') || name.startsWith('x_') || name.startsWith('v_')) { /* matériaux déjà prêts */ }
     else if (m.material?.name !== 'glass') m.material = modelMaterial(name);
     else m.material = new THREE.MeshStandardMaterial({ color: '#ffd890', emissive: '#ffa040', emissiveIntensity: 0.8, transparent: true, opacity: 0.85 });
     m.castShadow = true; m.receiveShadow = true;
