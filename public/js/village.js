@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { plankTexture, stoneTexture, shingleTexture } from './buildings.js';
 import { Particles } from './nature.js';
 import { noise3 } from './world.js';
+import { decorateVillage, Blacksmith } from './villageDecor.js';
+import { KK } from './models.js';
 
 export const VILLAGE_RADIUS = 40;
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -156,6 +158,9 @@ export class Village {
     this.buildHouses(M);
     this.buildLanterns(M);
     this.buildTrees(nature);
+    // décor KayKit (remparts, bannières, tonneaux, étals…) et le forgeron
+    decorateVillage(this, SPOTS, villageHeight);
+    this.smith = new Blacksmith(this, new THREE.Vector3(1.1, 0.25, -0.75), 0);   // derrière l'enclume
 
     // Panneaux au-dessus des lieux
     const sign = (t, x, y, z, col) => { const s = textSprite(t, col, 0.8); s.position.set(x, y, z); this.root.add(s); };
@@ -231,22 +236,14 @@ export class Village {
     this.add(g, new THREE.BoxGeometry(0.8, 3.6, 0.8), M.stone, -1.6, 3.4, -2.1);
     this.chimneyTop = new THREE.Vector3();
     this.chimneyLocal = new THREE.Vector3(-1.6, 5.3, -2.1);
-    // enclume sur une souche
-    this.add(g, new THREE.CylinderGeometry(0.42, 0.5, 0.65, 10), M.log, 1.2, 0.55, 0.2);
-    this.add(g, new THREE.BoxGeometry(0.5, 0.3, 0.9), M.iron, 1.2, 1.0, 0.2);
-    const horn = this.add(g, new THREE.ConeGeometry(0.15, 0.45, 6), M.iron, 1.2, 1.05, 0.85);
-    horn.rotation.x = Math.PI / 2;
-    this.add(g, new THREE.BoxGeometry(0.75, 0.12, 1.1), M.iron, 1.2, 1.2, 0.2);
-    // tonneau, outils
-    this.add(g, new THREE.CylinderGeometry(0.38, 0.38, 0.9, 12), M.planks, 2.3, 0.7, -1.6);
-    this.add(g, new THREE.BoxGeometry(1.2, 0.08, 0.5), M.planks, 2.0, 1.6, -2.5);
+    // (enclume, meule, établi et outils : voir villageDecor.js)
     this.forgeLight = new THREE.PointLight(0xff8a30, 6, 9, 1.5);
     this.forgeLight.position.set(-1.6, 1.0, -0.6);
     g.add(this.forgeLight);
     g.updateMatrixWorld(true);
-    this.anvilPos = g.localToWorld(new THREE.Vector3(1.2, 1.3, 0.2));
+    this.anvilPos = g.localToWorld(new THREE.Vector3(1.1, 0.9, 0));
     this.forgeGroup = g;
-    this.colliders.push({ x: x - 1.8, z: z + 1.6, r: 1.4 }, { x: x + 0.2, z: z - 1.2, r: 0.6 }, { x: x - 1.6, z: z - 2.3, r: 0.6 });
+    this.colliders.push({ x: x - 1.8, z: z + 1.6, r: 1.4 });
     for (const [px, pz] of [[-2.8, 1.4], [2.8, 1.4], [-2.8, -2.6], [2.8, -2.6]]) {
       const w = g.localToWorld(new THREE.Vector3(px, 0, pz));
       this.colliders.push({ x: w.x, z: w.z, r: 0.25 });
@@ -318,12 +315,14 @@ export class Village {
   // ---------------- Maisons ----------------
   buildHouses(M) {
     const spots = [[-26, -12], [-10, -27], [10, -27], [26, -12], [-27, 14], [27, 14], [-12, 27], [12, 27]];
+    this.houseSpots = [];
     spots.forEach(([x, z], i) => {
       const g = new THREE.Group();
       g.position.set(x, 0, z);
       g.rotation.y = Math.atan2(-x, -z);  // la porte regarde la place
       this.root.add(g);
       const w = 4.4 + (i % 3) * 0.6, d = 4, h = 2.6;
+      this.houseSpots.push([x, z, w, d, g.rotation.y]);
       this.add(g, new THREE.BoxGeometry(w + 0.3, 0.5, d + 0.3), M.stone, 0, 0.25, 0);
       this.add(g, new THREE.BoxGeometry(w, h, d), i % 2 ? M.plaster : M.planks, 0, 0.5 + h / 2, 0);
       // colombages
@@ -378,26 +377,26 @@ export class Village {
   buildTrees(nature) {
     const rand = (() => { let s = 77; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; })();
     for (let i = 0; i < 70; i++) {
-      const a = rand() * Math.PI * 2, r = 33 + rand() * 30;
+      const a = rand() * Math.PI * 2, r = 37 + rand() * 28;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      if (Math.abs(x) < 4 && z > 0) continue;  // garder l'entrée dégagée
-      const pine = rand() < 0.4;
-      const proto = pine ? nature.pines[i % 2] : nature.oaks[i % 4];
+      if (Math.abs(x) < 5) continue;  // garder les portes dégagées
+      // arbres du pack KayKit Forest, comme dans le monde
+      const proto = nature.palms[i % nature.palms.length];
       const g = new THREE.Group();
       g.position.set(x, villageHeight(x, z) - 0.1, z);
-      g.scale.setScalar(0.9 + rand() * 0.4);
-      const t = new THREE.Mesh(proto.trunk, pine ? nature.mat.pineBark : nature.mat.bark);
-      const l = new THREE.Mesh(proto.leaves, nature.mat.leaf);
-      t.castShadow = l.castShadow = true;
-      g.add(t, l);
+      g.scale.setScalar((0.9 + rand() * 0.4) * KK);
+      const t = new THREE.Mesh(proto.geo, nature.mat.palm);
+      t.rotation.y = rand() * Math.PI * 2;
+      t.castShadow = true;
+      g.add(t);
       this.root.add(g);
       if (r < 42) this.colliders.push({ x, z, r: 0.45 });
     }
     for (let i = 0; i < 30; i++) {
-      const a = rand() * Math.PI * 2, r = 14 + rand() * 18;
+      const a = rand() * Math.PI * 2, r = 14 + rand() * 17;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       if (this.colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1.2) || this.pathDist(x, z) < 2) continue;
-      const b = new THREE.Mesh(nature.bushGeos[i % 3], nature.mat.leaf);
+      const b = new THREE.Mesh(nature.bushGeos[i % nature.bushGeos.length], nature.mat.leaf);
       b.position.set(x, -0.1, z);
       b.scale.setScalar(0.7 + rand() * 0.5);
       b.castShadow = true;
@@ -427,7 +426,7 @@ export class Village {
   }
   // Zones sans herbe (pour le masque de l'herbe)
   drawGrassMask(ctx, k) {
-    const P = (v) => (v + 100) * k;
+    const P = (v) => (v + 150) * k;
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(P(0), P(0), 10 * k, 0, Math.PI * 2); ctx.fill();
     for (let x = -100; x < 100; x += 0.8) for (let z = -100; z < 100; z += 0.8) {
@@ -466,6 +465,7 @@ export class Village {
       const a = Math.random() * Math.PI * 2;
       this.fx.spawn({ geo: this.fx.box, mat: this.pMat ||= new THREE.MeshBasicMaterial({ color: 0xd2b0ff }), pos: new THREE.Vector3(Math.cos(a) * 2.2, 0.6, Math.sin(a) * 2.2), vel: new THREE.Vector3(-Math.cos(a) * 0.4, 1.2 + Math.random(), -Math.sin(a) * 0.4), size: 0.04, life: 2, gravity: -0.2, drag: 0.3, spin: 4 });
     }
+    this.smith.update(dt, focus);
     this.fx.update(dt, new THREE.Vector3(1, 0, 0.3));
   }
 

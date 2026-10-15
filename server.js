@@ -84,7 +84,7 @@ const hub = {
     const msg = JSON.stringify(obj);
     for (const p of this.players.values()) if (p !== except && p.ws.readyState === 1) p.ws.send(msg);
   },
-  pub(p) { return { id: p.id, name: p.name, color: p.color, x: p.x, y: p.y, z: p.z, ry: p.ry, party: p.party?.id ?? null }; },
+  pub(p) { return { id: p.id, name: p.name, color: p.color, skin: p.skin, x: p.x, y: p.y, z: p.z, ry: p.ry, party: p.party?.id ?? null }; },
   enter(p) {
     p.where = 'hub';
     p.room = null;
@@ -164,12 +164,13 @@ class Room {
     this.night = 0;
     this.survived = 0;
     this.spawnCd = 0;
-    this.nightSpawned = { total: 0, runner: 0, spitter: 0 };
+    this.nightSpawned = { total: 0, runner: 0, spitter: 0, tank: 0 };
     this.over = false;
     this.syncT = 0; this.gemSyncT = 0; this.lastGemHp = this.gem.hp;
     this.shards = 0;
     this.shots = [];
-    this.inv = { wood: 0, stone: 0 };   // inventaire commun au groupe
+    this.inv = { wood: 0, stone: 0, twig: 0 };   // inventaire commun au groupe
+    this.relic = { taken: false, by: null };    // Larme de la cascade (une fois par partie)
     this.towerT = 0; this.frostT = 0; this.repairT = 0;
     rooms.add(this);
     members.forEach((m, i) => this.addPlayer(m, COLORS[i]));
@@ -185,7 +186,7 @@ class Room {
   }
   sys(text, kind = 'sys') { this.broadcast({ type: 'chat', sys: kind, text }); }
   pub(p) {
-    return { id: p.id, name: p.name, color: p.color, x: p.x, y: p.y, z: p.z, ry: p.ry || 0, hp: p.hp, maxHp: p.mods.maxHp, dead: p.dead };
+    return { id: p.id, name: p.name, color: p.color, skin: p.skin, x: p.x, y: p.y, z: p.z, ry: p.ry || 0, hp: p.hp, maxHp: p.mods.maxHp, dead: p.dead };
   }
 
   addPlayer(p, color) {
@@ -208,7 +209,8 @@ class Room {
       resources: [...this.resources.values()],
       buildings: [...this.buildings.values()],
       monsters: [...this.monsters.values()].map((m) => ({ id: m.id, k: m.kind, x: m.x, z: m.z, ry: m.ry, hp: m.hp })),
-      gem: this.gem, clock: { time: this.time, night: this.night }, inv: p.inv, survived: this.survived,
+      gem: this.gem, clock: { time: this.time, night: this.night }, inv: p.inv, survived: this.survived, relic: this.relic,
+      power: [...this.players.values()].filter((o) => o.oneShot).map((o) => [o.id, o.oneShot]),
     });
   }
 
@@ -280,7 +282,7 @@ class Room {
 
   startNight() {
     this.night++;
-    this.nightSpawned = { total: 0, runner: 0, spitter: 0 };
+    this.nightSpawned = { total: 0, runner: 0, spitter: 0, tank: 0 };
     this.spawnCd = 0;
     this.burst = true;   // première vague : tous en même temps
     const target = W.nightTarget(this.night, this.players.size);
@@ -289,8 +291,18 @@ class Room {
     this.sys(`🌙 Nuit ${this.night} — ${target} monstres rôdent en permanence jusqu'à l'aube. Défendez le Joyau !`, 'night');
   }
 
+  pickRelic(p) {
+    if (this.relic.taken || p.dead) return;
+    if (Math.hypot(p.x - W.RELIC_POS.x, p.z - W.RELIC_POS.z) > 3) return;
+    p.oneShot = this.isNight() ? this.night : this.night + 1;
+    this.relic = { taken: true, by: p.id };
+    this.broadcast({ type: 'relic', relic: this.relic, by: p.id, night: p.oneShot });
+    this.sys(`💧 ${p.name} a trouvé la Larme de la cascade ! Ses coups tueront net les monstres pendant la nuit ${p.oneShot}.`, 'info');
+  }
+
   startDay() {
     for (const m of [...this.monsters.values()]) this.killMonster(m, true);
+    for (const p of this.players.values()) if (p.oneShot && p.oneShot <= this.night) { p.oneShot = 0; this.broadcast({ type: 'power', id: p.id, night: 0 }); }
     if (this.night > 0) {
       this.survived = this.night;
       const gain = W.shardsForNight(this.night);
@@ -330,7 +342,7 @@ class Room {
     if (r.hp > 0.001) return;
     // Ressource détruite : tout le butin d'un coup (1 à 3 + bonus)
     const kind = W.RES_KIND[r.k];
-    const gain = { [kind]: W.rollYield(r.k, p.mods) };
+    const gain = { [kind]: W.rollYield(r.k, p.mods, Math.random, !!r.rich) };
     this.inv[kind] += gain[kind];
     this.sendInv(p, gain, { x: r.x, z: r.z, k: r.k });
     if (r.k === 'b' && !p.dead) {
@@ -366,19 +378,22 @@ class Room {
     if (!piece || p.dead) return;
     if (!p.free && !W.pieceUnlocked(type, p.mods)) return send(p.ws, { type: 'toast', text: 'Débloque cette construction à la forge du village.' });
     const x = num(d.x), z = num(d.z), y = num(d.y), rot = clamp(Math.floor(num(d.rot)), 0, 3);
+    const lv = clamp(Math.floor(num(d.lv)), 0, W.MAX_LEVEL);
     if (Math.abs(x) > W.WORLD_LIMIT || Math.abs(z) > W.WORLD_LIMIT) return;
     if (Math.hypot(x - p.x, z - p.z) > W.BUILD_RANGE + 3) return;
-    const key = W.slotKey(type, x, z, rot);
-    for (const b of this.buildings.values()) if (W.slotKey(b.type, b.x, b.z, b.rot) === key) return;
+    const ground = W.heightAt(x, z);
+    if (y < ground - 1.5 || y > ground + (W.MAX_LEVEL + 1) * W.WALL_H + 1.5) return;
+    const key = W.slotKey(type, x, z, rot, y);
+    for (const b of this.buildings.values()) if (W.slotKey(b.type, b.x, b.z, b.rot, b.y) === key) return;
     if (!p.free) {
       const c = W.pieceCost(type, p.mods);
-      if (p.inv.wood < c.wood || p.inv.stone < c.stone) return;
-      this.inv.wood -= c.wood; this.inv.stone -= c.stone;
+      if (!W.canAfford(this.inv, c)) return;
+      for (const k of W.RES_KEYS) this.inv[k] -= c[k];
       this.sendInv(null);
     }
     const hp = Math.round(piece.hp * p.mods.buildHp);
     const dur = +(W.BUILD_TIME * p.mods.buildTime).toFixed(2);
-    const b = { id: 'b' + this.bN++, type, x, z, y, rot, hp, max: hp, state: 'building', dur, by: p.id, repair: p.mods.repair, towerDmg: p.mods.towerDmg, cd: 0 };
+    const b = { id: 'b' + this.bN++, type, x, z, y, rot, lv, hp, max: hp, state: 'building', dur, by: p.id, repair: p.mods.repair, towerDmg: p.mods.towerDmg, cd: 0 };
     this.buildings.set(b.id, b);
     this.broadcast({ type: 'bAdd', b });
     setTimeout(() => {
@@ -394,9 +409,22 @@ class Room {
     if (Math.hypot(b.x - p.x, b.z - p.z) > W.BUILD_RANGE + 3) return;
     this.buildings.delete(b.id);
     const c = W.PIECES[b.type].cost;
-    this.inv.wood += Math.floor(c.wood / 2); this.inv.stone += Math.floor(c.stone / 2);
+    for (const k of W.RES_KEYS) this.inv[k] += Math.floor((c[k] || 0) / 2);
     this.sendInv(null);
     this.broadcast({ type: 'bDel', id: b.id, broken: false });
+    this.collapse();
+  }
+
+  // Les pièces en hauteur qui ne reposent plus sur rien s'écroulent
+  collapse() {
+    const list = [...this.buildings.values()];
+    if (!list.some((b) => b.lv)) return;
+    const ok = W.supportedSet(list);
+    for (const b of list) {
+      if (ok.has(b.id)) continue;
+      this.buildings.delete(b.id);
+      this.broadcast({ type: 'bDel', id: b.id, broken: true });
+    }
   }
 
   damageBuilding(b, dmg) {
@@ -405,6 +433,7 @@ class Room {
     if (b.hp <= 0) {
       this.buildings.delete(b.id);
       this.broadcast({ type: 'bDel', id: b.id, broken: true });
+      this.collapse();
     } else this.broadcast({ type: 'bHit', id: b.id, hp: Math.round(b.hp) });
   }
 
@@ -534,6 +563,8 @@ class Room {
   // ---------------- Monstres ----------------
   pickKind() {
     const s = this.nightSpawned, n = this.night;
+    // Colosses : 6% de la vague à partir de la nuit 8 (au moins 1)
+    if (n >= W.TANK_NIGHT && s.tank < Math.max(1, Math.floor((s.total + 1) * 0.06))) return 'tank';
     // Cracheurs : 2% de la vague à partir de la nuit 5 (au moins 1)
     if (n >= 5 && s.spitter < Math.max(1, Math.floor((s.total + 1) * 0.02))) return 'spitter';
     // Griffus : 5% de la vague à partir de la nuit 2 (au moins 1)
@@ -547,6 +578,7 @@ class Room {
       const x = clamp(g.x + Math.cos(a) * d, -W.WORLD_LIMIT + 2, W.WORLD_LIMIT - 2);
       const z = clamp(g.z + Math.sin(a) * d, -W.WORLD_LIMIT + 2, W.WORLD_LIMIT - 2);
       if (Math.hypot(x - g.x, z - g.z) < 30) continue;
+      if (W.caveAt(x, z)) continue;
       if ([...this.players.values()].some((p) => Math.hypot(p.x - x, p.z - z) < 14)) continue;
       return this.spawnMonster(x, z, kind);
     }
@@ -573,7 +605,8 @@ class Room {
     const now = Date.now();
     if (now - (p.lastSword || 0) < 280 / p.mods.atkSpeed) return;
     p.lastSword = now;
-    const dmg = W.SWORD_DMG * p.mods.dmg;
+    // Larme de la cascade : tue en un coup pendant la nuit choisie
+    const dmg = p.oneShot && this.isNight() && this.night === p.oneShot ? 99999 : W.SWORD_DMG * p.mods.dmg;
     const targets = [m];
     if (p.mods.cleave) for (const o of this.monsters.values()) if (o !== m && !o.dead && Math.hypot(o.x - p.x, o.z - p.z) < 3.2) targets.push(o);
     for (const t of targets) {
@@ -607,11 +640,15 @@ class Room {
     }
   }
 
+  // joueur en hauteur (sur un étage ou une tour) : hors d'atteinte des épées
+  perched(p) { return (p.y ?? 0) > W.heightAt(p.x, p.z) + 1.6; }
+
   updateMonsters(dt, now) {
     if (!this.monsters.size) return;
     const alive = [...this.players.values()].filter((p) => !p.dead);
     const gp = this.gemPos();
-    const walls = [...this.buildings.values()].filter((b) => W.isWallType(b.type) || W.PIECES[b.type].tower);
+    // seules les pièces du rez-de-chaussée barrent la route
+    const walls = [...this.buildings.values()].filter((b) => !b.lv && (W.isWallType(b.type) || W.PIECES[b.type].tower));
     const list = [];
     for (const m of this.monsters.values()) {
       if (m.dead) continue;
@@ -635,7 +672,7 @@ class Room {
           if (Math.hypot(g.x - m.x, g.z - m.z) < T.reach + 1.4) this.damageGem(T.dmgGem);
         } else if (a.kind === 'player') {
           const p = this.players.get(a.id);
-          if (p && Math.hypot(p.x - m.x, p.z - m.z) < T.reach + 0.9) this.damagePlayer(p, T.dmgP, m);
+          if (p && !this.perched(p) && Math.hypot(p.x - m.x, p.z - m.z) < T.reach + 0.9) this.damagePlayer(p, T.dmgP, m);
         } else if (a.kind === 'wall') {
           const b = this.buildings.get(a.id);
           if (b) this.damageBuilding(b, T.dmgB);
@@ -645,10 +682,14 @@ class Room {
       // Cible : le Joyau, sauf si un joueur passe trop près
       let tx = gp.x, tz = gp.z, tr = 1.3, tk = { kind: 'gem' };
       let aggroP = m.aggro ? this.players.get(m.aggro) : null;
-      if (aggroP && (aggroP.dead || Math.hypot(aggroP.x - m.x, aggroP.z - m.z) > 14)) { aggroP = null; m.aggro = null; }
+      if (aggroP && (aggroP.dead || Math.hypot(aggroP.x - m.x, aggroP.z - m.z) > 14 || (!T.ranged && this.perched(aggroP)))) { aggroP = null; m.aggro = null; }
       if (!aggroP) {
         let bd = T.ranged ? 12 : 7;
-        for (const p of alive) { const d = Math.hypot(p.x - m.x, p.z - m.z); if (d < bd) { bd = d; aggroP = p; } }
+        for (const p of alive) {
+          // un monstre de corps à corps ne peut pas atteindre un joueur perché en hauteur
+          if (!T.ranged && this.perched(p)) continue;
+          const d = Math.hypot(p.x - m.x, p.z - m.z); if (d < bd) { bd = d; aggroP = p; }
+        }
         if (aggroP) m.aggro = aggroP.id;
       }
       if (aggroP && this.gem.carrier !== aggroP.id) { tx = aggroP.x; tz = aggroP.z; tr = 0.4; tk = { kind: 'player', id: aggroP.id }; }
@@ -732,7 +773,7 @@ class Room {
       case 'spawn': {
         const n = clamp(Math.floor(num(d.n, 1)), 1, 10);
         const kind = W.MONSTERS[d.kind] ? d.kind : 'brute';
-        for (let i = 0; i < n; i++) this.spawnMonster(clamp(num(d.x) + (Math.random() - 0.5) * 3, -93, 93), clamp(num(d.z) + (Math.random() - 0.5) * 3, -93, 93), kind);
+        for (let i = 0; i < n; i++) this.spawnMonster(clamp(num(d.x) + (Math.random() - 0.5) * 3, -W.WORLD_LIMIT, W.WORLD_LIMIT), clamp(num(d.z) + (Math.random() - 0.5) * 3, -W.WORLD_LIMIT, W.WORLD_LIMIT), kind);
         break;
       }
       case 'day': this.time = W.START_TIME; this.startDay(); break;
@@ -744,10 +785,10 @@ class Room {
       case 'night': if (!this.isNight()) { this.time = W.DAY_LEN; this.startNight(); } break;
       case 'invuln': p.invuln = !p.invuln; break;
       case 'free': p.free = !p.free; break;
-      case 'give': this.inv.wood += 50; this.inv.stone += 50; this.sendInv(null, { wood: 50, stone: 50 }); break;
+      case 'give': this.inv.wood += 50; this.inv.stone += 50; this.inv.twig += 50; this.sendInv(null, { wood: 50, stone: 50, twig: 50 }); break;
       case 'kill': for (const m of [...this.monsters.values()]) this.killMonster(m, false); break;
       case 'heal': this.gem.hp = W.GEM_HP; this.broadcast({ type: 'gem', gem: this.gem }); break;
-      case 'tp': p.x = clamp(num(d.x), -93, 93); p.z = clamp(num(d.z), -93, 93); send(p.ws, { type: 'tp', x: p.x, z: p.z }); break;
+      case 'tp': p.x = clamp(num(d.x), -W.WORLD_LIMIT, W.WORLD_LIMIT); p.z = clamp(num(d.z), -W.WORLD_LIMIT, W.WORLD_LIMIT); send(p.ws, { type: 'tp', x: p.x, z: p.z }); break;
     }
     send(p.ws, { type: 'god', on: true, invuln: !!p.invuln, free: !!p.free });
   }
@@ -772,6 +813,7 @@ wss.on('connection', (ws) => {
     if (d.type === 'hello') {
       if (p.where) return;
       p.name = String(d.name || 'Aventurier').replace(/[<>]/g, '').trim().slice(0, 16) || 'Aventurier';
+      p.skin = W.skinOk(d.skin) ? d.skin : W.SKINS[0].id;
       const { token, prof } = getProfile(d.token, p.name);
       p.token = token; p.prof = prof;
       hub.enter(p);
@@ -854,7 +896,7 @@ wss.on('connection', (ws) => {
     switch (d.type) {
       case 'move':
         if (p.dead) return;
-        p.x = clamp(num(d.x), -100, 100); p.y = num(d.y); p.z = clamp(num(d.z), -100, 100); p.ry = num(d.ry);
+        p.x = clamp(num(d.x), -150, 150); p.y = num(d.y); p.z = clamp(num(d.z), -150, 150); p.ry = num(d.ry);
         R.broadcast({ type: 'move', id: p.id, x: p.x, y: p.y, z: p.z, ry: p.ry, s: clamp(num(d.s), 0, 12), g: d.g !== false, tl: clamp(Math.floor(num(d.tl)), 0, 3) }, p);
         break;
       case 'act':
@@ -865,6 +907,7 @@ wss.on('connection', (ws) => {
       case 'build': R.build(p, d); break;
       case 'demolish': R.demolish(p, d.id); break;
       case 'gemPick': R.pickGem(p); break;
+      case 'relicPick': R.pickRelic(p); break;
       case 'gemDrop': R.dropGem(d.x, d.z, d.y, p); break;
       case 'chat': {
         const now = Date.now();

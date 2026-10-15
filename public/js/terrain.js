@@ -1,9 +1,19 @@
 // Sol, rivière et versions GLSL du relief.
 // IMPORTANT : terrainHeight() (GLSL) doit rester identique à heightAt() de world.js.
 import * as THREE from 'three';
-import { heightAt, dirtAt, riverZ, riverDist, noise3, WATER_LEVEL } from './world.js';
+import { heightAt, dirtAt, riverZ, riverDist, noise3, WATER_LEVEL, CLIFF, CAVES, WATERFALL, plateau, waterLevelAt, caveK } from './world.js';
 
 export { heightAt, dirtAt, noise3, WORLD_LIMIT, seededRandom } from './world.js';
+
+// Les grottes sont recopiées dans le shader à partir de world.js
+const g = (v) => v.toFixed(4);
+const CAVES_GLSL = CAVES.map((c) => `
+  { vec2 a = vec2(${g(c.x)}, ${g(c.z)}), b = vec2(${g(c.ex)}, ${g(c.ez)});
+    float dC = length(p - a);
+    vec2 ab = b - a; float t = clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0);
+    float dT = length(p - a - ab * t);
+    float k = max(1.0 - smoothstep(${g(c.r)}, ${g(c.r + 2.5)}, dC), 1.0 - smoothstep(2.3, 4.2, dT));
+    h += (${g(c.floor)} - h) * k; }`).join('');
 
 export const TERRAIN_GLSL = /* glsl */`
 float riverZ(float x) { return 36.0 + sin(x * 0.023 + 0.4) * 14.0 + sin(x * 0.061 + 1.3) * 5.0; }
@@ -14,11 +24,23 @@ float terrainHeight(vec2 p) {
     + cos(p.y * 0.13 - p.x * 0.05) * 0.2;
   h *= smoothstep(4.0, 22.0, length(p));
   float bank = 1.0 - smoothstep(3.2, 9.0, abs(p.y - riverZ(p.x)));
-  return h + (-1.7 - h) * bank;
+  h = h + (-1.7 - h) * bank;
+  h -= (1.0 - smoothstep(4.0, 8.0, length(p - vec2(${g(CLIFF.x0 - 2)}, ${g(WATERFALL.z)})))) * 0.9;
+  h += smoothstep(${g(CLIFF.x0)}, ${g(CLIFF.x1)}, p.x) * ${g(CLIFF.h)};
+  ${CAVES_GLSL}
+  return h;
 }
 float dirtAt(vec2 p) {
   float d = sin(p.x * 0.071 + 1.7 * sin(p.y * 0.043)) * sin(p.y * 0.067 + 1.3 * sin(p.x * 0.037));
   return smoothstep(0.62, 0.85, d);
+}
+// pas d'herbe sur la falaise, dans l'eau et dans les grottes
+float noGrass(vec2 p) {
+  float n = 1.0 - smoothstep(5.0, 7.0, abs(p.y - riverZ(p.x)));
+  n = max(n, 1.0 - smoothstep(6.0, 8.0, length(p - vec2(${g(CLIFF.x0 - 2)}, ${g(WATERFALL.z)}))));
+  n = max(n, smoothstep(${g(CLIFF.x0 - 0.8)}, ${g(CLIFF.x0)}, p.x) * (1.0 - smoothstep(${g(CLIFF.x1)}, ${g(CLIFF.x1 + 0.8)}, p.x)));
+  ${CAVES.map((c) => `n = max(n, 1.0 - smoothstep(${g(c.r + 1)}, ${g(c.r + 3)}, length(p - vec2(${g(c.x)}, ${g(c.z)}))));`).join(' ')}
+  return n;
 }
 `;
 
@@ -47,8 +69,10 @@ function makeDetailTexture() {
 const C = {
   grassA: new THREE.Color('#4a8a2c'), grassB: new THREE.Color('#6b9e34'), grassC: new THREE.Color('#3b7426'),
   dirt: new THREE.Color('#7d6448'), dirtDark: new THREE.Color('#62503c'),
+  rock: new THREE.Color('#77736c'), rockDark: new THREE.Color('#57534d'),
   sand: new THREE.Color('#b9a57a'), mud: new THREE.Color('#5d5040'), bed: new THREE.Color('#4a4436'),
 };
+const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export function groundColor(x, z, out = new THREE.Color()) {
   const h = heightAt(x, z);
   const n1 = noise3(x * 0.08, z * 0.08, 1) * 0.5 + 0.5;
@@ -57,6 +81,12 @@ export function groundColor(x, z, out = new THREE.Color()) {
   out.multiplyScalar(0.85 + Math.min(1, Math.max(0, (h + 3) / 6)) * 0.25);
   const d = dirtAt(x, z);
   if (d > 0) out.lerp(C.dirt.clone().lerp(C.dirtDark, n2), Math.min(1, d * 1.2));
+  // falaise et sol des grottes : roche
+  const cliff = smoothstep(CLIFF.x0 - 0.5, CLIFF.x0 + 0.5, x) * (1 - smoothstep(CLIFF.x1 - 0.3, CLIFF.x1 + 0.6, x));
+  let cave = 0;
+  for (const c of CAVES) cave = Math.max(cave, caveK(c, x, z));
+  const rock = Math.max(cliff, cave);
+  if (rock > 0) out.lerp(C.rock.clone().lerp(C.rockDark, n2), rock);
   const rd = riverDist(x, z);
   if (rd < 10) {
     const sandK = 1 - THREE.MathUtils.smoothstep(rd, 5.5, 9.5);
@@ -67,7 +97,7 @@ export function groundColor(x, z, out = new THREE.Color()) {
 }
 
 export function createGround(scene) {
-  const SIZE = 400, SEG = 300;
+  const SIZE = 400, SEG = 400;
   const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -143,14 +173,14 @@ void main() {
 
 export class River {
   constructor(scene) {
-    const SEG = 220, W = 13, X0 = -200, X1 = 200;
+    const SEG = 600, W = 13, X0 = -200, X1 = 200;
     const pos = [], uv = [], idx = [];
     for (let i = 0; i <= SEG; i++) {
       const x = X0 + (X1 - X0) * i / SEG;
       const zc = riverZ(x);
       for (let j = 0; j <= 4; j++) {
         const t = j / 4;
-        pos.push(x, WATER_LEVEL, zc - W / 2 + W * t);
+        pos.push(x, waterLevelAt(x), zc - W / 2 + W * t);
         uv.push(i / SEG, t);
       }
     }

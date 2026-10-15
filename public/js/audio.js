@@ -165,6 +165,10 @@ export class AudioEngine {
     this.riverF = this.filter('lowpass', 1100, 0.5);
     const rh = this.filter('highpass', 180, 0.5, this.riverF);
     this.riverG = this.gain(0, this.ambBus);
+    // grondement de la cascade
+    this.fallG = this.gain(0, this.ambBus);
+    const fl = this.filter('lowpass', 900, 0.5, this.fallG);
+    const fs = ctx.createBufferSource(); fs.buffer = this.noiseBuf; fs.loop = true; fs.playbackRate.value = 0.6; fs.connect(fl); fs.start();
     this.riverF.connect(this.riverG);
     const rs = ctx.createBufferSource(); rs.buffer = this.noiseBuf; rs.loop = true; rs.playbackRate.value = 1.3; rs.connect(rh); rs.start();
     // Bourdon du crépuscule (monte doucement)
@@ -190,7 +194,7 @@ export class AudioEngine {
   // ======================= Mise à jour (chaque image) =======================
   // phase : { day, dusk, night } (0..1), duskK : avancée du crépuscule, wind : 0..1,
   // riverDist : distance à la rivière, danger : 0..1 (monstres proches)
-  update(dt, { day = 1, dusk = 0, night = 0, duskK = 0, wind = 0.5, riverDist = 99, danger = 0 } = {}) {
+  update(dt, { day = 1, dusk = 0, night = 0, duskK = 0, wind = 0.5, riverDist = 99, danger = 0, fall = 999 } = {}) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const ctx = this.ctx, t = ctx.currentTime;
     this.phaseK = { day, dusk, night };
@@ -207,6 +211,7 @@ export class AudioEngine {
     this.windHi.frequency.setTargetAtTime(1400 + wind * 900, t, 0.5);
     // Rivière
     this.riverG.gain.setTargetAtTime(clamp(1 - riverDist / 28, 0, 1) ** 1.6 * 0.22, t, 0.3);
+    this.fallG.gain.setTargetAtTime(clamp(1 - fall / 45, 0, 1) ** 1.8 * 0.5, t, 0.3);
 
     // Musique du jour
     const BEAT = 60 / 68;
@@ -526,40 +531,82 @@ export class AudioEngine {
       burst(t, out, 'bandpass', 1400, 1.5, 0.12, 0.5);
       ring(t, out, [[1850, 0.5], [2950, 0.3], [4400, 0.2]], 0.35, 0.08);
     };
+    // ----- Coupe de bois : 6 variantes (l'originale + 5) -----
+    const CHOPS = [
+      { f: 210, ring: [520, 780], crack: 950, q: 2.5, dbl: 0 },
+      { f: 180, ring: [460, 690], crack: 800, q: 3.0, dbl: 0 },
+      { f: 245, ring: [610, 920], crack: 1150, q: 2.2, dbl: 0 },
+      { f: 160, ring: [400, 620], crack: 700, q: 3.5, dbl: 0.045 },   // double « toc-toc »
+      { f: 225, ring: [560, 1240], crack: 1300, q: 1.8, dbl: 0, splinter: 1 },
+      { f: 195, ring: [490, 735], crack: 880, q: 2.8, dbl: 0.03, splinter: 1 },
+    ];
     S.chop = function (t, out) {
-      const p = rnd(0.85, 1.15);
-      thump(t, out, 210 * p, 95 * p, 0.12, 0.7);
-      burst(t, out, 'bandpass', 950 * p, 2.5, 0.09, 0.55);
-      burst(t, out, 'highpass', 3000, 0.7, 0.03, 0.25);
-      ring(t, out, [[520 * p, 0.6], [780 * p, 0.3]], 0.18, 0.12);
+      const v = pick(CHOPS), p = rnd(0.94, 1.06);
+      const hit = (tt, k) => {
+        thump(tt, out, v.f * p, v.f * 0.45 * p, 0.12, 0.7 * k);
+        burst(tt, out, 'bandpass', v.crack * p, v.q, 0.09, 0.55 * k);
+        burst(tt, out, 'highpass', 3000, 0.7, 0.03, 0.25 * k);
+        ring(tt, out, [[v.ring[0] * p, 0.6], [v.ring[1] * p, 0.3]], 0.18, 0.12 * k);
+      };
+      hit(t, 1);
+      if (v.dbl) hit(t + v.dbl, 0.5);
+      if (v.splinter) for (let i = 0; i < 3; i++) burst(t + 0.03 + i * rnd(0.02, 0.04), out, 'bandpass', rnd(2500, 4200), 4, 0.025, 0.25);
     };
-    S.pick = function (t, out) {
-      const p = rnd(0.9, 1.1);
-      ring(t, out, [[2150 * p, 1], [3380 * p, 0.6], [4720 * p, 0.4], [6100 * p, 0.25]], 0.55, 0.12);
-      burst(t, out, 'highpass', 2500, 0.7, 0.04, 0.5);
-      burst(t + 0.01, out, 'lowpass', 900, 0.8, 0.14, 0.45);
-      thump(t, out, 110, 60, 0.1, 0.35);
-    };
+    // ----- Craquement avant la chute : 6 variantes -----
     S.treeCreak = function (t, out) {
+      const v = Math.floor(Math.random() * 6);
+      const f0 = [95, 80, 110, 70, 120, 88][v], dur = [1.6, 1.9, 1.3, 2.1, 1.4, 1.7][v];
       const g = self.gain(0, out);
-      const f = self.filter('bandpass', 420, 6, g);
-      const o = self.osc('sawtooth', 95, t, 1.6, f);
-      const m = self.ctx.createOscillator(); m.frequency.value = 7;
-      const mg = self.gain(18); m.connect(mg); mg.connect(o.frequency); m.start(t); m.stop(t + 1.6);
-      o.frequency.linearRampToValueAtTime(60, t + 1.5);
-      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.35, t + 0.4); g.gain.linearRampToValueAtTime(0.0001, t + 1.5);
-      for (let i = 0; i < 5; i++) burst(t + rnd(0, 1.2), out, 'bandpass', rnd(1500, 3000), 3, 0.03, 0.4);
+      const f = self.filter('bandpass', [420, 360, 520, 300, 600, 450][v], 6, g);
+      const o = self.osc('sawtooth', f0, t, dur, f);
+      const m = self.ctx.createOscillator(); m.frequency.value = [7, 5, 9, 4, 11, 6][v];
+      const mg = self.gain(18 + v * 3); m.connect(mg); mg.connect(o.frequency); m.start(t); m.stop(t + dur);
+      o.frequency.linearRampToValueAtTime(f0 * 0.62, t + dur * 0.95);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.35, t + dur * 0.25); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      const snaps = 3 + v % 4;
+      for (let i = 0; i < snaps; i++) burst(t + rnd(0, dur * 0.8), out, 'bandpass', rnd(1500, 3200), 3, 0.03, 0.4);
+      if (v === 3 || v === 5) burst(t + dur * 0.85, out, 'bandpass', 900, 2, 0.12, 0.6); // gros craquement final
     }; S.treeCreak.range = 14;
+    // ----- Chute d'arbre : 6 variantes -----
+    const FALLS = [
+      { boom: [70, 28], dur: 0.7, rustle: 1.2, crunch: 4 },
+      { boom: [60, 24], dur: 0.9, rustle: 1.6, crunch: 6 },
+      { boom: [85, 34], dur: 0.55, rustle: 0.9, crunch: 3 },
+      { boom: [55, 22], dur: 1.0, rustle: 1.4, crunch: 5, bounce: 0.32 },   // rebondit
+      { boom: [78, 30], dur: 0.6, rustle: 2.0, crunch: 8 },                  // beaucoup de branches
+      { boom: [66, 26], dur: 0.8, rustle: 1.1, crunch: 4, bounce: 0.25 },
+    ];
     S.treeFall = function (t, out) {
-      thump(t, out, 70, 28, 0.7, 0.9);
-      burst(t, out, 'lowpass', 500, 0.7, 1.4, 0.6, 0.01);
-      burst(t + 0.05, out, 'highpass', 2500, 0.5, 1.2, 0.35, 0.02, 0.8);
-      for (let i = 0; i < 4; i++) burst(t + rnd(0, 0.4), out, 'bandpass', rnd(600, 1400), 3, 0.06, 0.4);
+      const v = pick(FALLS);
+      thump(t, out, v.boom[0], v.boom[1], v.dur, 0.9);
+      if (v.bounce) thump(t + v.bounce, out, v.boom[0] * 1.2, v.boom[1], v.dur * 0.5, 0.45);
+      burst(t, out, 'lowpass', 500, 0.7, v.dur * 2, 0.6, 0.01);
+      burst(t + 0.05, out, 'highpass', 2500, 0.5, v.rustle, 0.35, 0.02, 0.8);
+      for (let i = 0; i < v.crunch; i++) burst(t + rnd(0, 0.5), out, 'bandpass', rnd(600, 1600), 3, 0.06, 0.4);
     }; S.treeFall.range = 16; S.treeFall.verb = 0.4;
+    // ----- Pioche : 3 variantes -----
+    const PICKS = [
+      { ring: [2150, 3380, 4720, 6100], dust: 900 },
+      { ring: [1780, 2900, 4100, 5300], dust: 700 },
+      { ring: [2500, 3700, 5300, 6900], dust: 1100, chip: 1 },
+    ];
+    S.pick = function (t, out) {
+      const v = pick(PICKS), p = rnd(0.95, 1.05);
+      ring(t, out, v.ring.map((f, i) => [f * p, [1, 0.6, 0.4, 0.25][i]]), 0.55, 0.12);
+      burst(t, out, 'highpass', 2500, 0.7, 0.04, 0.5);
+      burst(t + 0.01, out, 'lowpass', v.dust, 0.8, 0.14, 0.45);
+      thump(t, out, 110, 60, 0.1, 0.35);
+      if (v.chip) for (let i = 0; i < 3; i++) burst(t + 0.05 + i * 0.05, out, 'bandpass', rnd(3000, 5000), 5, 0.02, 0.2);
+    };
+    // ----- Rocher qui éclate : 3 variantes -----
     S.rockBreak = function (t, out) {
-      thump(t, out, 90, 35, 0.5, 0.8);
-      for (let i = 0; i < 7; i++) burst(t + rnd(0, 0.35), out, 'bandpass', rnd(700, 2500), 1.5, rnd(0.04, 0.1), 0.5);
-      burst(t, out, 'lowpass', 700, 0.7, 0.8, 0.5, 0.005);
+      const v = Math.floor(Math.random() * 3);
+      thump(t, out, [90, 75, 110][v], [35, 28, 45][v], [0.5, 0.65, 0.4][v], 0.8);
+      const n = [7, 10, 5][v];
+      for (let i = 0; i < n; i++) burst(t + rnd(0, [0.35, 0.6, 0.25][v]), out, 'bandpass', rnd(700, 2500), 1.5, rnd(0.04, 0.1), 0.5);
+      burst(t, out, 'lowpass', [700, 500, 900][v], 0.7, [0.8, 1.1, 0.6][v], 0.5, 0.005);
+      if (v === 1) burst(t + 0.15, out, 'highpass', 2000, 0.6, 0.8, 0.2, 0.05, 0.7);   // gravier qui roule
+      if (v === 2) ring(t, out, [[1400, 1], [2300, 0.5]], 0.4, 0.06);                  // éclat cristallin
     }; S.rockBreak.range = 14;
     S.buildPlace = function (t, out) {
       thump(t, out, 160, 70, 0.2, 0.7);
@@ -757,6 +804,28 @@ export class AudioEngine {
       o.frequency.exponentialRampToValueAtTime(f0 * 1.5, t + 0.05);
       self.env(g, t, 0.06, 0.003, 0.07);
     }; S.collect.verb = 0;
+    // bûche qui tombe au sol : petit « toc » boisé
+    S.logDrop = function (t, out) {
+      const f = rnd(380, 520);
+      ring(t, out, [[f, 1], [f * 2.3, 0.4], [f * 3.9, 0.15]], 0.12, 0.12);
+      thump(t, out, 160, 80, 0.08, 0.25);
+      burst(t, out, 'bandpass', 1500, 1.2, 0.04, 0.12);
+    }; S.logDrop.range = 10; S.logDrop.verb = 0.1;
+    // caillou qui tombe : clic sec
+    S.pebbleDrop = function (t, out) {
+      burst(t, out, 'highpass', rnd(2500, 4000), 0.9, 0.035, 0.35);
+      ring(t, out, [[rnd(1800, 2600), 1]], 0.05, 0.06);
+      thump(t, out, 220, 120, 0.04, 0.12);
+    }; S.pebbleDrop.range = 10; S.pebbleDrop.verb = 0.1;
+    // crâne qui tombe et roule
+    S.skullDrop = function (t, out) {
+      thump(t, out, 260, 130, 0.07, 0.3);
+      burst(t, out, 'bandpass', 1800, 1.5, 0.05, 0.25);
+      for (let i = 1; i < 5; i++) {
+        thump(t + 0.1 + i * 0.09 + Math.random() * 0.03, out, 240 - i * 15, 120, 0.05, 0.18 / i);
+        burst(t + 0.1 + i * 0.09, out, 'bandpass', 2200, 2, 0.03, 0.15 / i);
+      }
+    }; S.skullDrop.range = 14;
     S.bushHit = function (t, out) {
       burst(t, out, 'bandpass', 2500, 0.8, 0.18, 0.4, 0.005, 1.2);
       burst(t, out, 'lowpass', 600, 0.8, 0.1, 0.2);

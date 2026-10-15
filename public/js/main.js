@@ -12,9 +12,23 @@ import { Buildings } from './buildings.js';
 import { AudioEngine } from './audio.js';
 import { WorldMap } from './map.js';
 import { Village, villageHeight, SPOTS, SPAWN } from './village.js';
+import { Features } from './features.js';
 import { settings, saveSettings, keyLabel, ACTIONS, DEFAULT_KEYS, lsGet, lsSet } from './settings.js';
+import { loadModels, modelIcon, propIcon, staticGeometry, atlasMaterial, characterPortrait } from './models.js';
 
 const $ = (id) => document.getElementById(id);
+
+// ===================== Modèles 3D (Pirate Kit) =====================
+$('conn-state').textContent = 'Chargement des modèles 3D…';
+await loadModels((k) => { $('conn-state').textContent = `Chargement des modèles 3D… ${Math.round(k * 100)} %`; });
+$('conn-state').textContent = 'Connexion au serveur…';
+{
+  // icônes de l'inventaire dessinées à partir des modèles
+  const st = document.createElement('style');
+  st.textContent = `.ico.wood { background: url(${modelIcon('Wood', 64, 0.9, 0.5)}) center / contain no-repeat; border-radius: 0; width: 20px; height: 20px; vertical-align: middle; }
+.ico.stone { background: url(${modelIcon("Rocks", 64, 0.4, 0.35)}) center / contain no-repeat; border-radius: 0; width: 20px; height: 20px; vertical-align: middle; }`;
+  document.head.appendChild(st);
+}
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const hex = (c) => '#' + (c ?? 0xffffff).toString(16).padStart(6, '0');
@@ -73,6 +87,7 @@ const fx = nature.fx;
 const gem = new Gem(worldRoot, fx);
 const buildings = new Buildings(worldRoot, fx, audio);
 const monsters = new Monsters(worldRoot, fx, audio);
+const features = new Features(worldRoot, fx, audio);
 nature.audio = audio;
 const worldMap = new WorldMap();
 const village = new Village(scene, nature);
@@ -82,7 +97,7 @@ village.root.visible = false;
 const me = {
   id: null, rig: null, pos: new THREE.Vector3(), vy: 0, grounded: true, ry: 0, speed: 0,
   hp: W.PLAYER_HP, maxHp: W.PLAYER_HP, dead: false, deadT: 0, attackTarget: null, attackMonster: null, attackDir: 0,
-  inv: { wood: 0, stone: 0 }, name: '', color: 0x2e6fd8,
+  inv: { wood: 0, stone: 0, twig: 0 }, name: '', color: 0x2e6fd8, power: 0,
 };
 const profile = { token: lsGet('rpg3d_token') || '', shards: 0, skills: [], best: 0 };
 let mods = W.skillMods([]);
@@ -99,8 +114,9 @@ const game = {
   hubPlayers: new Map(),
   board: { 1: [], 2: [], 3: [], 4: [] },
   invite: null,
+  relic: { taken: false },
 };
-let camYaw = 0, camPitch = 0.3, camDist = 6, camShake = 0;
+let camYaw = 0, camPitch = 0.3, camDist = 6, camShake = 0, camCaveK = 0;
 const camTarget = new THREE.Vector3();
 const keys = {};
 let mouseHeld = false;
@@ -150,15 +166,28 @@ addEventListener('mousemove', (e) => {
 });
 addEventListener('wheel', (e) => {
   if (!playing() || (game.mode && game.mode !== 'chat')) return;
-  if (game.build.on) { selectPiece((game.build.piece + (e.deltaY > 0 ? 1 : -1) + W.PIECE_ORDER.length) % W.PIECE_ORDER.length); return; }
+  if (game.build.on && !e.shiftKey) {
+    // molette : monter / descendre d'un étage
+    game.build.lift = clamp((game.build.lift || 0) + (e.deltaY < 0 ? 1 : -1), -1, W.MAX_LEVEL);
+    renderBuildBar();
+    audio.play('ui');
+    return;
+  }
+  if (game.build.on) {
+    const n = W.PIECE_ORDER.length;
+    let i = game.build.piece;
+    for (let k = 0; k < n; k++) { i = (i + (e.deltaY > 0 ? 1 : -1) + n) % n; if (game.god.free || W.pieceUnlocked(W.PIECE_ORDER[i], mods)) break; }
+    selectPiece(i);
+    return;
+  }
   camDist = clamp(camDist + e.deltaY * 0.01, 2.5, 14);
 }, { passive: true });
 
 // ===================== Panneaux =====================
-const PANELS = ['pause', 'admin', 'mapview', 'skills', 'board', 'launch', 'players'];
+const PANELS = ['pause', 'admin', 'mapview', 'skills', 'board', 'launch', 'players', 'craft'];
 function setMode(m) {
   game.mode = m;
-  const map = { pause: 'pause', admin: 'admin', map: 'mapview', skills: 'skills', board: 'board', launch: 'launch', players: 'players' };
+  const map = { pause: 'pause', admin: 'admin', map: 'mapview', skills: 'skills', board: 'board', launch: 'launch', players: 'players', craft: 'craft' };
   for (const id of PANELS) $(id).hidden = map[m] !== id;
   $('mapview').classList.toggle('tp', m === 'map' && game.tpMode);
   if (m !== 'map') game.tpMode = false;
@@ -201,11 +230,12 @@ addEventListener('keydown', (e) => {
   // Invitation : Y / N
   if (game.invite && (e.code === 'KeyY' || e.code === 'KeyN')) { answerInvite(e.code === 'KeyY'); return; }
   if (e.code === 'Escape' && game.mode && game.mode !== 'pause') { closePanel(); return; }
+  if (game.mode === 'craft' && e.code === K.build) { closePanel(); return; }
   if (e.code === K.chat || e.code === 'NumpadEnter') { e.preventDefault(); if (!game.mode) openChat(); return; }
   if (inHub() && e.code === 'Tab') { if (game.mode === 'players') closePanel(); else if (!game.mode) openPlayers(); return; }
   if (inGame() && e.code === K.map) { toggleMap(false); return; }
   if (game.mode) return;
-  if (inGame() && e.code === K.build) toggleBuild();
+  if (inGame() && e.code === K.build) openCraft();
   if (inGame() && game.build.on && e.code === K.demolish) demolishPiece();
   if (e.code === K.interact) interact();
   if (game.build.on && /^Digit[1-9]$/.test(e.code)) selectPiece(+e.code.slice(5) - 1);
@@ -281,7 +311,7 @@ function mapData() {
     others: [...others.values()].map((o) => ({ x: o.rig.root.position.x, z: o.rig.root.position.z, ry: o.rig.root.rotation.y, color: hex(o.color), name: o.name })),
     monsters: [...monsters.map.values()].filter((m) => !m.dead).map((m) => ({ x: m.rig.root.position.x, z: m.rig.root.position.z, kind: m.kind })),
     resources: nature.list, buildings: [...buildings.map.values()],
-    gem: { x: gem.pos.x, z: gem.pos.z }, camYaw,
+    gem: { x: gem.pos.x, z: gem.pos.z }, camYaw, relic: game.relic,
   };
 }
 function drawBigMap() { worldMap.drawFull($('bigmap'), mapData(), game.tpMode); }
@@ -298,9 +328,9 @@ document.querySelectorAll('[data-admin]').forEach((b) => {
     audio.play('ui');
     const c = b.dataset.admin;
     if (c === 'tp') { toggleMap(true); return; }
-    if (['spawn', 'spawn5', 'runner', 'spitter'].includes(c)) {
+    if (['spawn', 'spawn5', 'runner', 'spitter', 'tank'].includes(c)) {
       const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
-      send({ type: 'admin', cmd: 'spawn', n: c === 'spawn5' ? 5 : 1, kind: c === 'runner' || c === 'spitter' ? c : 'brute', x: me.pos.x + fx * 8, z: me.pos.z + fz * 8 });
+      send({ type: 'admin', cmd: 'spawn', n: c === 'spawn5' ? 5 : 1, kind: c === 'runner' || c === 'spitter' || c === 'tank' ? c : 'brute', x: me.pos.x + fx * 8, z: me.pos.z + fz * 8 });
       return;
     }
     send({ type: 'admin', cmd: c });
@@ -450,7 +480,7 @@ const handlers = {
       syncInv();
     } else {
       syncInv();
-      if (d.gain) for (const k in d.gain) popup(`${d.by ? d.by + ' ' : ''}+${d.gain[k]} ${k === 'wood' ? 'Bois' : 'Pierre'}`, k === 'wood' ? '#e0b070' : '#d0d0d0');
+      if (d.gain) for (const k in d.gain) popup(`${d.by ? d.by + ' ' : ''}+${d.gain[k]} ${W.RES_NAMES[k]}`, RES_COL[k]);
     }
   },
   tShot: (d) => {
@@ -460,6 +490,20 @@ const handlers = {
     m.hp = d.hp; m.rig.setHp(d.hp / m.max);
   },
   frostPulse: (d) => buildings.pulse(d.id),
+  relic: (d) => {
+    game.relic = d.relic;
+    features.setRelic(true);
+    audio.play('gemPick', new THREE.Vector3(W.RELIC_POS.x, 2, W.RELIC_POS.z));
+    if (d.by === me.id) {
+      me.power = d.night;
+      showBanner('Larme de la cascade', `Tes coups tueront net les monstres pendant la nuit ${d.night}`, 4500);
+    } else { const o = others.get(d.by); if (o) o.power = d.night; }
+    updatePowerHud();
+  },
+  power: (d) => {
+    if (d.id === me.id) me.power = d.night; else { const o = others.get(d.id); if (o) o.power = d.night; }
+    updatePowerHud();
+  },
   bHp: (d) => buildings.setHp(d.id, d.hp),
   resHit: (d) => {
     nature.setHp(d.id, d.hp);
@@ -586,7 +630,7 @@ const handlers = {
 // ===================== Personnages des autres joueurs =====================
 function addOther(p) {
   if (others.has(p.id) || p.id === me.id) return;
-  const rig = new CharacterRig(p.color, p.name);
+  const rig = new CharacterRig(p.color, p.name, p.skin);
   rig.root.position.set(p.x, p.y, p.z);
   rig.root.rotation.y = p.ry || 0;
   rig.stepCb = () => audio.play(inGame() && W.isWater(rig.root.position.x, rig.root.position.z) ? 'splashStep' : 'step', rig.root.position);
@@ -601,11 +645,11 @@ function removeOther(id) {
 }
 function clearOthers() { for (const id of [...others.keys()]) removeOther(id); }
 
-function ensureMyRig(color, name) {
-  if (me.rig && me.color === color && me.name === name) return;
+function ensureMyRig(color, name, skin) {
+  if (me.rig && me.color === color && me.name === name && me.skin === skin) return;
   if (me.rig) me.rig.dispose(scene);
-  me.color = color; me.name = name;
-  me.rig = new CharacterRig(color, name);
+  me.color = color; me.name = name; me.skin = skin;
+  me.rig = new CharacterRig(color, name, skin);
   me.rig.stepCb = () => audio.play(inGame() && W.isWater(me.pos.x, me.pos.z) ? 'splashStep' : 'step', me.pos);
   scene.add(me.rig.root, me.rig.trail.mesh);
 }
@@ -620,7 +664,7 @@ function enterHub(d) {
   game.scene = 'hub';
   game.over = false;
   me.id = d.you.id;
-  ensureMyRig(d.you.color, d.you.name);
+  ensureMyRig(d.you.color, d.you.name, d.you.skin);
   me.rig.revive(); me.rig.setHp(1); me.rig.carrying = false;
   me.dead = false; me.hp = me.maxHp;
   me.pos.set(d.you.x, 0, d.you.z); me.vy = 0; me.ry = d.you.ry;
@@ -632,6 +676,7 @@ function enterHub(d) {
   game.board = d.board; village.drawBoard(d.board);
   if (game.build.on) toggleBuild();
   game.god = { on: false, invuln: false, free: false };
+  me.power = 0; me.rig.setPower(false); $('power').hidden = true;
   monsters.clear();
   worldRoot.visible = false;
   village.root.visible = true;
@@ -655,7 +700,7 @@ function enterGame(d) {
   game.survived = d.survived || 0;
   game.clock.time = d.clock.time; game.clock.night = d.clock.night;
   me.id = d.you.id;
-  ensureMyRig(d.you.color, d.you.name);
+  ensureMyRig(d.you.color, d.you.name, d.you.skin);
   me.rig.revive();
   me.dead = false;
   me.maxHp = d.you.maxHp || W.PLAYER_HP;
@@ -673,9 +718,14 @@ function enterGame(d) {
   monsters.clear();
   d.monsters.forEach((m) => monsters.spawn(m, true));
   gem.set(d.gem);
+  game.relic = d.relic || { taken: false };
+  features.setRelic(game.relic.taken);
+  me.power = 0;
+  for (const [id, n] of d.power || []) { if (id === me.id) me.power = n; else if (others.get(id)) others.get(id).power = n; }
+  updatePowerHud();
   for (const f of flyers) worldRoot.remove(f.mesh);
   flyers.length = 0;
-  flyPending.wood = flyPending.stone = 0;
+  flyPending.wood = flyPending.stone = flyPending.twig = 0;
   serverInv = { ...d.inv };
   me.inv = { ...d.inv };
   if (game.build.on) toggleBuild();
@@ -690,6 +740,7 @@ function enterGame(d) {
   $('invite').hidden = true; game.invite = null;
   updateInv(); updateHp(); updateGemHud(); updateStatus(); updateHelp(); renderBuildBar();
   setMode(null);
+  setMode(null);
   lockMouse();
   audio.play('portal');
   showBanner(`Jour ${game.clock.night + 1}`, 'Récolte du bois et de la pierre, puis construis tes défenses', 4500);
@@ -703,8 +754,30 @@ function enterVillage() {
   const n = nameInput.value.trim() || 'Aventurier' + Math.floor(Math.random() * 1000);
   lsSet('rpg3d_name', n);
   if (!ws || ws.readyState !== 1) { $('title-error').textContent = 'Pas encore connecté au serveur…'; return; }
-  send({ type: 'hello', name: n, token: profile.token });
+  send({ type: 'hello', name: n, token: profile.token, skin: chosenSkin });
 }
+
+// ----- Choix de l'apparence (pack KayKit Adventurers) -----
+let chosenSkin = W.skinOk(lsGet('rpg3d_skin')) ? lsGet('rpg3d_skin') : W.SKINS[0].id;
+function renderSkins() {
+  const box = $('skins');
+  box.innerHTML = '';
+  for (const s of W.SKINS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'skin' + (s.id === chosenSkin ? ' on' : '');
+    b.title = s.name;
+    const img = document.createElement('img');
+    img.src = characterPortrait(s.id, 120, 150);
+    img.alt = s.name;
+    const lab = document.createElement('span');
+    lab.textContent = s.name;
+    b.append(img, lab);
+    b.onclick = () => { chosenSkin = s.id; lsSet('rpg3d_skin', s.id); audio.init(); audio.play('ui'); renderSkins(); };
+    box.append(b);
+  }
+}
+renderSkins();
 $('btn-enter').onclick = enterVillage;
 nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') enterVillage(); });
 document.addEventListener('click', () => audio.init(), { once: true });
@@ -867,9 +940,19 @@ function hubInteraction() {
 }
 
 // ===================== HUD =====================
+function powerActive(n) { return n && game.clock.night === n && game.clock.time >= W.DAY_LEN; }
+function updatePowerHud() {
+  const el = $('power');
+  if (!me.power) { el.hidden = true; return; }
+  el.hidden = false;
+  el.classList.toggle('on', powerActive(me.power));
+  el.innerHTML = powerActive(me.power) ? '💧 <b>Larme de la cascade</b> : tes coups tuent net cette nuit !' : `💧 Larme de la cascade : active pendant la nuit ${me.power}`;
+}
 function updateInv() {
   $('inv-wood').textContent = me.inv.wood;
   $('inv-stone').textContent = me.inv.stone;
+  $('inv-twig').textContent = me.inv.twig;
+  if (game.mode === 'craft') renderCraft();
   if (game.build.on) renderBuildBar();
 }
 function updateHp() {
@@ -927,13 +1010,21 @@ function updateClockHud() {
 
 // ===================== Ressources qui volent vers le joueur =====================
 const flyers = [];
-const flyGeo = { wood: new THREE.CylinderGeometry(0.07, 0.07, 0.32, 7).rotateZ(Math.PI / 2), stone: new THREE.IcosahedronGeometry(0.11, 0) };
-const flyMat = { wood: new THREE.MeshStandardMaterial({ color: '#a8743e', roughness: 0.8 }), stone: new THREE.MeshStandardMaterial({ color: '#9a958d', roughness: 0.9, flatShading: true }) };
-let serverInv = { wood: 0, stone: 0 };
-const flyPending = { wood: 0, stone: 0 };
+const twigGeo = (() => {
+  const parts = [0, 1, 2].map((i) => { const g = new THREE.CylinderGeometry(0.018, 0.022, 0.36, 5); g.rotateZ(Math.PI / 2 + (i - 1) * 0.35); g.translate(0, (i - 1) * 0.02, (i - 1) * 0.03); return g; });
+  const pos = []; for (const g of parts) { const a = g.toNonIndexed().attributes.position.array; pos.push(...a); }
+  const out = new THREE.BufferGeometry(); out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); out.computeVertexNormals(); return out;
+})();
+// bûches et cailloux du Pirate Kit (le centre du modèle au milieu)
+const centered = (n, s) => { const g = staticGeometry(n).clone(); g.computeBoundingBox(); const c = g.boundingBox.getCenter(new THREE.Vector3()); g.translate(-c.x, -c.y, -c.z); g.scale(s, s, s); return g; };
+const flyGeo = { wood: centered('Wood', 1.25), stone: centered('Rocks', 1.1), twig: twigGeo };
+const flyMat = { wood: atlasMaterial(), stone: atlasMaterial(), twig: new THREE.MeshStandardMaterial({ color: '#8a7a4a', roughness: 0.9 }) };
+const DROP = { wood: true, stone: true };   // ces ressources tombent d'abord au sol
+let serverInv = { wood: 0, stone: 0, twig: 0 };
+const flyPending = { wood: 0, stone: 0, twig: 0 };
+const RES_COL = { wood: '#e0b070', stone: '#d0d0d0', twig: '#c8d890' };
 function syncInv() {
-  me.inv.wood = serverInv.wood - flyPending.wood;
-  me.inv.stone = serverInv.stone - flyPending.stone;
+  for (const k of W.RES_KEYS) me.inv[k] = (serverInv[k] || 0) - flyPending[k];
   updateInv();
 }
 function flyResources(from, gain) {
@@ -945,13 +1036,19 @@ function flyResources(from, gain) {
       const amt = Math.floor(gain[k] / n) + (i < gain[k] % n ? 1 : 0);
       const mesh = new THREE.Mesh(flyGeo[k], flyMat[k]);
       mesh.position.copy(start);
+      mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      mesh.castShadow = true;
       mesh.visible = false;
       worldRoot.add(mesh);
+      const drop = DROP[k];
+      const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2;
       flyers.push({
-        mesh, k, t: -delay, dur: 0.55 + Math.random() * 0.15,
+        mesh, k, t: drop ? 0 : -delay, dur: 0.55 + Math.random() * 0.15,
         p0: start.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.8, Math.random() * 0.5, (Math.random() - 0.5) * 0.8)),
         lift: 1.4 + Math.random() * 1.2, spin: new THREE.Vector3(Math.random() * 8, Math.random() * 8, Math.random() * 8),
         last: i === n - 1, total: gain[k], amt,
+        // d'abord ça tombe et rebondit au sol, puis ça vole vers le joueur
+        drop: drop ? { vel: new THREE.Vector3(Math.cos(a) * sp, 3.5 + Math.random() * 2.5, Math.sin(a) * sp), wait: 1.3 + delay * 2 + Math.random() * 0.2, half: flyGeo[k] === flyGeo.wood ? 0.14 : 0.15 } : null,
       });
       delay += 0.045;
     }
@@ -961,6 +1058,24 @@ const _fp = new THREE.Vector3();
 function updateFlyers(dt) {
   for (let i = flyers.length - 1; i >= 0; i--) {
     const f = flyers[i];
+    if (f.drop) {
+      // chute au sol avec rebonds
+      const d = f.drop, m = f.mesh;
+      m.visible = true;
+      d.vel.y -= 18 * dt;
+      m.position.addScaledVector(d.vel, dt);
+      const gy = terrainH(m.position.x, m.position.z) + d.half;
+      if (m.position.y < gy) {
+        m.position.y = gy;
+        if (d.vel.y < -1.5 && !d.thud) { d.thud = true; audio.play(f.k === 'wood' ? 'logDrop' : 'pebbleDrop', m.position); }
+        d.vel.y = Math.abs(d.vel.y) > 1 ? -d.vel.y * 0.3 : 0;
+        d.vel.x *= 0.55; d.vel.z *= 0.55; f.spin.multiplyScalar(0.5);
+      }
+      m.rotation.x += f.spin.x * dt * 0.6; m.rotation.z += f.spin.z * dt * 0.6;
+      d.wait -= dt;
+      if (d.wait <= 0) { f.p0.copy(m.position); f.drop = null; f.t = 0; f.lift = 1 + Math.random() * 0.8; }
+      continue;
+    }
     f.t += dt;
     if (f.t < 0) continue;
     f.mesh.visible = true;
@@ -978,8 +1093,8 @@ function updateFlyers(dt) {
       flyPending[f.k] = Math.max(0, flyPending[f.k] - f.amt);
       syncInv();
       if (f.last) {
-        popup(`+${f.total} ${f.k === 'wood' ? 'Bois' : 'Pierre'}`, f.k === 'wood' ? '#e0b070' : '#d0d0d0');
-        const el = $(f.k === 'wood' ? 'inv-wood' : 'inv-stone').parentElement;
+        popup(`+${f.total} ${W.RES_NAMES[f.k]}`, RES_COL[f.k]);
+        const el = $('inv-' + f.k).parentElement;
         el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
       }
     }
@@ -998,40 +1113,102 @@ const PIECE_ICONS = {
   frost: '<svg width="44" height="36" viewBox="0 0 44 36"><rect x="16" y="14" width="12" height="20" fill="#a8a296"/><rect x="13" y="12" width="18" height="4" fill="#bbb5aa"/><path d="M22 0 L27 7 L22 12 L17 7 Z" fill="#9ad8ff" stroke="#3aa8ff"/><ellipse cx="22" cy="7" rx="12" ry="3" fill="none" stroke="#6ac8ff"/></svg>',
   spikes: '<svg width="44" height="30" viewBox="0 0 44 30"><rect x="4" y="24" width="36" height="4" fill="#7a5a3a"/><path d="M8 24 L11 6 L14 24 M16 24 L19 2 L22 24 M24 24 L27 6 L30 24 M32 24 L35 4 L38 24" fill="#c49a6a" stroke="#6a4a2a"/></svg>',
 };
+// pièces en bois : images rendues à partir des modèles 3D
+for (const [type, model] of [['floor', 'w_floor1'], ['base', 'w_base4'], ['wall', 'w_wall1'], ['window', 'w_window1'], ['door', 'w_door'], ['stairs', 'w_stairs'], ['roof', 'w_roof']]) {
+  PIECE_ICONS[type] = `<img class="piece-img" src="${propIcon(model, 96)}" alt="">`;
+}
+const RES_ICON = { wood: '<span class="ico wood"></span>', stone: '<span class="ico stone"></span>', twig: '<span class="ico twig"></span>' };
+const PIECE_INFO = {
+  floor: 'Plancher : au sol, sur une charpente, sur des murs ou en balcon à côté d’un autre plancher.',
+  base: 'Charpente sur pilotis : on marche dessus et on pose l’étage suivant par-dessus.',
+  window: 'Mur avec une ouverture pour surveiller. Bloque les monstres.',
+  wall: 'Bloque les monstres. Ils devront le casser.',
+  roof: 'Toit de chaume : couvre ta base.',
+  stairs: 'Monte d’un étage (2 m) dans la direction où tu regardes.',
+  door: 'Laisse passer les joueurs, pas les monstres.',
+  stonewall: 'Mur très solide (1000 PV).',
+  spikes: 'Blesse et ralentit les monstres qui marchent dessus.',
+  tower: 'Tire des flèches sur les monstres proches.',
+  frost: 'Ralentit déplacement et attaques des monstres autour.',
+};
+const CRAFT_GROUPS = [['Structure en bois', ['floor', 'base', 'wall', 'window', 'door', 'stairs', 'roof']], ['Défenses', ['stonewall', 'spikes', 'tower', 'frost']]];
+const costHtml = (c) => W.RES_KEYS.filter((k) => c[k]).map((k) => `<span class="chip ${serverInv[k] >= c[k] || game.god.free ? '' : 'miss'}">${RES_ICON[k]}${c[k]}</span>`).join('');
+
+// Petit bandeau pendant qu'on pose une pièce
 function renderBuildBar() {
-  const box = $('build-slots');
+  const type = W.PIECE_ORDER[game.build.piece];
+  const c = W.pieceCost(type, mods);
+  $('build-slots').innerHTML = `<div class="build-current">${PIECE_ICONS[type]}<div><div class="name">${W.PIECES[type].name}</div><div class="costs">${game.god.free ? 'Gratuit (admin)' : costHtml(c)}</div></div></div>`;
+  const lv = game.build.plan?.lv ?? 0;
+  $('build-slots').innerHTML += `<div class="build-level">${lv ? 'Étage ' + lv : 'Rez-de-chaussée'}</div>`;
+  $('build-hint').innerHTML = `Clic gauche : poser · <span class="kbd">${keyLabel(settings.keys.demolish)}</span> / clic droit : déconstruire · Molette : étage · Maj + molette : changer · <span class="kbd">${keyLabel(settings.keys.build)}</span> : menu`;
+}
+
+// Fenêtre de construction (touche B)
+function openCraft() {
+  if (me.dead || !inGame()) return;
+  setMode('craft');
+  renderCraft();
+  audio.play('ui');
+}
+function renderCraft() {
+  $('craft-inv').innerHTML = W.RES_KEYS.map((k) => `<span class="chip big">${RES_ICON[k]}<b>${me.inv[k]}</b> ${W.RES_NAMES[k]}</span>`).join('') + '<span class="hint">Inventaire commun au groupe</span>';
+  const box = $('craft-groups');
   box.innerHTML = '';
-  W.PIECE_ORDER.forEach((type, i) => {
-    const P = W.PIECES[type];
-    const unlocked = game.god.free || W.pieceUnlocked(type, mods);
-    const c = W.pieceCost(type, mods);
-    const can = unlocked && (game.god.free || (serverInv.wood >= c.wood && serverInv.stone >= c.stone));
-    const div = document.createElement('div');
-    div.className = 'slot' + (i === game.build.piece ? ' sel' : '') + (can ? '' : ' cant') + (unlocked ? '' : ' locked');
-    const cost = [c.wood && `${c.wood} bois`, c.stone && `${c.stone} pierre`].filter(Boolean).join(' + ');
-    div.innerHTML = `<span class="key">${i + 1}</span>${PIECE_ICONS[type]}<div class="name">${P.name}</div><div class="cost">${!unlocked ? '🔒 Forge' : game.god.free ? 'Gratuit (admin)' : cost}</div>`;
-    box.append(div);
-  });
-  $('build-hint').innerHTML = `Clic gauche : poser · <span class="kbd">${keyLabel(settings.keys.demolish)}</span> ou clic droit : déconstruire (rend la moitié) · 1-9 / molette : choisir · <span class="kbd">${keyLabel(settings.keys.build)}</span> : quitter`;
+  for (const [title, types] of CRAFT_GROUPS) {
+    const h = document.createElement('div'); h.className = 'craft-title'; h.textContent = title; box.append(h);
+    const grid = document.createElement('div'); grid.className = 'craft-grid';
+    for (const type of types) {
+      const P = W.PIECES[type], i = W.PIECE_ORDER.indexOf(type);
+      const unlocked = game.god.free || W.pieceUnlocked(type, mods);
+      const c = W.pieceCost(type, mods);
+      const can = unlocked && (game.god.free || W.canAfford(serverInv, c));
+      const card = document.createElement('button');
+      card.className = 'craft-card' + (unlocked ? '' : ' locked') + (can ? '' : ' cant') + (game.build.on && game.build.piece === i ? ' sel' : '');
+      const lockTxt = unlocked ? '' : `<div class="lock">🔒 Forge : ${W.SKILL_BY_ID[P.skill]?.name ?? ''}</div>`;
+      card.innerHTML = `<span class="key">${i + 1}</span>${PIECE_ICONS[type]}<div class="name">${P.name}</div><div class="desc">${PIECE_INFO[type]}</div><div class="costs">${game.god.free ? 'Gratuit' : costHtml(c)}</div>${lockTxt}`;
+      card.onclick = () => { if (unlocked) choosePiece(i); else audio.play('ui'); };
+      grid.append(card);
+    }
+    box.append(grid);
+  }
+  $('craft-stop').hidden = !game.build.on;
 }
-function toggleBuild() {
-  if (me.dead || !inGame()) { if (game.build.on) { game.build.on = false; $('buildbar').hidden = true; $('ui').classList.remove('building'); buildings.showGhost(null); } return; }
-  game.build.on = !game.build.on;
-  $('buildbar').hidden = !game.build.on;
-  $('help').hidden = game.build.on;
-  $('ui').classList.toggle('building', game.build.on);
-  if (game.build.on) { renderBuildBar(); audio.play('ui'); }
-  else buildings.showGhost(null);
+function choosePiece(i) {
+  game.build.piece = i;
+  game.build.on = true;
+  $('buildbar').hidden = false;
+  $('help').hidden = true;
+  $('ui').classList.add('building');
+  renderBuildBar();
+  audio.play('ui');
+  setMode(null);
+  lockMouse();
 }
-function selectPiece(i) { game.build.piece = i; renderBuildBar(); audio.play('ui'); }
+function stopBuild() {
+  game.build.on = false;
+  $('buildbar').hidden = true;
+  $('help').hidden = false;
+  $('ui').classList.remove('building');
+  buildings.showGhost(null);
+}
+$('craft-stop').onclick = () => { stopBuild(); closePanel(); };
+function toggleBuild() { if (game.build.on) stopBuild(); }
+function selectPiece(i) {
+  const type = W.PIECE_ORDER[i];
+  if (!type) return;
+  if (!game.god.free && !W.pieceUnlocked(type, mods)) { toast('À débloquer à la forge du village'); return; }
+  game.build.piece = i; renderBuildBar(); audio.play('ui');
+}
 const _ray = new THREE.Vector3(), _rayPos = new THREE.Vector3();
 function aimPoint() {
   camera.getWorldDirection(_ray);
   _rayPos.copy(camera.position);
+  _rayPos.hit = false;
   for (let d = 0; d < 30; d += 0.2) {
     _rayPos.addScaledVector(_ray, 0.2);
     const g = buildings.groundAt(_rayPos.x, _rayPos.z, _rayPos.y, heightAt(_rayPos.x, _rayPos.z));
-    if (_rayPos.y <= g) break;
+    if (_rayPos.y <= g) { _rayPos.hit = true; break; }
   }
   const dx = _rayPos.x - me.pos.x, dz = _rayPos.z - me.pos.z, d = Math.hypot(dx, dz);
   if (d > W.BUILD_RANGE) { _rayPos.x = me.pos.x + dx / d * W.BUILD_RANGE; _rayPos.z = me.pos.z + dz / d * W.BUILD_RANGE; }
@@ -1040,7 +1217,8 @@ function aimPoint() {
 function updateBuild() {
   if (!game.build.on || game.mode) { buildings.showGhost(null); game.build.plan = null; return; }
   const type = W.PIECE_ORDER[game.build.piece];
-  const plan = buildings.plan(type, aimPoint(), me.pos, nature.list, serverInv, game.god.free, mods, camYaw);
+  const plan = buildings.plan(type, aimPoint(), me.pos, nature.list, serverInv, game.god.free, mods, camYaw, game.build.lift || 0);
+  if (plan.lv !== game.build.plan?.lv) { game.build.plan = plan; renderBuildBar(); }
   game.build.plan = plan;
   buildings.showGhost(plan);
   $('target').style.display = plan.ok ? 'none' : 'block';
@@ -1050,7 +1228,7 @@ function placePiece() {
   const p = game.build.plan;
   if (!p) return;
   if (!p.ok) { audio.play('ui'); if (p.reason) toast(p.reason); return; }
-  send({ type: 'build', piece: p.type, x: p.x, z: p.z, y: p.y, rot: p.rot });
+  send({ type: 'build', piece: p.type, x: p.x, z: p.z, y: p.y, rot: p.rot, lv: p.lv });
   if (me.rig.attack('hammer')) send({ type: 'act', k: 'hammer' });
 }
 function demolishPiece() {
@@ -1071,6 +1249,7 @@ function interact() {
     else if (it.kind === 'invite') send({ type: 'invite', id: it.id });
     return;
   }
+  if (features.distToRelic(me.pos.x, me.pos.z) < 2.4 && gem.state.carrier !== me.id) { send({ type: 'relicPick' }); return; }
   if (gem.state.carrier === me.id) {
     const fx = Math.sin(me.ry), fz = Math.cos(me.ry);
     const x = me.pos.x + fx * 1.4, z = me.pos.z + fz * 1.4;
@@ -1172,7 +1351,10 @@ function updateEnvironment(dt, time, focus) {
   tmpCol.copy(sun.color).multiplyScalar(sun.intensity * 0.42 * Math.max(0, lightDir.y) + sun.intensity * 0.08);
   tmpCol2.copy(hemi.color).multiplyScalar(hemi.intensity * (0.38 + nightAmount * 0.6));
   grass.update(me.pos, focus, lightDir, tmpCol, tmpCol2, scene.fog);
-  if (inGame()) river.update(time, lightDir, tmpCol, info.horizon, scene.fog);
+  if (inGame()) {
+    river.update(time, lightDir, tmpCol, info.horizon, scene.fog);
+    features.update(dt, tmpCol2.clone().add(tmpCol).multiplyScalar(1.3), scene.fog);
+  }
 
   // Musique : jour paisible → tension au crépuscule → horreur la nuit
   const left = W.DAY_LEN - t;
@@ -1186,6 +1368,7 @@ function updateEnvironment(dt, time, focus) {
     day: phaseSm.day, dusk: phaseSm.dusk, night: phaseSm.night,
     duskK: duskOn ? 1 - left / W.DUSK_WARN : 0, wind: clamp(strength, 0, 1),
     riverDist: inGame() ? W.riverDist(focus.x, focus.z) : 99, danger: clamp(1 - near / 22, 0, 1),
+    fall: inGame() ? features.distToFall(focus.x, focus.z) : 999,
   });
 }
 
@@ -1208,7 +1391,7 @@ function updatePlayer(dt) {
   let speed = (running ? RUN_SPEED : WALK_SPEED) * mods.speed;
   if (rig.attacking) speed *= 0.3;
   if (carrying && !mods.carry) speed *= 0.82;
-  const inWater = inGame() && W.isWater(me.pos.x, me.pos.z) && me.pos.y < WATER_LEVEL;
+  const inWater = inGame() && W.isWater(me.pos.x, me.pos.z) && me.pos.y < W.waterLevelAt(me.pos.x);
   if (inWater) speed *= 0.6;
 
   const bx = me.pos.x, bz = me.pos.z;
@@ -1224,6 +1407,7 @@ function updatePlayer(dt) {
   if (inHub()) village.collide(me.pos, PLAYER_RADIUS);
   else {
     nature.collide(me.pos, PLAYER_RADIUS);
+    features.collide(me.pos, PLAYER_RADIUS);
     buildings.collide(me.pos, PLAYER_RADIUS);
     me.pos.x = clamp(me.pos.x, -WORLD_LIMIT, WORLD_LIMIT);
     me.pos.z = clamp(me.pos.z, -WORLD_LIMIT, WORLD_LIMIT);
@@ -1292,7 +1476,8 @@ function updatePlayer(dt) {
     }
   } else ch.classList.remove('active');
 
-  if (!me.dead && carrying) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Poser le Joyau`; }
+  if (!me.dead && !carrying && features.distToRelic(me.pos.x, me.pos.z) < 2.4) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Prendre la Larme de la cascade`; }
+  else if (!me.dead && carrying) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Poser le Joyau`; }
   else if (!me.dead && !gem.state.carrier && Math.hypot(gem.pos.x - me.pos.x, gem.pos.z - me.pos.z) < 2.6) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Prendre le Joyau`; }
   else pr.style.display = 'none';
 
@@ -1307,10 +1492,15 @@ function updateCamera(dt) {
   const rightX = -fwdZ, rightZ = fwdX;
   const want = tmpV.set(me.pos.x + rightX * 0.5, me.pos.y + 1.55, me.pos.z + rightZ * 0.5);
   camTarget.lerp(want, 1 - Math.exp(-dt * 14));
-  const horiz = camDist * Math.cos(camPitch);
-  camera.position.set(camTarget.x + Math.sin(camYaw) * horiz, camTarget.y + camDist * Math.sin(camPitch), camTarget.z + Math.cos(camYaw) * horiz);
+  // dans une grotte, la caméra se rapproche et reste sous le plafond
+  const cave = inGame() ? W.caveAt(me.pos.x, me.pos.z) : null;
+  camCaveK += ((cave ? 1 : 0) - camCaveK) * (1 - Math.exp(-dt * 4));
+  const dist = camDist + (Math.min(camDist, 3.6) - camDist) * camCaveK;
+  const horiz = dist * Math.cos(camPitch);
+  camera.position.set(camTarget.x + Math.sin(camYaw) * horiz, camTarget.y + dist * Math.sin(camPitch), camTarget.z + Math.cos(camYaw) * horiz);
+  if (cave) camera.position.y = Math.min(camera.position.y, cave.floor + Math.min(cave.h - 1.2, 4.2));
   const cg = terrainH(camera.position.x, camera.position.z);
-  const minY = (inGame() && W.isWater(camera.position.x, camera.position.z) ? Math.max(cg, WATER_LEVEL) : cg) + 0.35;
+  const minY = (inGame() && W.isWater(camera.position.x, camera.position.z) ? Math.max(cg, W.waterLevelAt(camera.position.x)) : cg) + 0.35;
   if (camera.position.y < minY) camera.position.y = minY;
   camera.lookAt(camTarget);
   if (camShake > 0) {
@@ -1378,7 +1568,11 @@ function tick(dt) {
     nature.update(dt, time, wind.uWind.value, focus, nightAmount);
     updateFlyers(dt);
     hudT -= dt;
-    if (hudT <= 0) { hudT = 0.2; updateClockHud(); }
+    if (hudT <= 0) {
+      hudT = 0.2; updateClockHud(); updatePowerHud();
+      me.rig?.setPower(!!powerActive(me.power));
+      for (const o of others.values()) o.rig.setPower(!!powerActive(o.power));
+    }
     mapT -= dt;
     if (mapT <= 0) {
       mapT = 0.1;
@@ -1412,8 +1606,9 @@ connect();
 updateHelp();
 
 // ===================== Outils de test (console du navigateur) =====================
+window.__W = W;
 window.__game = {
-  me, nature, others, camera, monsters, buildings, gem, game, keys, tryAttack, send, audio, village, profile,
+  me, nature, others, camera, monsters, buildings, gem, game, keys, tryAttack, send, audio, village, profile, renderer, flyers,
   setView: (yaw, pitch, dist) => { camYaw = yaw; camPitch = pitch; camDist = dist; },
   pause: (v = true) => { paused = v; },
   advance: (sec, step = 1 / 30) => {

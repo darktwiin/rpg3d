@@ -2,10 +2,11 @@
 // Arbres et rochers peuvent être coupés / cassés. Leur état est synchronisé par le serveur.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { heightAt, noise3, seededRandom, WORLD_LIMIT, TREE_HP, ROCK_HP, riverDist, GEM_HOME } from './world.js';
+import { heightAt, noise3, seededRandom, WORLD_LIMIT, TREE_HP, ROCK_HP, riverDist, GEM_HOME, isWater, caveAt, CAVES, caveK, CLIFF } from './world.js';
+import { staticGeometry, atlasTexture, textureOf, modelMaterial, KK } from './models.js';
 
 // ---------- Matériaux qui bougent avec le vent ----------
-function windMaterial(params, wind, leaf) {
+function windMaterial(params, wind, leaf, sway = 0.006) {
   const m = new THREE.MeshStandardMaterial(params);
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = wind.uTime;
@@ -15,14 +16,14 @@ function windMaterial(params, wind, leaf) {
       `#include <begin_vertex>
       vec3 wO = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
       float hh = max(position.y, 0.0);
-      float kk = hh * hh * 0.006 * uWind.z;
+      float kk = hh * hh * ${sway.toFixed(4)} * uWind.z;
       float sw = sin(uTime * 1.1 + wO.x * 0.21 + wO.z * 0.17) * 0.7 + sin(uTime * 2.3 + wO.z * 0.5) * 0.3;
       float gust = smoothstep(-0.2, 1.0, sin(uTime * 0.7 - dot(wO.xz, uWind.xy) * 0.09));
       transformed.xz += uWind.xy * kk * (0.5 + sw * 0.45 + gust * 0.9);
       ${leaf ? 'transformed += normal * sin(uTime * 6.0 + position.x * 3.1 + position.y * 2.3 + position.z * 2.7) * 0.04 * uWind.z;' : ''}`
     );
   };
-  m.customProgramCacheKey = () => 'wind' + (leaf ? 'L' : 'T');
+  m.customProgramCacheKey = () => 'wind' + (leaf ? 'L' : 'T') + sway;
   return m;
 }
 
@@ -118,74 +119,33 @@ function blobCanopy(rand, count, cy, spreadH, spreadV, rMin, rMax, palette) {
   return geo;
 }
 
-function buildOak(rand, autumn) {
-  const H = 2.6 + rand() * 1.0;
-  const trunk = new THREE.CylinderGeometry(0.2, 0.34, H, 10, 8);
-  trunk.translate(0, H / 2, 0);
-  const p = trunk.attributes.position, ph = rand() * 6;
-  for (let i = 0; i < p.count; i++) {
-    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    if (y < 0.5) { const f = 1 + (0.5 - y) * 0.9; x *= f; z *= f; } // racines
-    const t = y / H;
-    x += Math.sin(t * 2.5 + ph) * 0.15 * t; z += Math.cos(t * 2 + ph) * 0.1 * t;
-    p.setXYZ(i, x, y, z);
-  }
-  const parts = [trunk];
-  const nb = 3 + Math.floor(rand() * 2);
-  for (let i = 0; i < nb; i++) {
-    const len = 1.1 + rand() * 0.7;
-    const b = new THREE.CylinderGeometry(0.05, 0.11, len, 6);
-    b.translate(0, len / 2, 0);
-    b.rotateZ(0.6 + rand() * 0.4);
-    b.rotateY((i / nb) * Math.PI * 2 + rand());
-    b.translate(0, H * 0.72 + rand() * 0.3, 0);
-    parts.push(b);
-  }
-  const trunkGeo = mergeGeometries(parts);
-  trunkGeo.computeVertexNormals();
-  const cy = H + 0.9;
-  const leaves = blobCanopy(rand, 7, cy, 1.25, 0.45, 0.85, 1.4, autumn ? PAL.autumn : PAL.oak);
-  return { trunk: trunkGeo, leaves, canopyY: cy, canopyR: 1.7, height: cy + 1.4 };
-}
-
-function buildPine(rand) {
-  const H = 4.5 + rand() * 1.5;
-  const trunk = new THREE.CylinderGeometry(0.1, 0.25, H, 8, 4);
-  trunk.translate(0, H / 2, 0);
-  trunk.computeVertexNormals();
-  const parts = [];
-  const layers = 4 + (rand() < 0.5 ? 1 : 0);
-  for (let i = 0; i < layers; i++) {
-    const t = i / layers;
-    const r = 1.9 * (1 - t * 0.72), h = 1.8 - t * 0.4;
-    const c = new THREE.ConeGeometry(r, h, 9, 2).toNonIndexed();
-    c.deleteAttribute('uv');
-    c.rotateY(rand() * Math.PI);
-    c.translate(0, 1.5 + i * (H - 1.3) / layers + h / 2, 0);
-    parts.push(c);
-  }
-  const leaves = mergeGeometries(parts);
-  displace(leaves, 0.9, 0.12, rand() * 50, new THREE.Vector3(0, H * 0.5, 0));
-  colorFaces(leaves, PAL.pine, rand, 0.5);
-  return { trunk, leaves, canopyY: H * 0.55, canopyR: 1.5, height: H + 1 };
-}
-
-function buildRock(rand) {
-  const g = new THREE.IcosahedronGeometry(1, 2);
-  g.deleteAttribute('uv');
-  displace(g, 1.4, 0.32, rand() * 100);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    let y = p.getY(i) * 0.65;
-    if (y < -0.25) y = -0.25;
-    p.setY(i, y);
-  }
-  colorFaces(g, PAL.rock, rand, 0.7, PAL.moss);
-  return g;
-}
-
 function buildBush(rand) {
   return blobCanopy(rand, 3 + Math.floor(rand() * 2), 0.45, 0.55, 0.15, 0.4, 0.7, PAL.bush);
+}
+
+// ---------- Modèles du Pirate Kit ----------
+// Modèles du pack KayKit Forest Nature (plusieurs formes pour que rien ne se ressemble)
+const TREES = ['Tree_1_A', 'Tree_1_B', 'Tree_1_C', 'Tree_2_A', 'Tree_2_B', 'Tree_2_C', 'Tree_2_D', 'Tree_2_E',
+  'Tree_3_A', 'Tree_3_B', 'Tree_3_C', 'Tree_4_A', 'Tree_4_B', 'Tree_4_C', 'Tree_1_B', 'Tree_3_B', 'Tree_4_B', 'Tree_2_C',
+  'Tree_Bare_1_A', 'Tree_Bare_1_B', 'Tree_Bare_1_C', 'Tree_Bare_2_A', 'Tree_Bare_2_B', 'Tree_Bare_2_C'].map((n) => 'f_' + n);
+const ROCKS = ['Rock_1_D', 'Rock_1_E', 'Rock_1_F', 'Rock_1_G', 'Rock_1_H', 'Rock_1_I', 'Rock_3_E', 'Rock_3_F', 'Rock_3_G',
+  'Rock_3_H', 'Rock_3_I', 'Rock_3_J', 'Rock_3_K', 'Rock_3_L', 'Rock_2_C', 'Rock_2_D'].map((n) => 'f_' + n);
+const BUSHES = ['Bush_1_B', 'Bush_1_C', 'Bush_1_D', 'Bush_2_A', 'Bush_2_B', 'Bush_2_C', 'Bush_3_A', 'Bush_3_B', 'Bush_4_A', 'Bush_4_B', 'Bush_4_C'].map((n) => 'f_' + n);
+const PEBBLES = ['Rock_1_A', 'Rock_1_B', 'Rock_1_C', 'Rock_2_A', 'Rock_2_B', 'Rock_3_A', 'Rock_3_B', 'Rock_3_C', 'Rock_3_D'].map((n) => 'f_' + n);
+const BIG_ROCKS = ['Rock_1_J', 'Rock_1_K', 'Rock_1_N', 'Rock_1_O', 'Rock_2_E', 'Rock_2_G', 'Rock_3_M', 'Rock_3_Q'].map((n) => 'f_' + n);
+const TREE_SCALE = KK;    // les arbres du pack font 3 à 11 unités
+const hashId = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
+// Géométrie centrée en x/z, posée au sol et ramenée à une demi-largeur « size »
+function unitGeometry(name, size) {
+  const g = staticGeometry(name).clone();
+  g.computeBoundingBox();
+  const b = g.boundingBox;
+  const half = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) / 2;
+  g.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2);
+  const k = size / half;
+  g.scale(k, k, k);
+  g.computeBoundingBox(); g.computeBoundingSphere();
+  return g;
 }
 
 // ---------- Particules ----------
@@ -205,9 +165,10 @@ export class Particles {
       leafAutumn: new THREE.MeshStandardMaterial({ color: '#d98a24', side: THREE.DoubleSide }),
       leafPine: new THREE.MeshStandardMaterial({ color: '#2b5a2e', side: THREE.DoubleSide }),
     };
-    this.fragMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
-    const r = seededRandom(7);
-    this.fragGeos = [0, 1, 2, 3].map(() => { const g = new THREE.IcosahedronGeometry(1, 0); displace(g, 1.5, 0.35, r() * 50); colorFaces(g, PAL.rock, r, 0.7); return g; });
+    // éclats de rocher : les petits cailloux du Pirate Kit (taille ~1)
+    this.fragMat = modelMaterial('f_Rock_1_A');
+    this.fragGeos = PEBBLES.map((n) => unitGeometry(n, 1));
+    this.mats.palm = new THREE.MeshStandardMaterial({ color: '#5fae3c', side: THREE.DoubleSide });
   }
   spawn(o) {
     const mesh = new THREE.Mesh(o.geo, o.mat);
@@ -275,11 +236,11 @@ export class Nature {
     this.ambientT = 0;
 
     const bark = makeBarkTexture();
+    const forest = textureOf('f_Tree_1_A');
     const mk = (emissive) => ({
-      bark: windMaterial({ map: bark, roughness: 0.95, emissive }, wind, false),
-      pineBark: windMaterial({ map: bark, color: '#8a7466', roughness: 0.95, emissive }, wind, false),
-      leaf: windMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, emissive }, wind, true),
-      rock: new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, emissive }),
+      palm: windMaterial({ map: forest, roughness: 0.8, metalness: 0, emissive }, wind, false, 0.005),
+      leaf: windMaterial({ map: forest, roughness: 0.8, metalness: 0, emissive }, wind, false, 0.03),
+      rock: new THREE.MeshStandardMaterial({ map: forest, roughness: 0.85, metalness: 0, emissive }),
     });
     this.mat = mk(0x000000);
     this.hiMat = mk(0x16120a);
@@ -290,10 +251,18 @@ export class Nature {
 
     // Modèles (identiques chez tous les joueurs grâce à la graine fixe)
     const r = seededRandom(1234);
-    this.oaks = [buildOak(r, false), buildOak(r, false), buildOak(r, false), buildOak(r, true)];
-    this.pines = [buildPine(r), buildPine(r)];
-    this.rockGeos = [buildRock(r), buildRock(r), buildRock(r), buildRock(r)];
-    this.bushGeos = [buildBush(r), buildBush(r), buildBush(r)];
+    void r;
+    // arbres (le tronc part de l'origine du modèle)
+    this.palms = TREES.map((n) => {
+      const geo = staticGeometry(n);
+      const b = geo.boundingBox;
+      const top = b.max.y;
+      return { geo, canopyY: top * 0.72, canopyR: Math.max(b.max.x - b.min.x, b.max.z - b.min.z) * 0.35, height: top, bare: n.includes('Bare') };
+    });
+    // rochers : demi-largeur 1 (la taille « s » du serveur donne le rayon)
+    this.rockGeos = ROCKS.map((n) => unitGeometry(n, 1.05));
+    // buissons : demi-largeur 0,62
+    this.bushGeos = BUSHES.map((n) => unitGeometry(n, 0.62));
     this.stumpGeo = new THREE.CylinderGeometry(0.24, 0.34, 0.45, 10);
     this.stumpGeo.translate(0, 0.2, 0);
     this.stumpTopGeo = new THREE.CircleGeometry(0.24, 16);
@@ -305,9 +274,71 @@ export class Nature {
     this.stumps = [];
   }
 
-  // Buissons décoratifs (identiques chez tout le monde)
-  // (les buissons sont maintenant des ressources envoyées par le serveur)
-  populate() {}
+  // Petits cailloux décoratifs posés partout (identiques chez tout le monde, sans collision)
+  populate() {
+    this.landmarks = [];
+    this.populateBigRocks();
+    const rand = seededRandom(4242);
+    const geos = PEBBLES.map((n) => unitGeometry(n, 1));
+    const per = PEBBLES.map(() => []);
+    const L = WORLD_LIMIT - 2;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), p = new THREE.Vector3();
+    for (let i = 0, n = 0; i < 6000 && n < 650; i++) {
+      // en petits groupes de 1 à 4 cailloux
+      const cx = (rand() * 2 - 1) * L, cz = (rand() * 2 - 1) * L;
+      if (Math.hypot(cx - GEM_HOME.x, cz - GEM_HOME.z) < 7) continue;
+      if (cx > CLIFF.x0 - 2 && cx < CLIFF.x1 + 1) continue;
+      if (CAVES.some((c) => caveK(c, cx, cz) > 0.3)) continue;
+      if (this.landmarks.some((l) => Math.hypot(l.x - cx, l.z - cz) < l.r + 1)) continue;
+      const k = 1 + Math.floor(rand() * 4);
+      for (let j = 0; j < k; j++) {
+        const x = cx + (rand() - 0.5) * 2.4, z = cz + (rand() - 0.5) * 2.4;
+        if (isWater(x, z) && rand() < 0.7) continue;
+        const v = Math.floor(rand() * PEBBLES.length);
+        const s = (j === 0 ? 0.18 + rand() * 0.25 : 0.08 + rand() * 0.15) * (rand() < 0.08 ? 2 : 1);
+        p.set(x, heightAt(x, z) - s * 0.25, z);
+        q.setFromEuler(e.set((rand() - 0.5) * 0.4, rand() * 6.28, (rand() - 0.5) * 0.4));
+        sc.set(s, s * (0.7 + rand() * 0.5), s);
+        per[v].push(m.compose(p, q, sc).clone());
+        n++;
+      }
+    }
+    const mat = modelMaterial('f_Rock_1_A');
+    this.pebbles = per.map((list, v) => {
+      const im = new THREE.InstancedMesh(geos[v], mat, list.length);
+      list.forEach((mm, i) => im.setMatrixAt(i, mm));
+      im.castShadow = true; im.receiveShadow = true;
+      im.computeBoundingSphere();
+      this.scene.add(im);
+      return im;
+    });
+  }
+
+  // Quelques grands rochers (décor fixe, on ne peut pas les casser mais on s'y cogne)
+  populateBigRocks() {
+    const rand = seededRandom(777);
+    const L = WORLD_LIMIT - 8;
+    const mat = modelMaterial('f_Rock_1_A');
+    for (let i = 0, n = 0; i < 2000 && n < 26; i++) {
+      const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
+      if (Math.hypot(x - GEM_HOME.x, z - GEM_HOME.z) < 24) continue;
+      if (riverDist(x, z) < 12 || isWater(x, z)) continue;
+      if (x > CLIFF.x0 - 8 && x < CLIFF.x1 + 6) continue;
+      if (CAVES.some((c) => Math.hypot(x - c.x, z - c.z) < c.r + 10)) continue;
+      if (this.landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < 18)) continue;
+      const name = BIG_ROCKS[n % BIG_ROCKS.length];
+      const geo = unitGeometry(name, 1);
+      const r = 1.8 + rand() * 1.6;
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, heightAt(x, z) - 0.25 * r, z);
+      m.rotation.y = rand() * Math.PI * 2;
+      m.scale.setScalar(r);
+      m.castShadow = m.receiveShadow = true;
+      this.scene.add(m);
+      this.landmarks.push({ x, z, r: r * 0.85, mesh: m });
+      n++;
+    }
+  }
 
   // Reçoit la liste complète envoyée par le serveur (début de partie)
   load(list) {
@@ -321,14 +352,33 @@ export class Nature {
   add(res, grow) {
     if (this.resources.has(res.id)) return;
     if (res.k === 't') {
-      const proto = res.v >= 4 ? this.pines[res.v - 4] : this.oaks[res.v];
-      this.addTree(res.id, res.x, res.z, proto, res.v >= 4, res.s);
+      const h = hashId(res.id);
+      this.addTree(res.id, res.x, res.z, this.palms[(res.v * 7 + h) % this.palms.length], res.s, h);
     } else if (res.k === 'b') {
-      this.addBush(res.id, res.x, res.z, res.s, this.bushGeos[res.v % 3], res.rot);
+      this.addBush(res.id, res.x, res.z, res.s, this.bushGeos[(res.v * 5 + hashId(res.id)) % this.bushGeos.length], res.rot);
     } else {
-      this.addRock(res.id, res.x, res.z, res.s, this.rockGeos[res.v], res.rot);
+      this.addRock(res.id, res.x, res.z, res.s, this.rockGeos[(res.v * 3 + hashId(res.id)) % this.rockGeos.length], res.rot);
     }
     const r = this.resources.get(res.id);
+    if (res.rich && r) {
+      // rocher riche : gemmes roses qui sortent de la roche
+      if (!this.richMat) {
+        this.richMat = new THREE.MeshStandardMaterial({ map: atlasTexture(), emissive: '#c040ff', emissiveIntensity: 0.55, roughness: 0.2, flatShading: true });
+        this.richGeo = staticGeometry('Gem_Pink').clone();
+        this.richGeo.computeBoundingBox();
+        this.richGeo.translate(0, -this.richGeo.boundingBox.min.y, 0);
+      }
+      for (let i = 0; i < 5; i++) {
+        const cr = new THREE.Mesh(this.richGeo, this.richMat);
+        const a = i * 1.3;
+        cr.scale.setScalar(0.45 + (i % 3) * 0.15);
+        cr.position.set(Math.cos(a) * 0.75, 0.25 + (i % 2) * 0.3, Math.sin(a) * 0.75);
+        cr.rotation.set(Math.cos(a) * 0.6, a, -Math.sin(a) * 0.6);
+        cr.castShadow = true;
+        r.mesh.add(cr);
+      }
+      r.rich = true;
+    }
     if (res.hp != null) this.setHp(res.id, res.hp);
     if (grow) {
       r.state = 'growing'; r.anim = 0;
@@ -342,27 +392,29 @@ export class Nature {
     else this.scene.remove(r.mesh);
   }
 
-  addTree(id, x, z, proto, isPine, scale) {
+  addTree(id, x, z, proto, s, v) {
+    const scale = s * TREE_SCALE;
     const group = new THREE.Group();
-    const y = heightAt(x, z) - 0.12;
+    const y = heightAt(x, z) - 0.08;
     group.position.set(x, y, z);
     group.scale.setScalar(scale);
-    const trunk = new THREE.Mesh(proto.trunk, isPine ? this.mat.pineBark : this.mat.bark);
-    const leaves = new THREE.Mesh(proto.leaves, this.mat.leaf);
-    trunk.castShadow = leaves.castShadow = true;
-    trunk.receiveShadow = leaves.receiveShadow = true;
-    group.add(trunk, leaves);
+    const trunk = new THREE.Mesh(proto.geo, this.mat.palm);
+    // chaque arbre est tourné différemment
+    trunk.rotation.y = ((v % 628) / 100);
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    group.add(trunk);
     this.scene.add(group);
     const stump = new THREE.Group();
     stump.add(new THREE.Mesh(this.stumpGeo, this.stumpSide), new THREE.Mesh(this.stumpTopGeo, this.stumpTop));
     stump.position.set(x, y, z);
-    stump.scale.setScalar(scale);
+    stump.scale.set(s * 0.75, s * 0.6, s * 0.75);
     stump.visible = false;
     stump.children.forEach((m) => { m.castShadow = true; });
     this.scene.add(stump);
     const t = {
-      id, kind: 'tree', x, z, y, r: 0.45 * scale, max: TREE_HP, hp: TREE_HP, alive: true, state: 'idle',
-      group, trunk, leaves, stump, isPine, autumn: proto === this.oaks[3], scale,
+      id, kind: 'tree', x, z, y, r: 0.4 * s, max: TREE_HP, hp: TREE_HP, alive: true, state: 'idle',
+      group, trunk, leaves: null, stump, scale, bare: proto.bare,
       canopyY: proto.canopyY * scale, canopyR: proto.canopyR * scale, height: proto.height * scale,
       shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0,
     };
@@ -371,33 +423,28 @@ export class Nature {
 
   addBush(id, x, z, size, geo, rot) {
     const mesh = new THREE.Mesh(geo, this.mat.leaf);
-    const y = heightAt(x, z) - 0.1;
+    const y = heightAt(x, z) - 0.05;
     mesh.position.set(x, y, z);
     mesh.rotation.y = rot;
     mesh.scale.setScalar(size);
     mesh.castShadow = mesh.receiveShadow = true;
     this.scene.add(mesh);
-    const b = { id, kind: 'bush', x, z, y, size, scale: size, r: 0.55 * size, max: 2, hp: 2, alive: true, state: 'idle', mesh, shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0 };
-    // Quelques baies rouges
-    if (!this.berryGeo) { this.berryGeo = new THREE.SphereGeometry(0.05, 6, 4); this.berryMat = new THREE.MeshStandardMaterial({ color: '#c8203a', roughness: 0.4 }); }
-    for (let i = 0; i < 6; i++) {
-      const a = i * 1.7 + rot, e = 0.3 + (i % 3) * 0.25;
-      const berry = new THREE.Mesh(this.berryGeo, this.berryMat);
-      berry.position.set(Math.cos(a) * 0.55 * Math.cos(e), 0.45 + Math.sin(e) * 0.4, Math.sin(a) * 0.55 * Math.cos(e));
-      mesh.add(berry);
-    }
+    const b = { id, kind: 'bush', x, z, y, size, scale: size, r: 0.55 * size, max: 2, hp: 2, alive: true, state: 'idle', mesh, body: mesh, shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0 };
     this.resources.set(id, b); this.list.push(b);
   }
 
   addRock(id, x, z, size, geo, rot) {
-    const mesh = new THREE.Mesh(geo, this.mat.rock);
-    const y = heightAt(x, z) + 0.12 * size;
+    // groupe (taille, position) + rocher du Pirate Kit dedans
+    const mesh = new THREE.Group();
+    const body = new THREE.Mesh(geo, this.mat.rock);
+    body.castShadow = body.receiveShadow = true;
+    mesh.add(body);
+    const y = heightAt(x, z) - 0.1 * size;
     mesh.position.set(x, y, z);
     mesh.rotation.y = rot;
     mesh.scale.setScalar(size);
-    mesh.castShadow = mesh.receiveShadow = true;
     this.scene.add(mesh);
-    const r = { id, kind: 'rock', x, z, y, size, r: size * 0.9, scale: size, max: ROCK_HP, hp: ROCK_HP, alive: true, state: 'idle', mesh, shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0 };
+    const r = { id, kind: 'rock', x, z, y, size, r: size * 0.9, scale: size, max: ROCK_HP, hp: ROCK_HP, alive: true, state: 'idle', mesh, body, shakeT: 9, shakeDir: new THREE.Vector2(), anim: 0 };
     this.resources.set(id, r); this.list.push(r);
   }
 
@@ -440,6 +487,12 @@ export class Nature {
   }
 
   collide(pos, radius) {
+    for (const l of this.landmarks) {
+      const dx = pos.x - l.x, dz = pos.z - l.z, min = l.r + radius;
+      if (Math.abs(dx) > min || Math.abs(dz) > min) continue;
+      const d = Math.hypot(dx, dz);
+      if (d < min && d > 0.0001) { pos.x = l.x + dx / d * min; pos.z = l.z + dz / d * min; }
+    }
     for (const r of this.list) {
       if (!r.alive || r.state === 'falling' || r.kind === 'bush') continue;
       const dx = pos.x - r.x, dz = pos.z - r.z;
@@ -452,10 +505,8 @@ export class Nature {
 
   applyMat(res, set) {
     if (!res) return;
-    if (res.kind === 'tree') {
-      res.trunk.material = res.isPine ? set.pineBark : set.bark;
-      res.leaves.material = set.leaf;
-    } else res.mesh.material = res.kind === 'bush' ? set.leaf : set.rock;
+    if (res.kind === 'tree') res.trunk.material = set.palm;
+    else res.body.material = res.kind === 'bush' ? set.leaf : set.rock;
   }
 
   flash(r) {
@@ -468,10 +519,7 @@ export class Nature {
     if (this.highlighted === r) return;
     const apply = (res, set) => {
       if (!res || res.flashT > 0) return;
-      if (res.kind === 'tree') {
-        res.trunk.material = res.isPine ? set.pineBark : set.bark;
-        res.leaves.material = set.leaf;
-      } else res.mesh.material = res.kind === 'bush' ? set.leaf : set.rock;
+      this.applyMat(res, set);
     };
     apply(this.highlighted, this.mat);
     apply(r, this.hiMat);
@@ -481,7 +529,7 @@ export class Nature {
   impactPoint(r, fromX, fromZ) {
     const dx = fromX - r.x, dz = fromZ - r.z, d = Math.hypot(dx, dz) || 1;
     const k = r.r * (r.kind === 'rock' ? 0.8 : 1);
-    return new THREE.Vector3(r.x + dx / d * k, r.y + (r.kind === 'tree' ? 1.0 : r.kind === 'bush' ? r.size * 0.5 : r.size * 0.45), r.z + dz / d * k);
+    return new THREE.Vector3(r.x + dx / d * k, r.y + (r.kind === 'tree' ? 1.0 : r.kind === 'bush' ? r.size * 0.5 : r.size * 0.55), r.z + dz / d * k);
   }
 
   // Coup reçu (effets visuels)
@@ -544,10 +592,11 @@ export class Nature {
   }
 
   spawnLeaf(t, burst) {
+    if (t.bare) return;
     const a = Math.random() * Math.PI * 2, d = Math.random() * t.canopyR;
     const pos = new THREE.Vector3(t.x + Math.cos(a) * d, t.y + t.canopyY + (Math.random() - 0.5) * 1.2, t.z + Math.sin(a) * d);
     this.fx.spawn({
-      geo: this.fx.leaf, mat: t.isPine ? this.fx.mats.leafPine : t.autumn ? this.fx.mats.leafAutumn : this.fx.mats.leaf, pos,
+      geo: this.fx.leaf, mat: this.fx.mats.palm, pos,
       vel: new THREE.Vector3((Math.random() - 0.5) * (burst ? 3 : 0.5), burst ? Math.random() * 2 : 0, (Math.random() - 0.5) * (burst ? 3 : 0.5)),
       size: 0.12 + Math.random() * 0.06, life: 5 + Math.random() * 3, gravity: 0.9, drag: 1.8, spin: 4, flutter: 3, windK: 2.2, bounce: 0,
     });
@@ -614,7 +663,19 @@ export class Nature {
     if (i >= 0) this.list.splice(i, 1);
   }
 
+  // Les arbres, rochers et buissons très loin (dans le brouillard) ne sont pas dessinés
+  cull(player) {
+    const D2 = 150 * 150;
+    for (const r of this.list) {
+      const far = (r.x - player.x) ** 2 + (r.z - player.z) ** 2 > D2;
+      const obj = r.kind === 'tree' ? r.group : r.mesh;
+      obj.visible = !far;
+    }
+  }
+
   update(dt, time, windVec, player, night) {
+    this.cullT = (this.cullT || 0) - dt;
+    if (this.cullT <= 0) { this.cullT = 0.3; this.cull(player); }
     // fondu blanc qui s'estompe
     let lvl = 0;
     for (let i = this.flashing.length - 1; i >= 0; i--) {
@@ -626,7 +687,7 @@ export class Nature {
         if (r.alive) this.applyMat(r, this.highlighted === r ? this.hiMat : this.mat);
       } else lvl = Math.max(lvl, r.flashT / 0.22);
     }
-    for (const k of ['bark', 'pineBark', 'leaf', 'rock']) this.flashMat[k].emissiveIntensity = 0.1 + lvl * 0.4;
+    for (const k of ['palm', 'leaf', 'rock']) this.flashMat[k].emissiveIntensity = 0.1 + lvl * 0.4;
     // Les souches s'enfoncent et disparaissent au bout d'un moment
     for (let i = this.stumps.length - 1; i >= 0; i--) {
       const st = this.stumps[i];
@@ -652,7 +713,7 @@ export class Nature {
             this.audio?.play('treeFall', top);
             for (let i = 0; i < 18; i++) {
               this.fx.spawn({
-                geo: this.fx.leaf, mat: r.isPine ? this.fx.mats.leafPine : r.autumn ? this.fx.mats.leafAutumn : this.fx.mats.leaf,
+                geo: this.fx.leaf, mat: this.fx.mats.palm,
                 pos: top.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.5, (Math.random() - 0.5) * 2)),
                 vel: new THREE.Vector3((Math.random() - 0.5) * 4, 1 + Math.random() * 3, (Math.random() - 0.5) * 4),
                 size: 0.13, life: 4 + Math.random() * 2, gravity: 1.2, drag: 1.6, flutter: 3, windK: 2,

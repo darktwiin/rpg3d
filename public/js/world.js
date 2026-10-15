@@ -4,10 +4,11 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.0.5';
+export const VERSION = '0.0.9';
 
 // ---------- Monde ----------
-export const WORLD_LIMIT = 95;
+export const WORLD_LIMIT = 140;
+export const MAP_HALF = 150;          // la carte couvre de -150 à +150 m
 export const WATER_LEVEL = -0.55;
 export const GEM_HOME = { x: 0, z: 0 };
 
@@ -29,8 +30,21 @@ export const MAX_PLAYERS = 4;
 export const MONSTERS = {
   brute: { name: 'Rôdeur', hp: 60, speed: 3.5, dmgP: 16, dmgGem: 25, dmgB: 40, reach: 1.5, cd: 1.7, hitAt: 0.5, scale: 1, radius: 0.5 },
   runner: { name: 'Griffu', hp: 30, speed: 6.4, dmgP: 8, dmgGem: 12, dmgB: 20, reach: 1.15, cd: 1.0, hitAt: 0.3, scale: 0.6, radius: 0.32 },
-  spitter: { name: 'Cracheur', hp: 45, speed: 2.6, dmgP: 22, dmgGem: 30, dmgB: 30, reach: 13, cd: 4.5, hitAt: 1.0, scale: 0.95, radius: 0.5, ranged: true },
+  spitter: { name: 'Mage squelette', hp: 45, speed: 2.6, dmgP: 22, dmgGem: 30, dmgB: 30, reach: 13, cd: 4.5, hitAt: 1.0, scale: 0.95, radius: 0.5, ranged: true },
+  // Colosse : guerrier en armure avec hache et bouclier, à partir de la nuit 8
+  tank: { name: 'Colosse', hp: 160, speed: 2.7, dmgP: 26, dmgGem: 40, dmgB: 70, reach: 1.7, cd: 2.1, hitAt: 0.6, scale: 1.15, radius: 0.62 },
 };
+export const TANK_NIGHT = 8;
+
+// Apparences jouables (pack KayKit Adventurers). Le Ranger (cape bleue) est réservé au forgeron.
+export const SKINS = [
+  { id: 'Knight', name: 'Chevalier' },
+  { id: 'Barbarian', name: 'Barbare' },
+  { id: 'Mage', name: 'Mage' },
+  { id: 'Rogue', name: 'Voleuse' },
+  { id: 'Rogue_Hooded', name: 'Voleuse encapuchonnée' },
+];
+export const skinOk = (s) => SKINS.some((k) => k.id === s);
 export const MONSTER_HP = MONSTERS.brute.hp;
 // Nombre de monstres présents en même temps pendant la nuit
 export function nightTarget(night, players) {
@@ -50,10 +64,13 @@ export const TREE_VARIANTS = 6;    // 0-2 chênes, 3 chêne d'automne, 4-5 sapin
 export const ROCK_VARIANTS = 4;
 export const RES_HP = { t: TREE_HP, r: ROCK_HP, b: BUSH_HP };
 // Ce que rapporte une ressource une fois détruite : entre 1 et 3 (+ bonus des compétences)
-export const RES_KIND = { t: 'wood', r: 'stone', b: 'wood' };
-export function rollYield(k, mods, rnd = Math.random) {
+export const RES_KIND = { t: 'wood', r: 'stone', b: 'twig' };
+export const RES_NAMES = { wood: 'Bois', stone: 'Pierre', twig: 'Brindilles' };
+export const RES_KEYS = ['wood', 'stone', 'twig'];
+export function rollYield(k, mods, rnd = Math.random, rich = false) {
   let n = Math.max(1 + Math.floor(rnd() * 3), mods.minYield);
   n += mods.allBonus + (k === 'r' ? mods.stoneBonus : mods.woodBonus) + (k === 'b' && mods.bush ? 1 : 0);
+  if (rich) n += 3;
   if (mods.lucky && rnd() < 0.25) n *= 2;
   return n;
 }
@@ -61,13 +78,16 @@ export const BUSH_HEAL = 15;
 
 // ---------- Construction ----------
 export const GRID = 2;
-export const WALL_H = 2.5;
+export const WALL_H = 2.0;          // hauteur d'un étage (murs du Wood Frame Build Set)
+export const MAX_LEVEL = 4;         // étages au-dessus du sol
 export const BUILD_TIME = 3;
 export const BUILD_RANGE = 7;
 export const PIECES = {
-  floor: { name: 'Sol', cost: { wood: 2, stone: 1 }, hp: 250 },
+  floor: { name: 'Plancher', cost: { wood: 2, stone: 1 }, hp: 250 },
+  base: { name: 'Charpente', cost: { wood: 4, stone: 0 }, hp: 350 },
   wall: { name: 'Mur', cost: { wood: 2, stone: 0 }, hp: 400, blocks: true },
-  roof: { name: 'Toit', cost: { wood: 2, stone: 1 }, hp: 250 },
+  window: { name: 'Fenêtre', cost: { wood: 2, stone: 0 }, hp: 340, blocks: true },
+  roof: { name: 'Toit', cost: { wood: 1, twig: 3 }, hp: 250 },
   stairs: { name: 'Escalier', cost: { wood: 3, stone: 0 }, hp: 250 },
   door: { name: 'Porte', cost: { wood: 3, stone: 0 }, hp: 350, blocks: true },
   stonewall: { name: 'Mur de pierre', cost: { wood: 0, stone: 4 }, hp: 1000, blocks: true, skill: 'c_stone' },
@@ -75,10 +95,10 @@ export const PIECES = {
   tower: { name: 'Tour d’archer', cost: { wood: 5, stone: 3 }, hp: 500, tower: true, skill: 'c_tower' },
   frost: { name: 'Tour de givre', cost: { wood: 3, stone: 5 }, hp: 500, tower: true, skill: 'c_frost' },
 };
-export const PIECE_ORDER = ['floor', 'wall', 'roof', 'stairs', 'door', 'stonewall', 'spikes', 'tower', 'frost'];
+export const PIECE_ORDER = ['floor', 'base', 'wall', 'window', 'door', 'stairs', 'roof', 'stonewall', 'spikes', 'tower', 'frost'];
 export const TOWER = { range: 15, rate: 0.33, dmg: 1, heavyDmg: 3 };
 export const FROST = { range: 8, slow: 0.45, pulse: 1 };
-export const isWallType = (t) => t === 'wall' || t === 'door' || t === 'stonewall';
+export const isWallType = (t) => t === 'wall' || t === 'door' || t === 'stonewall' || t === 'window';
 export const SPIKE_DPS = 14;
 
 // ---------- Compétences (achetées à la forge avec les éclats) ----------
@@ -104,9 +124,9 @@ export const SKILLS = [
   { id: 'c_hp4', tree: 'build', row: 4, col: 1, name: 'Bastion', desc: 'Constructions encore +100% de vie', cost: 22, req: ['c_hp3'] },
   // Récolteur
   { id: 'g_speed', tree: 'gather', row: 0, col: 1, name: 'Bras solides', desc: 'Récolte 25% plus rapide', cost: 2, req: [] },
-  { id: 'g_wood', tree: 'gather', row: 1, col: 0, name: 'Bûcheron', desc: '+1 bois par arbre et buisson', cost: 3, req: ['g_speed'] },
+  { id: 'g_wood', tree: 'gather', row: 1, col: 0, name: 'Bûcheron', desc: '+1 bois par arbre, +1 brindille par buisson', cost: 3, req: ['g_speed'] },
   { id: 'g_stone', tree: 'gather', row: 1, col: 2, name: 'Carrier', desc: '+1 pierre par rocher', cost: 3, req: ['g_speed'] },
-  { id: 'g_bush', tree: 'gather', row: 2, col: 0, name: 'Cueilleur', desc: 'Buissons : soin 2× et +1 branche', cost: 4, req: ['g_wood'] },
+  { id: 'g_bush', tree: 'gather', row: 2, col: 0, name: 'Cueilleur', desc: 'Buissons : soin 2× et +1 brindille', cost: 4, req: ['g_wood'] },
   { id: 'g_power', tree: 'gather', row: 2, col: 1, name: 'Coup net', desc: 'Moins de coups pour abattre arbres et rochers', cost: 6, req: ['g_speed'] },
   { id: 'g_carry', tree: 'gather', row: 2, col: 2, name: 'Porteur', desc: 'Porter le Joyau ne ralentit plus', cost: 5, req: ['g_stone'] },
   { id: 'g_bag', tree: 'gather', row: 3, col: 1, name: 'Grand sac', desc: '+1 de chaque ressource récoltée', cost: 12, req: ['g_power'] },
@@ -157,8 +177,11 @@ export function skillMods(list = []) {
 }
 export function pieceCost(type, mods) {
   const c = PIECES[type].cost, k = mods ? mods.costMul : 1;
-  return { wood: Math.ceil(c.wood * k), stone: Math.ceil(c.stone * k) };
+  const out = {};
+  for (const r of RES_KEYS) out[r] = Math.ceil((c[r] || 0) * k);
+  return out;
 }
+export const canAfford = (inv, cost) => RES_KEYS.every((r) => (inv[r] || 0) >= cost[r]);
 export const pieceUnlocked = (type, mods) => !PIECES[type].skill || (mods && mods.has.has(PIECES[type].skill));
 
 // ---------- Outils ----------
@@ -195,15 +218,67 @@ export function riverDist(x, z) {
   return Math.abs(z - riverZ(x));
 }
 
-// ---------- Relief ----------
-export function heightAt(x, z) {
+// ---------- Plateau à l'est : la rivière tombe en cascade ----------
+export const CLIFF = { x0: 102.5, x1: 105.5, h: 9 };
+export const plateau = (x) => smoothstep(CLIFF.x0, CLIFF.x1, x) * CLIFF.h;
+export const WATERFALL = { x: 104, z: riverZ(104) };
+export const waterLevelAt = (x) => WATER_LEVEL + plateau(x);
+
+// Relief de base (sans les grottes)
+function baseHeight(x, z) {
   let h = Math.sin(x * 0.045) * Math.cos(z * 0.038) * 1.6
     + Math.sin(x * 0.013 + 1.3) * Math.sin(z * 0.017 + 0.7) * 3.2
     + Math.sin(x * 0.11 + z * 0.07) * 0.25
     + Math.cos(z * 0.13 - x * 0.05) * 0.2;
   h *= smoothstep(4, 22, Math.hypot(x, z));
   const bank = 1 - smoothstep(3.2, 9.0, riverDist(x, z));
-  return h + (-1.7 - h) * bank;
+  h += (-1.7 - h) * bank;
+  // bassin au pied de la cascade
+  const pool = 1 - smoothstep(4, 8, Math.hypot(x - (CLIFF.x0 - 2), z - WATERFALL.z));
+  h -= pool * 0.9;
+  return h + plateau(x);
+}
+
+// ---------- Grottes (le sol y est aplani, un dôme de roche les recouvre) ----------
+// x, z : centre · r : rayon intérieur · ex, ez : bout du tunnel d'entrée · h : hauteur du dôme
+function makeCave(id, x, z, r, ex, ez, h) {
+  return { id, x, z, r, ex, ez, h, floor: baseHeight(ex, ez) + 0.05 };
+}
+const GZ = riverZ(110) - 10;
+export const CAVES = [
+  // Grotte cachée derrière la cascade (on y entre depuis le bassin, à travers le rideau d'eau)
+  makeCave('grotto', 110.5, GZ, 5, 100.2, GZ, 0),
+  // Caverne au sud-ouest, creusée dans une colline rocheuse
+  makeCave('cavern', -104, -102, 7.5, -97, -95, 0),
+];
+CAVES[0].h = CLIFF.h - CAVES[0].floor + 1.2;
+CAVES[1].h = 7.5;
+export const RELIC_POS = { x: CAVES[0].x + 1.5, z: CAVES[0].z };
+
+function segDist(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax, dz = bz - az;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(px - ax - dx * t, pz - az - dz * t);
+}
+export function caveK(c, x, z) {
+  const dC = Math.hypot(x - c.x, z - c.z);
+  const dT = segDist(x, z, c.x, c.z, c.ex, c.ez);
+  return Math.max(1 - smoothstep(c.r, c.r + 2.5, dC), 1 - smoothstep(2.3, 4.2, dT));
+}
+export function caveAt(x, z) {
+  for (const c of CAVES) if (Math.hypot(x - c.x, z - c.z) < c.r + 1) return c;
+  return null;
+}
+
+// ---------- Relief ----------
+export function heightAt(x, z) {
+  let h = baseHeight(x, z);
+  for (const c of CAVES) {
+    if (Math.abs(x - c.x) > 25 || Math.abs(z - c.z) > 25) continue;
+    const k = caveK(c, x, z);
+    if (k > 0) h += (c.floor - h) * k;
+  }
+  return h;
 }
 
 export function dirtAt(x, z) {
@@ -211,19 +286,22 @@ export function dirtAt(x, z) {
   return smoothstep(0.62, 0.85, d);
 }
 
-export const isWater = (x, z) => riverDist(x, z) < 7.5 && heightAt(x, z) < WATER_LEVEL - 0.15;
+export const isWater = (x, z) => (riverDist(x, z) < 7.5 || Math.hypot(x - (CLIFF.x0 - 2), z - WATERFALL.z) < 7) && heightAt(x, z) < waterLevelAt(x) - 0.15;
 
 // ---------- Placement des arbres et rochers ----------
 export function isFreeSpot(x, z, others, minDist, extra = []) {
   if (Math.abs(x) > WORLD_LIMIT - 3 || Math.abs(z) > WORLD_LIMIT - 3) return false;
   if (Math.hypot(x - GEM_HOME.x, z - GEM_HOME.z) < 11) return false;
   if (riverDist(x, z) < 9.5) return false;
+  if (x > CLIFF.x0 - 3 && x < CLIFF.x1 + 2) return false;            // falaise
+  for (const c of CAVES) if (caveK(c, x, z) > 0.01 || Math.hypot(x - c.x, z - c.z) < c.r + 5) return false;
   for (const o of others) if (Math.hypot(o.x - x, o.z - z) < minDist + (o.k === 'r' ? o.s : 0.8)) return false;
   for (const e of extra) if (Math.hypot(e.x - x, e.z - z) < e.r) return false;
   return true;
 }
 
-export function makeResource(rand, id, kind, x, z) {
+export function makeResource(rand, id, kind, x, z, rich) {
+  if (rich) return { id, k: 'r', x: +x.toFixed(2), z: +z.toFixed(2), v: Math.floor(rand() * ROCK_VARIANTS), s: +(0.9 + rand() * 0.4).toFixed(2), rot: +(rand() * 6.28).toFixed(2), rich: 1 };
   if (kind === 'b') return { id, k: 'b', x: +x.toFixed(2), z: +z.toFixed(2), v: Math.floor(rand() * 3), s: +(0.7 + rand() * 0.6).toFixed(2), rot: +(rand() * 6.28).toFixed(2) };
   return kind === 't'
     ? { id, k: 't', x: +x.toFixed(2), z: +z.toFixed(2), v: rand() < 0.35 ? 4 + Math.floor(rand() * 2) : Math.floor(rand() * 4), s: +(0.85 + rand() * 0.35).toFixed(2), rot: 0 }
@@ -235,20 +313,26 @@ export function generateResources(seed) {
   const list = [];
   let n = 0;
   const L = WORLD_LIMIT - 3;
-  for (let i = 0; i < 1500 && list.filter((r) => r.k === 't').length < 150; i++) {
+  for (let i = 0; i < 4000 && list.filter((r) => r.k === 't').length < 320; i++) {
     const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
     if (!isFreeSpot(x, z, list, 2.2)) continue;
     list.push(makeResource(rand, 'n' + n++, 't', x, z));
   }
-  for (let i = 0; i < 900 && list.filter((r) => r.k === 'r').length < 70; i++) {
+  for (let i = 0; i < 900 && list.filter((r) => r.k === 'r').length < 150; i++) {
     const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
     if (!isFreeSpot(x, z, list, 2.0)) continue;
     list.push(makeResource(rand, 'n' + n++, 'r', x, z));
   }
-  for (let i = 0; i < 900 && list.filter((r) => r.k === 'b').length < 110; i++) {
+  for (let i = 0; i < 900 && list.filter((r) => r.k === 'b').length < 230; i++) {
     const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
     if (!isFreeSpot(x, z, list, 1.4)) continue;
     list.push(makeResource(rand, 'n' + n++, 'b', x, z));
+  }
+  // Rochers riches (veinés de cristal) au fond de la caverne
+  const cv = CAVES[1];
+  for (let i = 0; i < 5; i++) {
+    const a = i / 5 * Math.PI * 2 + 2.6, d = 3.8 + (i % 2) * 1.2;
+    list.push(makeResource(rand, 'n' + n++, 'r', cv.x + Math.cos(a) * d, cv.z + Math.sin(a) * d, true));
   }
   // Quelques ressources près du départ pour bien commencer
   const near = [[9, 7, 't'], [-11, 4, 't'], [6, -12, 't'], [-7, -10, 'r'], [13, -3, 'r'], [-12, -3, 'b'], [4, 12, 'b']];
@@ -272,6 +356,7 @@ export function wallBox(b) {
 }
 export function pieceTop(b) {
   if (b.type === 'floor') return b.y;
+  if (b.type === 'base') return b.y + WALL_H;
   if (b.type === 'roof') return b.y + 0.35;
   if (b.type === 'spikes') return b.y;
   if (b.type === 'tower' || b.type === 'frost') return b.y + 3.2;
@@ -284,8 +369,31 @@ export function distToBox(px, pz, box) {
   return Math.hypot(dx, dz);
 }
 // Deux pièces du même « emplacement » ne peuvent pas se superposer
-const SLOT_GROUP = { floor: 'f', stairs: 'f', spikes: 'f', tower: 'f', frost: 'f', wall: 'w', door: 'w', stonewall: 'w', roof: 'r' };
-export function slotKey(type, x, z, rot) {
+// (un plancher et un objet posé dessus — escalier, charpente, tour… — peuvent cohabiter ;
+//  la hauteur fait partie de l'emplacement pour pouvoir construire des étages)
+const SLOT_GROUP = { floor: 'f', base: 'o', stairs: 'o', spikes: 'o', tower: 'o', frost: 'o', wall: 'w', door: 'w', stonewall: 'w', window: 'w', roof: 'r' };
+export function slotKey(type, x, z, rot, y = 0) {
   const g = SLOT_GROUP[type] || type;
-  return `${g}:${Math.round(x * 2)}:${Math.round(z * 2)}:${g === 'w' ? rot : 0}`;
+  return `${g}:${Math.round(x * 2)}:${Math.round(z * 2)}:${g === 'w' ? rot : 0}:${Math.round(y)}`;
+}
+
+// Soutien des étages : une pièce en hauteur (lv > 0) doit reposer sur une autre pièce soutenue.
+// Renvoie l'ensemble des id soutenus (les autres s'écroulent).
+export function supportedSet(list) {
+  const top = (b) => (b.type === 'floor' ? b.y : b.type === 'roof' ? null : b.y + WALL_H);
+  const ok = new Set(), queue = [];
+  for (const b of list) if (!b.lv) { ok.add(b.id); queue.push(b); }
+  while (queue.length) {
+    const a = queue.shift();
+    const ta = top(a);
+    for (const b of list) {
+      if (ok.has(b.id)) continue;
+      const dx = Math.abs(a.x - b.x), dz = Math.abs(a.z - b.z);
+      let sup = ta !== null && Math.abs(b.y - ta) < 0.35 && dx <= 1.15 && dz <= 1.15;
+      // un plancher peut dépasser d'une case à côté d'un plancher soutenu (balcon)
+      if (!sup && a.type === 'floor' && b.type === 'floor' && Math.abs(a.y - b.y) < 0.2 && dx + dz <= 2.1) sup = true;
+      if (sup) { ok.add(b.id); queue.push(b); }
+    }
+  }
+  return ok;
 }

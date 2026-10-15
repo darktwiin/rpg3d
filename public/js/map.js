@@ -1,14 +1,18 @@
 // Carte du monde (touche M) et mini-carte (coin de l'écran).
 import * as THREE from 'three';
-import { heightAt, WATER_LEVEL, WORLD_LIMIT, riverDist } from './world.js';
+import { heightAt, WORLD_LIMIT, isWater, waterLevelAt, CAVES, WATERFALL, RELIC_POS } from './world.js';
 import { groundColor } from './terrain.js';
 
-const WORLD = 200; // la carte couvre de -100 à +100 m
+const WORLD = 300; // la carte couvre de -150 à +150 m
+
+// petites icônes de la carte (Kenney UI Pack Adventure)
+const ICONS = { jewel: new Image() };
+ICONS.jewel.src = 'ui/minimap_icon_jewel_yellow.png';
 
 export class WorldMap {
   constructor() {
     // Image du terrain calculée une fois (2 pixels par mètre)
-    const S = 400;
+    const S = 480;
     this.terrain = document.createElement('canvas');
     this.terrain.width = this.terrain.height = S;
     const ctx = this.terrain.getContext('2d');
@@ -17,8 +21,8 @@ export class WorldMap {
     for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
       const x = px / S * WORLD - WORLD / 2, z = py / S * WORLD - WORLD / 2;
       const h = heightAt(x, z);
-      if (h < WATER_LEVEL && riverDist(x, z) < 8) {
-        const d = WATER_LEVEL - h;
+      if (isWater(x, z)) {
+        const d = waterLevelAt(x) - h;
         c.setRGB(0.12 - d * 0.04, 0.32 - d * 0.06, 0.45 - d * 0.05);
       } else {
         groundColor(x, z, c);
@@ -43,11 +47,22 @@ export class WorldMap {
     const P = (x, z) => [(x + WORLD / 2) * k, (z + WORLD / 2) * k];
     // grille
     ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 1;
-    for (let g = -100; g <= 100; g += 20) {
+    for (let g = -140; g <= 140; g += 20) {
       const [a] = P(g, 0); ctx.beginPath(); ctx.moveTo(a, 0); ctx.lineTo(a, W); ctx.stroke();
       const [, b] = P(0, g); ctx.beginPath(); ctx.moveTo(0, b); ctx.lineTo(W, b); ctx.stroke();
     }
     this.drawItems(ctx, data, P, k, 1.4);
+    // lieux
+    ctx.font = 'bold 15px system-ui'; ctx.textAlign = 'center';
+    const label = (x, z, icon, text, col) => {
+      const [a, b] = P(x, z);
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.beginPath(); ctx.arc(a, b, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = col; ctx.fillText(icon, a, b + 5);
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 3; ctx.strokeText(text, a, b + 26); ctx.fillStyle = '#fff'; ctx.fillText(text, a, b + 26);
+    };
+    label(CAVES[1].x, CAVES[1].z, '⛰', 'Caverne', '#d8c8a8');
+    label(WATERFALL.x, WATERFALL.z, '≋', 'Cascade', '#9ad8ff');
+    if (data.relic && !data.relic.taken) label(RELIC_POS.x, RELIC_POS.z, '💧', '', '#9ad8ff');
     // boussole
     ctx.fillStyle = '#f0c96a'; ctx.font = 'bold 22px Georgia'; ctx.textAlign = 'center';
     ctx.fillText('N', W / 2, 26);
@@ -93,23 +108,23 @@ export class WorldMap {
     for (const b of d.buildings) {
       const [a, c] = P(b.x, b.z);
       ctx.fillStyle = b.type === 'roof' ? 'rgba(90,80,70,0.85)' : b.type === 'floor' || b.type === 'stairs' ? 'rgba(170,120,70,0.9)' : b.type === 'stonewall' ? '#b8b2a8' : b.type === 'spikes' ? '#c49a6a' : '#5a3a1a';
-      if (b.type === 'wall' || b.type === 'door' || b.type === 'stonewall') {
+      if (b.type === 'wall' || b.type === 'door' || b.type === 'stonewall' || b.type === 'window') {
         const w = b.rot ? 0.35 * k : 2 * k, h = b.rot ? 2 * k : 0.35 * k;
         ctx.fillRect(a - w / 2, c - h / 2, Math.max(w, 2), Math.max(h, 2));
       } else ctx.fillRect(a - k, c - k, 2 * k, 2 * k);
     }
-    // Joyau
+    // Joyau (icône du Kenney UI Pack)
     {
       const [a, b] = P(d.gem.x, d.gem.z);
-      const s = 7 * scale;
+      const s = 9 * scale;
       ctx.save(); ctx.translate(a, b);
-      ctx.shadowColor = '#b98cff'; ctx.shadowBlur = 12;
-      ctx.fillStyle = '#c49bff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(s * 0.7, 0); ctx.lineTo(0, s); ctx.lineTo(-s * 0.7, 0); ctx.closePath();
-      ctx.fill(); ctx.stroke();
+      ctx.rotate(textRot);
+      ctx.shadowColor = '#ffd060'; ctx.shadowBlur = 10;
+      if (ICONS.jewel.complete && ICONS.jewel.naturalWidth) ctx.drawImage(ICONS.jewel, -s, -s, 2 * s, 2 * s);
+      else { ctx.fillStyle = '#c49bff'; ctx.fillRect(-s / 2, -s / 2, s, s); }
       ctx.restore();
     }
-    for (const m of d.monsters) dot(m.x, m.z, (m.kind === 'runner' ? 2.6 : 3.5) * scale, m.kind === 'spitter' ? '#7aff30' : m.kind === 'runner' ? '#ff8a2a' : '#e0332a', '#300');
+    for (const m of d.monsters) dot(m.x, m.z, (m.kind === 'runner' ? 2.6 : m.kind === 'tank' ? 4.4 : 3.5) * scale, m.kind === 'spitter' ? '#c070ff' : m.kind === 'runner' ? '#ff8a2a' : m.kind === 'tank' ? '#8a0f0f' : '#e0332a', '#300');
     const arrow = (x, z, ry, color, size, name) => {
       const [a, b] = P(x, z);
       ctx.save(); ctx.translate(a, b);

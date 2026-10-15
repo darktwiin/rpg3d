@@ -1,6 +1,6 @@
 {
   "name": "rpg3d",
-  "version": "0.0.5",
+  "version": "0.0.9",
   "type": "module",
   "description": "RPG multijoueur 3D à la 3ème personne (survie et construction)",
   "main": "server.js",

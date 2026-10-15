@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RPG 3D — Survie</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="ui.css">
   <script type="importmap">
     { "imports": { "three": "./lib/three/build/three.module.js",
                    "three/addons/": "./lib/three/examples/jsm/" } }
@@ -19,6 +20,8 @@
       <label class="field">Ton pseudo
         <input id="name" maxlength="16" placeholder="Pseudo" autocomplete="off">
       </label>
+      <div class="field-label">Ton apparence</div>
+      <div id="skins"></div>
       <button id="btn-enter" class="btn primary">Entrer au village</button>
       <div id="title-error" class="error"></div>
       <div class="lobby-foot">
@@ -59,9 +62,11 @@
         <div id="inv">
           <div class="res"><span class="ico wood"></span><b id="inv-wood">0</b> Bois</div>
           <div class="res"><span class="ico stone"></span><b id="inv-stone">0</b> Pierre</div>
+          <div class="res"><span class="ico twig"></span><b id="inv-twig">0</b> Brindilles</div>
         </div>
         <div id="hp"><div class="hp-label">❤ <span id="hp-text">100</span></div><div class="bar"><div id="hp-fill" class="fill"></div></div></div>
       </div>
+      <div id="power" hidden></div>
       <div id="buildbar" hidden>
         <div id="build-slots"></div>
         <div id="build-hint"></div>
@@ -90,7 +95,8 @@
         </div>
         <div class="row2">
           <button class="btn small" data-admin="runner">+1 Griffu</button>
-          <button class="btn small" data-admin="spitter">+1 Cracheur</button>
+          <button class="btn small" data-admin="spitter">+1 Mage</button>
+          <button class="btn small" data-admin="tank">+1 Colosse</button>
         </div>
         <div class="row2">
           <button class="btn small" data-admin="day">☀ Jour</button>
@@ -129,6 +135,19 @@
       <div class="row2">
         <button id="invite-yes" class="btn small primary">Accepter <span class="kbd">Y</span></button>
         <button id="invite-no" class="btn small">Refuser <span class="kbd">N</span></button>
+      </div>
+    </div>
+
+    <!-- Fenêtre de construction -->
+    <div id="craft" class="overlay" hidden>
+      <div class="panel craft-panel">
+        <div class="panel-title">Construction <button class="x" data-close>✕</button></div>
+        <div id="craft-inv"></div>
+        <div id="craft-groups"></div>
+        <div class="craft-foot">
+          <span class="hint">Clique sur une construction pour la placer · <span class="kbd">B</span> ou Échap pour fermer</span>
+          <button id="craft-stop" class="btn small ghost">Ranger le marteau</button>
+        </div>
       </div>
     </div>
 
@@ -204,7 +223,7 @@
   </div>
 
   <div id="fade"></div>
-  <div id="version">ver.0.0.5</div>
+  <div id="version">ver.0.0.9</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

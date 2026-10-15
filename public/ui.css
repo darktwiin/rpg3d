@@ -1,0 +1,273 @@
+/* =====================================================================
+   Thème « aventure » : toute l'interface est habillée avec le
+   Kenney UI Pack Adventure (CC0) — parchemins, bois, rubans et boutons.
+   Ce fichier passe par-dessus style.css (qui garde la mise en page).
+   ===================================================================== */
+:root {
+  --ink: #4a2e14;          /* texte sur parchemin */
+  --ink-soft: #85633f;
+  --wood: #b07040;
+  --wood-dark: #604020;
+  --cream: #fff4dc;        /* texte sur bois */
+  --kred: #e06050;
+}
+html, body { font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif; }
+
+/* ---------- Panneaux : parchemin encadré de bois ---------- */
+.panel {
+  position: relative;
+  background: none;
+  border: 12px solid transparent;
+  border-image: url(ui/panel_brown.png) 24 fill / 12px stretch;
+  border-radius: 0;
+  box-shadow: none;
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.55));
+  backdrop-filter: none;
+  color: var(--ink);
+  --text: var(--ink); --muted: var(--ink-soft); --gold: #9a4a1a;
+}
+.panel .hint { color: var(--ink-soft); }
+.panel b { color: #6a3410; }
+
+/* Titre : ruban rouge au-dessus du panneau */
+.panel-title {
+  display: block;
+  position: static;
+  width: min(470px, 92%);
+  height: 50px;
+  margin: -40px auto 14px;
+  padding: 0 34px;
+  box-sizing: border-box;
+  background: url(ui/banner_classic_curtain.png) center / 100% 100% no-repeat;
+  color: #fff;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 19px;
+  line-height: 44px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 2px 0 #803030;
+}
+/* panneaux qui défilent : le ruban reste à l'intérieur (sinon il serait coupé) */
+.options-panel .panel-title, .craft-panel .panel-title, .skills-panel .panel-title { margin-top: -6px; }
+.shards-inline { color: #fff; margin: 0 0 0 8px; font-size: 15px; }
+.shards-inline b { color: #fff; }
+
+/* Bouton de fermeture : bouton rouge à croix */
+.x {
+  position: absolute; top: -8px; right: -8px; z-index: 3;
+  width: 44px; height: 24px; padding: 0;
+  font-size: 0; color: transparent;
+  background: url(ui/button_red_close.png) center / contain no-repeat;
+  cursor: pointer;
+}
+.x:hover { filter: brightness(1.12); }
+.x:active { transform: translateY(1px); }
+
+/* ---------- Boutons ---------- */
+.btn {
+  border: 8px solid transparent;
+  border-image: url(ui/button_brown.png) 16 fill / 8px stretch;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  padding: 6px 10px;
+  text-shadow: none;
+}
+.btn:hover { background: none; filter: brightness(1.06) saturate(1.1); }
+.btn:active { transform: translateY(2px); filter: brightness(0.96); }
+.btn.primary { border-image-source: url(ui/button_red.png); color: #fff; text-shadow: 0 2px 0 #803030; background: none; }
+.btn.primary:hover { background: none; }
+.btn.ghost { border-image-source: url(ui/button_grey.png); color: #fff; text-shadow: 0 1px 0 #404858; background: none; }
+.btn.small { padding: 3px 8px; font-size: 13px; }
+.btn[disabled] { filter: grayscale(0.8) opacity(0.6); cursor: default; }
+
+/* Touches */
+#prompt kbd, .kbd, .slot .key {
+  background: #fff4dc; color: var(--ink);
+  border: 2px solid var(--wood-dark); border-bottom-width: 3px; border-radius: 5px;
+  padding: 0 6px; font-weight: 800;
+}
+
+/* ---------- Champs, listes, réglages ---------- */
+.field { color: var(--ink-soft); font-weight: 700; }
+.field input, .join-row input, #chat-input {
+  background: #fffaf0; color: var(--ink);
+  border: 3px solid var(--wood); border-radius: 8px; outline: none;
+}
+.field input:focus, #chat-input:focus { border-color: var(--kred); }
+#chat-input { background: rgba(255, 250, 240, 0.95); }
+.select select {
+  background: #fffaf0; color: var(--ink);
+  border: 3px solid var(--wood); border-radius: 7px; padding: 4px 6px; font-weight: 700;
+}
+.opt-section, .craft-title { color: #9a4a1a; border-bottom: 2px solid rgba(176, 112, 64, 0.45); font-weight: 800; }
+.slider span { color: var(--ink-soft); font-weight: 700; }
+
+/* Curseurs (volume, sensibilité) */
+input[type=range] { -webkit-appearance: none; appearance: none; height: 22px; background: none; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 10px; background: #e8cfa0; border: 2px solid var(--wood-dark); border-radius: 7px; }
+input[type=range]::-moz-range-track { height: 8px; background: #e8cfa0; border: 2px solid var(--wood-dark); border-radius: 7px; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -9px; border: 0; background: url(ui/round_brown.png) center / contain no-repeat; }
+input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; background: url(ui/round_brown.png) center / contain no-repeat; }
+
+/* Cases à cocher */
+.toggle input {
+  -webkit-appearance: none; appearance: none; width: 24px; height: 24px; margin: 0;
+  background: url(ui/checkbox_brown_empty.png) center / contain no-repeat; cursor: pointer;
+}
+.toggle input:checked { background-image: url(ui/checkbox_brown_checked.png); }
+
+/* Touches à configurer */
+.keybind button {
+  border: 6px solid transparent; border-image: url(ui/button_brown.png) 16 fill / 6px stretch;
+  background: none; color: var(--ink); border-radius: 0; padding: 2px 6px;
+}
+.keybind button.wait { border-image-source: url(ui/button_red.png); color: #fff; }
+
+/* Onglets */
+.tabs button {
+  border: 7px solid transparent; border-image: url(ui/button_brown.png) 16 fill / 7px stretch;
+  background: none; color: var(--ink); border-radius: 0; padding: 3px; font-weight: 800;
+}
+.tabs button.on { border-image-source: url(ui/button_red.png); color: #fff; background: none; }
+
+/* Lignes de listes */
+#members li, #launch-members .m, #players-list li { background: rgba(176, 112, 64, 0.16); border: 2px solid rgba(176, 112, 64, 0.35); }
+#board-list li { border-bottom: 2px dotted rgba(176, 112, 64, 0.45); }
+#board-list li .n, .node .ncost { color: #7a3fb0; }
+
+/* Barres de défilement */
+::-webkit-scrollbar { width: 14px; }
+::-webkit-scrollbar-track { background: rgba(176, 112, 64, 0.15); border-radius: 7px; }
+::-webkit-scrollbar-thumb { background: url(ui/scrollbar_brown_small.png) center / 100% 100% no-repeat; min-height: 40px; }
+
+/* ---------- Écran titre ---------- */
+.screen { background: radial-gradient(ellipse at center, rgba(20, 12, 4, 0.15), rgba(10, 6, 2, 0.75)); }
+.lobby-panel { padding: 30px 26px 18px; overflow: visible; }
+.lobby-panel h1 {
+  margin: -62px auto 4px; width: 330px; max-width: 90%; height: 84px;
+  background: url(ui/banner_hanging.png) center / 100% 100% no-repeat;
+  color: #fff; font-family: inherit; font-weight: 900; font-size: 36px; line-height: 72px;
+  text-shadow: 0 3px 0 #803030;
+}
+.subtitle { color: var(--ink-soft); font-weight: 700; }
+.lobby-foot { color: var(--ink-soft); }
+.error { color: #c0392b; font-weight: 700; }
+#skins .skin {
+  border: 8px solid transparent; border-image: url(ui/panel_brown.png) 24 fill / 8px stretch;
+  background: none; border-radius: 0; color: var(--ink); font-weight: 700; padding: 0 0 2px;
+}
+#skins .skin:hover { border-color: transparent; filter: brightness(1.05); }
+#skins .skin.on { border-image-source: url(ui/panel_brown_dark.png); color: var(--cream); background: none; box-shadow: none; }
+
+/* ---------- HUD : plaques de bois ---------- */
+#clock, #gem-hp, .res, #hp, #shards, #party, #prompt, .toast, #power, #hub-help, .build-current, .build-level, #status:not(:empty) {
+  background: none;
+  border: 10px solid transparent;
+  border-image: url(ui/panel_brown_dark.png) 24 fill / 10px stretch;
+  border-radius: 0;
+  color: var(--cream);
+  box-shadow: none;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
+  text-shadow: 0 1px 0 #603010;
+}
+#clock, #gem-hp { padding: 1px 4px 3px; }
+.res { padding: 0 4px; }
+#hp { padding: 0 4px 3px; }
+.hp-label { color: #ffd0c0; }
+#shards { padding: 2px 6px; }
+#shards b, .shard-ico { color: #f0ddff; }
+#party { padding: 2px 6px 4px; }
+.party-title { color: #ffd890; }
+#prompt { padding: 1px 6px; }
+#hub-help { padding: 0 8px; }
+.toast { padding: 0 10px; }
+#power { padding: 0 8px; }
+#status:not(:empty) { padding: 0 4px; }
+.build-current { padding: 0 8px 0 0; }
+.build-current .costs .chip { background: rgba(255, 244, 220, 0.15); }
+.build-level { display: inline-block; margin-top: 6px; padding: 0 10px; font-weight: 800; font-size: 13px; }
+.piece-img { width: 64px; height: 64px; object-fit: contain; display: block; margin: 0 auto; }
+.build-current .piece-img { width: 52px; height: 52px; }
+
+/* Barres (vie, Joyau, horloge) */
+.bar { height: 10px; background: #3a2212; border: 2px solid #2a1608; border-radius: 6px; }
+#hp-fill { background: linear-gradient(180deg, #f07060, #c05050); }
+#gem-hp-fill { background: linear-gradient(180deg, #c8a0ff, #8a5ae0); }
+#clock-fill { background: linear-gradient(180deg, #ffe08a, #f0a040); }
+#target .fill { background: linear-gradient(180deg, #ffe08a, #e0a040); }
+
+/* Mini-carte : anneau de bois et boussole */
+#minimap-wrap { border: 0; box-shadow: none; overflow: visible; }
+#minimap-wrap canvas { position: absolute; inset: 9px; width: calc(100% - 18px); height: calc(100% - 18px); border-radius: 50%; }
+#minimap-wrap::after {
+  content: ''; position: absolute; inset: -6px; pointer-events: none;
+  background: url(ui/minimap_ring_brown_detail.png) center / contain no-repeat;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
+}
+#minimap-n {
+  top: -10px; width: 26px; height: 26px; font-size: 0; color: transparent; z-index: 2;
+  background: url(ui/minimap_compass_toon_n.png) center / contain no-repeat;
+}
+
+/* Viseur */
+#crosshair::before { border-color: rgba(255, 244, 220, 0.85); }
+#crosshair.active::before { border-color: #ffd060; }
+#crosshair.active::after { background: #ffd060; }
+
+/* Discussion */
+#chat-log .msg { background: rgba(60, 32, 12, 0.55); border-left: 3px solid var(--wood); }
+
+/* Grande carte */
+.map-frame { border: 14px solid transparent; border-image: url(ui/panel_border_brown_detail.png) 24 / 14px stretch; filter: drop-shadow(0 10px 30px #000); }
+#bigmap { border: 0; border-radius: 0; box-shadow: none; }
+#map-hint { color: var(--cream); }
+
+/* Mort / fin de partie */
+.big { font-family: inherit; font-weight: 900; color: #fff; text-shadow: 0 3px 0 #803030, 0 6px 20px #000; }
+#death .big, #gameover .big {
+  padding: 4px 60px 14px; background: url(ui/banner_hanging.png) center / 100% 100% no-repeat;
+  font-size: 34px;
+}
+#banner { font-family: inherit; font-weight: 900; text-shadow: 0 3px 0 #603010, 0 4px 20px rgba(0, 0, 0, 0.9); }
+
+/* ---------- Forge (compétences) ---------- */
+.tree { background: rgba(176, 112, 64, 0.12); border: 2px dashed rgba(176, 112, 64, 0.55); }
+.tree-title { font-family: inherit; font-weight: 900; color: #9a4a1a; }
+.node {
+  background: none; border: 7px solid transparent; border-radius: 0;
+  border-image: url(ui/panel_brown.png) 24 fill / 7px stretch;
+  color: var(--ink); padding: 1px 1px 2px;
+}
+.node .ndesc { color: var(--ink-soft); }
+.node.owned { border-image-source: url(ui/panel_brown_dark.png); background: none; color: var(--cream); border-color: transparent; }
+.node.owned .ndesc { color: #f0dcc0; }
+.node.owned .ncost { color: #ffe08a; }
+.node.can { border-color: transparent; box-shadow: none; filter: drop-shadow(0 0 6px rgba(90, 200, 90, 0.9)); }
+
+/* ---------- Construction ---------- */
+.craft-card {
+  background: none; border: 8px solid transparent; border-radius: 0;
+  border-image: url(ui/panel_brown.png) 24 fill / 8px stretch;
+  color: var(--ink); padding: 4px 2px 2px;
+}
+.craft-card:hover { background: none; border-color: transparent; filter: brightness(1.05); }
+.craft-card.sel { border-image-source: url(ui/panel_brown_corners_a.png); box-shadow: none; filter: drop-shadow(0 0 6px rgba(224, 96, 80, 0.9)); }
+.craft-card.locked:hover { background: none; border-color: transparent; }
+.craft-card .desc, .craft-card .key { color: var(--ink-soft); }
+.craft-card.cant:not(.locked) .name { color: #a04030; }
+.craft-card .lock { color: #7a3fb0; }
+.chip { background: rgba(176, 112, 64, 0.18); }
+.chip.miss { color: #c0392b; background: rgba(224, 96, 80, 0.18); }
+.panel .chip.big { color: var(--ink); }
+
+/* Invitation */
+#invite { color: var(--ink); }
+
+/* Version */
+#version { color: #fff4dccc; }

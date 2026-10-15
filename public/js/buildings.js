@@ -1,10 +1,21 @@
-// Constructions : sol (bois + pierre), mur (bois), toit (bois + pierre).
-// Aperçu fantôme, aimantation sur une grille de 2 m, animation de construction, collisions.
+// Constructions : plancher, charpente, mur, fenêtre, porte, escalier et toit en bois
+// (modèles du « Wood Frame Base Build Set »), plus les défenses (mur de pierre, pieux, tours).
+// Aperçu fantôme, grille de 2 m, étages (molette pour monter / descendre), collisions.
 import * as THREE from 'three';
 import {
   heightAt, GRID, WALL_H, BUILD_TIME, BUILD_RANGE, PIECES, wallBox, pieceTop, distToBox, slotKey,
-  isWallType, stairsHeight, pieceCost, pieceUnlocked,
+  isWallType, stairsHeight, pieceCost, pieceUnlocked, canAfford, MAX_LEVEL,
 } from './world.js';
+import { prop } from './models.js';
+
+// modèles en bois de chaque pièce (plusieurs variantes pour que tout ne se ressemble pas)
+const WOOD = {
+  floor: ['w_floor1', 'w_floor2', 'w_floor4', 'w_floor5'],
+  wall: ['w_wall1', 'w_wall2', 'w_wall4'],
+  window: ['w_window1', 'w_window2'],
+  door: ['w_door'], stairs: ['w_stairs'], base: ['w_base4', 'w_base6'], roof: ['w_roof'],
+};
+const variantOf = (id) => { const n = parseInt(String(id || '').replace(/\D/g, ''), 10); return Number.isFinite(n) ? n : 0; };
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -96,6 +107,7 @@ export class Buildings {
       stake: new THREE.MeshStandardMaterial({ color: '#c49a6a', roughness: 0.8 }),
       ice: new THREE.MeshStandardMaterial({ color: '#bfe8ff', emissive: '#4ab8ff', emissiveIntensity: 1.2, roughness: 0.15, transparent: true, opacity: 0.9 }),
       rune: new THREE.MeshStandardMaterial({ color: '#9ad8ff', emissive: '#3aa8ff', emissiveIntensity: 1.4 }),
+      doorLeaf: new THREE.MeshStandardMaterial({ map: planks, color: '#d08850', roughness: 0.85 }),
     };
     this.bars = new Map();
     this.blueprint = new THREE.MeshStandardMaterial({ color: '#9fd0ff', emissive: '#2a5a90', transparent: true, opacity: 0.45, depthWrite: false });
@@ -107,7 +119,8 @@ export class Buildings {
   }
 
   // ----- Création des modèles -----
-  makeMesh(type, drop, matOverride) {
+  makeMesh(type, drop, matOverride, variant = 0) {
+    if (WOOD[type]) return this.makeWood(type, drop, matOverride, variant);
     const g = new THREE.Group();
     const m = (name) => matOverride || this.mats[name];
     const add = (geo, mat, x, y, z) => {
@@ -231,6 +244,56 @@ export class Buildings {
     return g;
   }
 
+  // Pièces en bois (modèles du pack), posées sur la grille
+  makeWood(type, drop, matOverride, variant) {
+    const g = new THREE.Group();
+    const list = WOOD[type];
+    const o = prop(list[variant % list.length], 1);
+    const kY = WALL_H / 2.05;
+    if (type === 'floor') o.position.y = -0.17;
+    else if (type === 'stairs') { o.rotation.y = Math.PI; o.scale.set(1, kY, 0.94); }   // le modèle monte vers -z
+    else if (type === 'roof') o.scale.set(1.12, 1, 1.0);
+    else o.scale.set(1, kY, 1);
+    g.add(o);
+    const stone = matOverride || this.mats.stone;
+    // fondations en pierre quand le terrain descend sous la pièce (rez-de-chaussée seulement)
+    if (type === 'floor' && drop > 0.05) {
+      const fh = drop + 0.3;
+      const f = new THREE.Mesh(new THREE.BoxGeometry(1.9, fh, 1.9), stone);
+      f.position.y = -0.17 - fh / 2; f.castShadow = f.receiveShadow = !matOverride;
+      g.add(f);
+    }
+    if ((isWallType(type) || type === 'base') && drop > 0.05) {
+      const w = type === 'base' ? 2 : 1.9, d = type === 'base' ? 2 : 0.24;
+      const f = new THREE.Mesh(new THREE.BoxGeometry(w, drop + 0.2, d), stone);
+      f.position.y = -drop / 2; f.castShadow = !matOverride;
+      g.add(f);
+    }
+    if (type === 'door') {
+      // battant qui pivote dans l'ouverture (charnière à gauche)
+      const hinge = new THREE.Group();
+      hinge.position.set(-0.46, 0, -0.03);
+      g.add(hinge);
+      const woodMat = matOverride || this.mats.doorLeaf;
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.58, 0.07), woodMat);
+      leaf.position.set(0.45, 0.8, 0);
+      leaf.castShadow = !matOverride;
+      hinge.add(leaf);
+      for (const y of [0.35, 1.25]) {
+        const band = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.06, 0.09), matOverride || this.mats.iron);
+        band.position.set(0.45, y, 0);
+        hinge.add(band);
+      }
+      g.userData.hinge = hinge;
+    }
+    g.traverse((m) => {
+      if (!m.isMesh) return;
+      if (matOverride) { m.material = matOverride; m.castShadow = false; m.receiveShadow = false; }
+      else { m.castShadow = true; m.receiveShadow = true; }
+    });
+    return g;
+  }
+
   clear() {
     for (const b of this.map.values()) this.scene.remove(b.mesh);
     this.map.clear();
@@ -243,8 +306,8 @@ export class Buildings {
 
   add(b, quiet) {
     if (this.map.has(b.id)) return;
-    const drop = this.dropFor(b);
-    const mesh = this.makeMesh(b.type, drop);
+    const drop = b.lv ? 0 : this.dropFor(b);
+    const mesh = this.makeMesh(b.type, drop, null, variantOf(b.id));
     mesh.position.set(b.x, b.y, b.z);
     mesh.rotation.y = this.rotY(b);
     this.scene.add(mesh);
@@ -294,7 +357,7 @@ export class Buildings {
   }
 
   barHeight(e) {
-    return { floor: 0.7, wall: 3.0, door: 3.0, stonewall: 3.2, roof: 0.9, stairs: 3.0, spikes: 1.0, tower: 5.9, frost: 4.9 }[e.type] || 2;
+    return { floor: 0.7, base: 2.5, wall: 2.5, window: 2.5, door: 2.5, stonewall: 2.7, roof: 1.6, stairs: 2.5, spikes: 1.0, tower: 5.9, frost: 4.9 }[e.type] || 2;
   }
   drawBar(e) {
     let bar = this.bars.get(e.id);
@@ -425,7 +488,7 @@ export class Buildings {
     let hit = false;
     for (const b of this.map.values()) {
       const tower = PIECES[b.type].tower;
-      if (b.type !== 'wall' && b.type !== 'stonewall' && !tower) continue; // les portes laissent passer les joueurs
+      if (b.type !== 'wall' && b.type !== 'stonewall' && b.type !== 'window' && !tower) continue; // les portes laissent passer les joueurs
       if (tower && pos.y > b.y + 3.0) continue;
       if (!tower && pos.y > b.y + WALL_H - 0.1 || pos.y + 1.7 < b.y - b.drop - 0.2) continue;
       const box = b.box;
@@ -442,52 +505,70 @@ export class Buildings {
 
   // ----- Placement -----
   // aim : point visé au sol ; renvoie une proposition { type, x, z, rot, y, ok, reason }
-  plan(type, aim, player, resources, inv, free, mods, camYaw = 0) {
+  // Hauteurs possibles pour une pièce à cet endroit : le sol, puis tout ce qui peut la porter
+  // (dessus d'une charpente ou d'un mur, plancher voisin, plancher sous un escalier…)
+  levelsFor(type, x, z, rot) {
+    const near = (b, d = 1.15) => Math.abs(b.x - x) <= d && Math.abs(b.z - z) <= d;
+    const same = (b) => Math.abs(b.x - x) < 0.1 && Math.abs(b.z - z) < 0.1;
+    const out = [];
+    let ground;
+    if (isWallType(type)) {
+      const pts = rot ? [[0, -0.9], [0, 0], [0, 0.9]] : [[-0.9, 0], [0, 0], [0.9, 0]];
+      ground = Math.max(...pts.map(([a, c]) => heightAt(x + a, z + c))) + 0.02;
+      for (const b of this.map.values()) {
+        if (b.type === 'floor' && near(b, 1.05) && (rot ? Math.abs(b.z - z) < 0.1 : Math.abs(b.x - x) < 0.1)) out.push(b.y);
+        if (b.type === 'base' && near(b, 1.05) && (rot ? Math.abs(b.z - z) < 0.1 : Math.abs(b.x - x) < 0.1)) out.push(b.y + WALL_H);
+        if (isWallType(b.type) && same(b) && (b.rot & 1) === (rot & 1)) out.push(b.y + WALL_H);
+      }
+    } else {
+      const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c));
+      ground = Math.max(...corners) + (type === 'floor' ? 0.15 : type === 'spikes' ? 0.02 : type === 'roof' ? WALL_H : 0.05);
+      for (const b of this.map.values()) {
+        if (type === 'roof') {
+          if (isWallType(b.type) && near(b, 1.05) && !same(b)) out.push(b.y + WALL_H);
+          if ((b.type === 'base') && same(b)) out.push(b.y + WALL_H);
+          if (b.type === 'floor' && same(b)) out.push(b.y + WALL_H);
+          continue;
+        }
+        if (b.type === 'base' && same(b)) out.push(b.y + WALL_H);
+        if (isWallType(b.type) && near(b, 1.05) && !same(b)) out.push(b.y + WALL_H);
+        if (type === 'floor' && b.type === 'floor' && b.lv && Math.abs(b.x - x) + Math.abs(b.z - z) < 2.1 && !same(b)) out.push(b.y);
+        if (type !== 'floor' && b.type === 'floor' && same(b)) out.push(b.y);
+      }
+    }
+    const levels = [{ y: ground, lv: 0 }];
+    for (const y of out) {
+      const lv = Math.max(1, Math.round((y - ground) / WALL_H));
+      if (y > ground + 0.5 && lv <= MAX_LEVEL && !levels.some((l) => Math.abs(l.y - y) < 0.2)) levels.push({ y, lv });
+      // un objet posé sur un plancher du rez-de-chaussée reste au niveau 0
+      if (y <= ground + 0.5 && y > ground - 1 && type !== 'floor') levels[0] = { y: Math.max(levels[0].y, y), lv: 0 };
+    }
+    return levels.sort((a, b) => a.y - b.y);
+  }
+
+  // aim : point visé ; refY : hauteur de référence (les pieds du joueur) ; lift : étages en plus (molette)
+  plan(type, aim, player, resources, inv, free, mods, camYaw = 0, lift = 0) {
     const cx = Math.round(aim.x / GRID) * GRID, cz = Math.round(aim.z / GRID) * GRID;
-    let x = cx, z = cz, rot = 0, y;
+    let x = cx, z = cz, rot = 0;
     if (isWallType(type)) {
       const dx = aim.x - cx, dz = aim.z - cz;
       if (Math.abs(dx) > Math.abs(dz)) { x = cx + Math.sign(dx || 1) * GRID / 2; rot = 1; }
       else { z = cz + Math.sign(dz || 1) * GRID / 2; rot = 0; }
-      // posé sur un plancher voisin si possible
-      let base = -Infinity;
-      for (const b of this.map.values()) {
-        if (b.type !== 'floor') continue;
-        const nx = rot ? [x - 1, x + 1] : [x, x];
-        const nz = rot ? [z, z] : [z - 1, z + 1];
-        for (let i = 0; i < 2; i++) if (Math.abs(b.x - nx[i]) < 0.1 && Math.abs(b.z - nz[i]) < 0.1) base = Math.max(base, b.y);
-      }
-      if (base === -Infinity) {
-        const pts = rot ? [[0, -0.9], [0, 0], [0, 0.9]] : [[-0.9, 0], [0, 0], [0.9, 0]];
-        base = Math.max(...pts.map(([a, c]) => heightAt(x + a, z + c))) + 0.02;
-      }
-      y = base;
-    } else if (type === 'floor') {
-      y = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c))) + 0.15;
     } else if (type === 'stairs' || type === 'spikes' || PIECES[type].tower) {
-      // posé sur un plancher s'il y en a un à cet endroit, sinon sur le terrain
-      let base = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, c]) => heightAt(x + a, z + c))) + (type === 'spikes' ? 0.02 : 0.05);
-      for (const b of this.map.values()) if (b.type === 'floor' && Math.abs(b.x - x) < 0.1 && Math.abs(b.z - z) < 0.1) base = b.y;
-      y = base;
       // l'escalier monte dans la direction où regarde la caméra
       const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
       rot = Math.abs(fz) > Math.abs(fx) ? (fz > 0 ? 0 : 2) : (fx > 0 ? 1 : 3);
-    } else {
-      // Toit : sur les murs autour, sinon au-dessus du plancher / terrain
-      let top = -Infinity;
-      for (const b of this.map.values()) {
-        if (isWallType(b.type) && distToBox(x, z, { x: b.x, z: b.z, hx: 1.05, hz: 1.05 }) === 0
-          && (Math.abs(b.x - x) > 0.9 || Math.abs(b.z - z) > 0.9)) top = Math.max(top, b.y + WALL_H);
-        if (b.type === 'floor' && Math.abs(b.x - x) < 0.1 && Math.abs(b.z - z) < 0.1) top = Math.max(top, b.y + WALL_H);
-      }
-      if (top === -Infinity) top = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, c]) => heightAt(x + a, z + c))) + WALL_H;
-      y = top;
     }
-    const plan = { type, x, z, rot, y: +y.toFixed(2), ok: true, reason: '' };
-    const key = slotKey(type, x, z, rot);
-    for (const b of this.map.values()) if (slotKey(b.type, b.x, b.z, b.rot) === key) { plan.ok = false; plan.reason = 'Emplacement occupé'; }
+    const levels = this.levelsFor(type, x, z, rot);
+    // étage choisi : le plus proche de « pieds du joueur + molette »
+    const refY = Math.max(player.y ?? 0, aim.hit && aim.y < (player.y ?? 0) + 3 ? aim.y : -Infinity) + lift * WALL_H + (type === 'roof' ? WALL_H : 0);
+    let best = levels[0];
+    for (const l of levels) if (Math.abs(l.y - refY) < Math.abs(best.y - refY) - 0.01) best = l;
+    const plan = { type, x, z, rot, y: +best.y.toFixed(2), lv: best.lv, levels: levels.length, ok: true, reason: '' };
+    const key = slotKey(type, x, z, rot, plan.y);
+    for (const b of this.map.values()) if (slotKey(b.type, b.x, b.z, b.rot, b.y) === key) { plan.ok = false; plan.reason = 'Emplacement occupé'; }
     if (plan.ok && Math.hypot(x - player.x, z - player.z) > BUILD_RANGE + 1) { plan.ok = false; plan.reason = 'Trop loin'; }
-    if (plan.ok && type !== 'roof') {
+    if (plan.ok && type !== 'roof' && !plan.lv) {
       const box = isWallType(type) ? wallBox(plan) : { x, z, hx: 1, hz: 1 };
       for (const r of resources) {
         if (!r.alive) continue;
@@ -497,18 +578,18 @@ export class Buildings {
     if (!free && !pieceUnlocked(type, mods)) { plan.ok = false; plan.reason = 'À débloquer à la forge du village'; }
     if (plan.ok && !free) {
       const c = pieceCost(type, mods);
-      if (inv.wood < c.wood || inv.stone < c.stone) { plan.ok = false; plan.reason = 'Pas assez de matériaux'; }
+      if (!canAfford(inv, c)) { plan.ok = false; plan.reason = 'Pas assez de matériaux'; }
     }
     return plan;
   }
 
   showGhost(plan) {
     if (!plan) { if (this.ghost) this.ghost.visible = false; return; }
-    const drop = this.dropFor(plan);
+    const drop = plan.lv ? 0 : this.dropFor(plan);
     const key = plan.type + ':' + plan.ok + ':' + drop.toFixed(1);
     if (key !== this.ghostKey) {
       if (this.ghost) this.scene.remove(this.ghost);
-      this.ghost = this.makeMesh(plan.type, drop, plan.ok ? this.ghostOk : this.ghostBad);
+      this.ghost = this.makeMesh(plan.type, drop, plan.ok ? this.ghostOk : this.ghostBad, 0);
       this.ghost.renderOrder = 5;
       this.scene.add(this.ghost);
       this.ghostKey = key;
@@ -522,7 +603,8 @@ export class Buildings {
   pick(aim) {
     let best = null, bd = 1.3;
     for (const b of this.map.values()) {
-      const d = distToBox(aim.x, aim.z, b.box) + (b.type === 'roof' ? 0.3 : 0);
+      const mid = b.y + (isWallType(b.type) || b.type === 'base' || b.type === 'stairs' ? WALL_H / 2 : 0);
+      const d = distToBox(aim.x, aim.z, b.box) + (b.type === 'roof' ? 0.3 : 0) + Math.max(0, Math.abs((aim.y ?? mid) - mid) - 1.2) * 0.8;
       if (d < bd) { bd = d; best = b; }
     }
     return best;
