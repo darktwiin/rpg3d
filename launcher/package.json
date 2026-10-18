@@ -1,7 +1,7 @@
 {
   "name": "nuit-blanche-launcher",
   "productName": "Nuit Blanche",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Lanceur du jeu Nuit Blanche (fenêtre du jeu + mises à jour automatiques)",
   "author": "Mano gamming",
   "main": "main.js",

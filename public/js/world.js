@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.2.1';
+export const VERSION = '0.2.2';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -72,6 +72,7 @@ export function nightTarget(night, players, k = 0) {
   // nuit 1 : 30 % de monstres en moins pour démarrer en douceur
   return Math.round(1.2 * (10 + 6 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)) * (night === 1 ? 0.7 : 1));
 }
+export const GRAB = { reach: 2.2, charge: 1.2, maxV: 20, maxUp: 11 };   // attraper un allié : portée, temps de charge du lancer (s), vitesses max
 export const CHASE_GIVEUP = 8;   // secondes de poursuite sans toucher le joueur avant d'abandonner
 export const SPAWN_MIN = 68, SPAWN_MAX = 88;   // distance d'apparition autour du Joyau
 
@@ -405,6 +406,22 @@ export function generateResources(seed) {
   return list;
 }
 
+// Bouts de bois (s) et petits cailloux (p) au sol : ramassés d'un appui sur E, 1 ressource chacun, réapparaissent chaque jour
+export const PICKUP_REACH = 2.4;
+export function generatePickups(seed) {
+  const rand = seededRandom(seed + 7);
+  const list = [], L = WORLD_LIMIT - 3;
+  for (const [k, count] of [['s', 140], ['p', 140]]) {
+    for (let i = 0, made = 0; i < 1200 && made < count; i++) {
+      const x = (rand() * 2 - 1) * L, z = (rand() * 2 - 1) * L;
+      if (!isFreeSpot(x, z, list, 1.2)) continue;
+      list.push({ id: 'k' + list.length, k, x: +x.toFixed(2), z: +z.toFixed(2), ry: +(rand() * 6.28).toFixed(2) });
+      made++;
+    }
+  }
+  return list;
+}
+
 export const resourceRadius = (r) => (r.k === 't' ? 0.45 * r.s : r.k === 'b' ? 0.55 * r.s : r.s * 0.9);
 
 // ---------- Bâtiments (géométrie partagée pour les collisions) ----------
@@ -514,6 +531,7 @@ const STAT_BASE = { weapon: 4, ring: 2.5, chest: 8, hat: 5, boots: 2 };   // % d
 const RARITY_MUL = [1, 1.6, 2.4, 3.5, 5, 7];
 export const INV_MAX = 60;
 export const CLASS_CHANGE_COST = 3;
+export const CGU_VERSION = '2026-10-18';   // à changer quand le texte des conditions d'utilisation change
 // ---------- Talents de classe : compétence active (touche A) + caractéristiques ----------
 // Deux branches par classe ; choisir l'une verrouille l'autre. 20 nodes par branche, un par niveau (1 à 20),
 // dépensés automatiquement : node 1 = la compétence, nodes impairs suivants = amélioration (+0,5 s de durée ou
@@ -533,7 +551,7 @@ export const CLASS_SKILLS = {
   ],
   Rogue: [
     { id: 'sentinel', name: 'Sentinelle', icon: '🔮', once: true, dur: 5, boost: 'dur', desc: 'Une orbe tourne autour de toi et tire sur les monstres à moins de 10 m. Une fois par nuit : sa cadence double pendant 5 s.' },
-    { id: 'deadeye', name: 'Dead Eye', icon: '🎯', once: true, dur: 5, boost: 'dur', desc: 'Une fois par nuit : vue à la première personne, vise jusqu’à 10 cibles pendant 5 s (ou rappuie sur E), puis des flèches enflammées les frappent à 3× les dégâts.' },
+    { id: 'deadeye', name: 'Dead Eye', icon: '🎯', cd: 60, dur: 5, boost: 'dur', desc: 'Recharge 1 min : vue à la première personne, vise jusqu’à 10 cibles pendant 5 s (ou rappuie sur E), puis des flèches enflammées les frappent à 3× les dégâts.' },
   ],
 };
 export const CLASS_STATS = {

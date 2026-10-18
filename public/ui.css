@@ -350,3 +350,28 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 .tlanes-gap { height: 4px; }
 .ctree-sum { margin-top: 10px; font-size: 13px; }
 @media (max-width: 700px) { .tnode { width: 20px; height: 20px; font-size: 10px; } .tnode.skill { width: 28px; height: 28px; font-size: 14px; } .tnode i { display: none; } }
+
+/* ======================= v0.2.2 : cible (Tab) en haut, horloge et Joyau sous la boussole ======================= */
+#topbar { left: auto; right: 12px; top: 200px; transform: none; flex-direction: column; gap: 6px; }
+#clock, #gem-hp { width: 190px; }
+#sel-target { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 360px; max-width: calc(100vw - 230px); text-align: center; font-weight: 700;
+  border: 10px solid transparent; border-image: url(ui/panel_brown_dark.png) 24 fill / 10px stretch; color: var(--cream); padding: 0 6px 3px; }
+#sel-target .bar { height: 14px; margin-top: 3px; }
+#sel-fill { background: linear-gradient(180deg, #ff6a5a, #c02a2a); }
+#sel-hp { opacity: .8; font-size: 12px; }
+@media (max-width: 760px) { #topbar { top: 140px; } #clock, #gem-hp { width: 150px; } }
+
+/* Jauge de lancer d'un allié */
+#throw { position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); width: 140px; }
+#throw .bar { height: 10px; }
+#throw-fill { background: linear-gradient(90deg, #ffe08a, #ff6a3a); transition: none; }
+
+/* Écran de connexion : CGU et crédits */
+.cgu-row { display: block; margin: 8px 0 2px; font-size: 13px; cursor: pointer; }
+.cgu-row input { vertical-align: middle; margin-right: 4px; }
+.cgu-row small { opacity: .7; }
+#credits, #cgu { z-index: 50; }
+.credits-body { max-height: 60vh; overflow-y: auto; font-size: 13.5px; line-height: 1.45; padding: 0 4px; }
+.credits-body h4 { margin: 10px 0 2px; }
+.credits-body ul { padding-left: 18px; }
+.credits-body li { margin-bottom: 6px; }

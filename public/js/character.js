@@ -227,6 +227,8 @@ export class CharacterRig {
     this.tools.fist.userData.len = 0.2;
     // l'arc était tenu à l'envers (corde vers l'extérieur) : demi-tour autour de sa longueur
     this.tools.bow.children[0].rotation.y = Math.PI;
+    // la hache de bûcheron aussi : le tranchant doit regarder l'arbre
+    this.tools.axe.children[0].rotation.y = Math.PI;
     this.B.handL = bone('handslotl');
     for (const k in this.tools) (k === 'bow' ? this.B.handL : this.B.handR).add(this.tools[k]);
     // le guerrier porte toujours son bouclier au bras gauche

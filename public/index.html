@@ -31,6 +31,7 @@
           <button id="btn-login" class="btn primary">Se connecter</button>
           <button id="btn-register" class="btn">Créer un compte</button>
         </div>
+        <label class="cgu-row"><input type="checkbox" id="cgu-ok"> J’ai lu et j’accepte les <button type="button" id="btn-cgu" class="linkbtn">conditions d’utilisation</button> <small>(obligatoire pour créer un compte)</small></label>
         <div class="hint">Un compte sauvegarde ta progression (éclats, compétences, niveau) sur le serveur.</div>
       </div>
       <div id="session-box" hidden>
@@ -43,6 +44,7 @@
       <div id="title-error" class="error"></div>
       <div class="lobby-foot">
         <button id="btn-title-options" class="btn small ghost">⚙ Options</button>
+        <button id="btn-credits" class="btn small ghost">★ Crédits</button>
         <span id="conn-state">Connexion au serveur…</span>
       </div>
     </div>
@@ -74,6 +76,7 @@
           <div class="bar"><div class="ghost"></div><div id="gem-hp-fill" class="fill"></div></div>
         </div>
       </div>
+      <div id="sel-target" hidden><div class="sel-row"><b id="sel-name"></b> <span id="sel-hp"></span></div><div class="bar"><div id="sel-fill" class="fill"></div></div></div>
       <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas><div id="minimap-n">N</div></div>
       <div id="status"></div>
       <div id="path-boost">⚡ Chemin : +15 % de vitesse</div>
@@ -143,6 +146,7 @@
 
     <!-- ----- Commun ----- -->
     <div id="crosshair"></div>
+    <div id="throw" hidden><div class="bar"><div id="throw-fill" class="fill"></div></div></div>
     <div id="target"><div class="label"></div><div class="bar"><div class="fill"></div></div></div>
     <div id="prompt"></div>
     <div id="chat">
@@ -289,6 +293,47 @@
   </div>
 
   <!-- ======================= OPTIONS ======================= -->
+
+  <div id="credits" class="overlay" hidden>
+    <div class="panel options-panel">
+      <div class="panel-title">Crédits <button class="x" data-hide="credits">✕</button></div>
+      <div class="credits-body">
+        <p>Merci aux artistes qui partagent leur travail gratuitement :</p>
+        <ul>
+          <li><b>Kay Lousberg — KayKit</b> (kaylousberg.com) : Adventurers, Skeletons, Forest Nature Pack, Dungeon Pack, RPG Tools, Character Animations. Licence CC0.</li>
+          <li><b>Quaternius</b> (quaternius.com) : Pirate Kit (bûches, cailloux, gemmes). Licence CC0.</li>
+          <li><b>Kenney</b> (kenney.nl) : UI Pack Adventure, toute l’interface. Licence CC0.</li>
+          <li><b>Medieval Village Pack</b> : maisons, moulin, clocher, puits, étals, charrettes du village.</li>
+          <li><b>Wood Frame Base Build Set</b> : constructions en bois (planchers, murs, toits…).</li>
+          <li><b>three.js</b> : moteur 3D (licence MIT).</li>
+        </ul>
+        <p>Musiques et bruitages : générés par le jeu.</p>
+        <p>Jeu créé par <b>Mano gamming</b>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="cgu" class="overlay" hidden>
+    <div class="panel options-panel">
+      <div class="panel-title">Conditions d’utilisation <button class="x" data-hide="cgu">✕</button></div>
+      <div class="credits-body">
+        <p><i>Version du 18 octobre 2026.</i></p>
+        <h4>1. Le service</h4>
+        <p>Nuit Blanche est un jeu gratuit en ligne. Il est fourni « tel quel », sans garantie de disponibilité : le serveur peut être mis à jour, redémarré ou arrêté à tout moment, et la progression peut être réinitialisée en cas de problème technique.</p>
+        <h4>2. Ton compte</h4>
+        <p>Tu choisis un pseudo et un mot de passe. Le mot de passe est enregistré chiffré (haché) : personne ne peut le lire, mais il ne peut pas être récupéré si tu l’oublies. Garde-le pour toi ; tu es responsable de ce qui est fait avec ton compte. Un pseudo injurieux ou qui imite quelqu’un peut être supprimé.</p>
+        <h4>3. Bonne conduite</h4>
+        <p>Sont interdits : la triche (programme ou modification du jeu), l’exploitation volontaire de bugs, les insultes, le harcèlement, les propos haineux ou discriminatoires et le spam dans le chat. En cas d’abus, le compte peut être suspendu ou supprimé sans préavis.</p>
+        <h4>4. Données personnelles</h4>
+        <p>Le jeu enregistre uniquement : ton pseudo, ton mot de passe haché, ta progression (éclats, niveau, objets, classement) et, pour la sécurité du serveur, l’adresse IP de connexion le temps de la partie. Aucune donnée n’est vendue ni partagée. Tu peux demander à consulter ou supprimer ton compte et ses données en contactant l’administrateur du jeu.</p>
+        <h4>5. Âge</h4>
+        <p>Si tu as moins de 15 ans, demande l’accord d’un parent avant de créer un compte.</p>
+        <h4>6. Modifications</h4>
+        <p>Ces conditions peuvent évoluer ; la nouvelle version s’affichera ici et pourra être demandée à nouveau lors de la création d’un compte.</p>
+      </div>
+    </div>
+  </div>
+
   <div id="options" class="overlay" hidden>
     <div class="panel options-panel">
       <div class="panel-title">Options <button id="options-close" class="x">✕</button></div>
@@ -326,7 +371,7 @@
   </div>
 
   <div id="fade"></div>
-  <div id="version">ver.0.2.1</div>
+  <div id="version">ver.0.2.2</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

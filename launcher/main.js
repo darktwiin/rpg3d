@@ -25,7 +25,7 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false },
   });
   Menu.setApplicationMenu(null);
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => { win.setFullScreen(true); win.show(); });   // plein écran dès le lancement (F11 pour en sortir)
   // F11 : plein écran · F5 : recharger · Ctrl+Maj+I : outils (dépannage)
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
