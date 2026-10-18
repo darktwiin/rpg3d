@@ -28,16 +28,8 @@ Le VPS héberge aussi **The Curse** : ne jamais toucher à ses processus, son do
 - Code, commentaires et textes du jeu en français.
 - Chaque livraison augmente la version : `VERSION` dans `world.js`, `package.json`, `index.html` et `README.md`.
 
-## À faire (prochaine version 0.1.5)
-Écrit dans l'ancienne conversation mais **perdu** (absent du dépôt), à refaire :
-- Barre de vie au centre en bas, agrandie ; vie perdue en rouge clair qui fond en 0,5 s ; tremblement à chaque coup ; orange sous 50 %, rouge sous 20 % (`updateHp()` dans `main.js`, image `ui/progress_orange.png`).
-- Messages d'interaction (« E Forge… ») en bas, au-dessus de la barre de vie ; barre de construction au-dessus de la barre de vie.
-
-Demandé, pas fait :
-- Ressources ramassées : petit « pop » et icône qui vole vers le compteur du HUD (aujourd'hui vers le personnage : `flyResources()`, `updateFlyers()`).
-- Bannières du village qui flottent à côté de leur mât (`villageDecor.js`) : placer d'après la boîte englobante.
-- Plus de maisons et de décor hors des remparts (`villageMedieval.js`).
-- Modèles 3D d'équipement affichés sur le personnage (aujourd'hui seulement des icônes SVG dans `hero.js`).
+## À faire
+- Modèles 3D d'équipement affichés sur le personnage (aujourd'hui seulement des icônes SVG dans `hero.js`). L'utilisateur a modélisé chapeaux et plastrons par classe dans Blender (`G:\Telechargements\PACK 3d\*.blend`, à exporter en .glb).
 
 ## Bugs connus et limites
 - Anti-triche : le client décide de sa position (bornée à ±150 m) ; vitesse non validée côté serveur.
