@@ -204,6 +204,7 @@ addEventListener('wheel', (e) => {
 const PANELS = ['pause', 'admin', 'mapview', 'skills', 'board', 'launch', 'players', 'craft', 'recap', 'heropanel', 'talents'];
 function setMode(m) {
   game.mode = m;
+  $('talent-tip').hidden = true;
   const map = { pause: 'pause', admin: 'admin', map: 'mapview', skills: 'skills', board: 'board', launch: 'launch', players: 'players', craft: 'craft', recap: 'recap', hero: 'heropanel', talents: 'talents' };
   for (const id of PANELS) $(id).hidden = map[m] !== id;
   if (m === 'pause') $('btn-quit').hidden = !inGame();
@@ -418,6 +419,11 @@ $('quality').onchange = () => {
 };
 $('options-close').onclick = () => { $('options').hidden = true; audio.play('ui'); };
 $('btn-title-options').onclick = () => { audio.init(); openOptions(); };
+// en plein écran, Échap reste au jeu (maintenir Échap 2 s pour sortir) — navigateurs Chromium seulement
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement) navigator.keyboard?.lock?.(['Escape']).catch(() => {});
+  else navigator.keyboard?.unlock?.();
+});
 $('btn-fullscreen').onclick = () => {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen?.().catch(() => {});
@@ -1104,16 +1110,21 @@ function renderClassTree() {
   const tip = (d, n) => {
     const k = W.nodeKind(n);
     if (k === 'skill') return `${d.name} — ${d.desc}`;
-    if (k === 'boost') return d.boost === 'cd' && !d.once ? `Niveau ${n} : -${W.BOOST_STEP} s de recharge` : `Niveau ${n} : +${W.BOOST_STEP} s de durée`;
-    return `Niveau ${n} : ${W.CLASS_STATS[k].name}`;
+    const b = (n - 1) / 2;   // améliorations cumulées à ce rond
+    if (k === 'boost') return d.boost === 'cd' && !d.once
+      ? `Niveau ${n} : -${W.BOOST_STEP} s de recharge → ${Math.max(1, d.cd - b * W.BOOST_STEP)} s`
+      : `Niveau ${n} : +${W.BOOST_STEP} s de durée → ${d.dur + b * W.BOOST_STEP} s`;
+    let c = 0; for (let m = 2; m <= n; m += 2) if (W.nodeKind(m) === k) c++;
+    const tot = { hp: `${c * 10} PV`, dmg: `${c} % de dégâts`, aspd: `${c * 2} % de vitesse d’attaque` }[k];
+    return `Niveau ${n} : ${W.CLASS_STATS[k].name} (total +${tot})`;
   };
   const icon = (d, n) => { const k = W.nodeKind(n); return k === 'skill' ? d.icon : k === 'boost' ? '⚡' : W.CLASS_STATS[k].icon; };
   const lane = (d) => {
     const mine = path === d.id, locked = path && !mine;
-    const pick = !path && edit;
+    const pick = !mine && edit;
     const nodes = Array.from({ length: W.TALENT_NODES }, (_, i) => {
       const n = i + 1, on = mine && n <= reached;
-      return `<div class="tnode ${W.nodeKind(n)}${on ? ' on' : ''}${n === 1 && pick ? ' pick' : ''}" title="${tip(d, n)}" ${n === 1 && pick ? `data-path="${d.id}"` : ''}><span>${icon(d, n)}</span><i>${n}</i></div>`;
+      return `<div class="tnode ${W.nodeKind(n)}${on ? ' on' : ''}${n === 1 && pick ? ' pick' : ''}" data-tip="${tip(d, n)}" ${n === 1 && pick ? `data-path="${d.id}"` : ''}><span>${icon(d, n)}</span><i>${n}</i></div>`;
     }).join('');
     return `<div class="tlane${mine ? ' mine' : ''}${locked ? ' locked' : ''}">
       <div class="tlane-head"><b>${d.icon} ${d.name}</b>${mine ? ' ✔' : locked ? ' 🔒' : ''}<div class="desc">${d.desc}</div></div>
@@ -1127,12 +1138,20 @@ function renderClassTree() {
     ${W.CLASS_SKILLS[me.skin].map(lane).join('')}
     <div class="ctree-sum">${path && sk
       ? `Compétence (touche <b>${keyLabel(settings.keys.skill)}</b>) : ${sk.dur ? `durée <b>${sk.dur} s</b>` : ''}${sk.dur && (sk.cd || sk.def.once) ? ' · ' : ''}${sk.def.once ? 'une fois par nuit' : sk.cd ? `recharge <b>${sk.cd} s</b>` : ''} · Bonus : +${tot.hp * 10} PV, +${tot.dmg} % de dégâts, +${tot.aspd * 2} % de vitesse d’attaque`
-      : edit ? 'Clique sur le premier rond d’une branche pour la choisir. <b>Attention : l’autre branche sera verrouillée.</b>' : 'Choisis ta branche au village.'}</div>
+      : edit ? 'Clique sur le premier rond d’une branche pour la choisir. Une seule branche est active à la fois.' : 'Choisis ta branche au village.'}</div>
     ${edit ? '' : '<div class="hint">🔒 En partie : consultation seulement.</div>'}
     <div class="hint">⚡ amélioration de la compétence · ❤ ⚔ ⏱ caractéristiques · un rond par niveau, jusqu’au niveau ${W.TALENT_NODES}</div>
   </div>`;
+  const tt = $('talent-tip');
+  tt.hidden = true;
+  document.body.append(tt);   // hors du panneau : son ombre portée fausse la position « fixed »
+  for (const el of $('talents-body').querySelectorAll('.tnode')) {
+    el.onmouseenter = () => { tt.textContent = el.dataset.tip; tt.hidden = false; };
+    el.onmousemove = (e) => { tt.style.left = Math.min(innerWidth - 300, e.clientX + 14) + 'px'; tt.style.top = (e.clientY + 16) + 'px'; };
+    el.onmouseleave = () => { tt.hidden = true; };
+  }
   for (const b of $('talents-body').querySelectorAll('[data-path]')) b.onclick = () => {
-    if (!b.dataset.sure) { b.dataset.sure = 1; b.classList.add('sure'); toast('Clique encore pour confirmer : l’autre branche sera verrouillée.'); return; }
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.classList.add('sure'); toast(path ? 'Clique encore pour changer de branche.' : 'Clique encore pour confirmer ton choix.'); return; }
     send({ type: 'cPath', path: b.dataset.path }); audio.play('levelUp');
   };
 }

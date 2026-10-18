@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.2.0**
+Version actuelle : **ver.0.2.1**
 
 ## Comptes
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
@@ -26,7 +26,7 @@ Les monstres tués et les nuits survécues donnent de l'**expérience**. Chaque 
 
 ## Talents de classe et compétence active (touche A)
 Touche **C** (ou bouton dans l'inventaire) : consultables partout, modifiables seulement au village. Chaque classe a deux
-branches de 20 ronds (un par niveau, de 1 à 20), dépensés automatiquement. Choisir une branche verrouille l'autre.
+branches de 20 ronds (un par niveau, de 1 à 20), dépensés automatiquement. Une seule branche est active ; on en change quand on veut au village. Le survol d'un rond montre son effet.
 Rond 1 : la compétence ; ronds impairs suivants (3, 5…) : amélioration (+0,5 s de durée ou -0,5 s de recharge — jamais
 de recharge réduite pour une compétence « une fois par nuit ») ; ronds pairs : caractéristique (+10 PV, +1 % de dégâts,
 +2 % de vitesse d'attaque, à tour de rôle).

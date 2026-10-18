@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -69,7 +69,8 @@ export const MONSTER_HP = MONSTERS.brute.hp;
 // Nombre de monstres présents en même temps pendant la nuit
 // k = avancement de la nuit (0 au début, 1 à l'aube) : ils sont deux fois plus nombreux à la fin
 export function nightTarget(night, players, k = 0) {
-  return Math.round(1.2 * (10 + 6 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)));
+  // nuit 1 : 30 % de monstres en moins pour démarrer en douceur
+  return Math.round(1.2 * (10 + 6 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)) * (night === 1 ? 0.7 : 1));
 }
 export const CHASE_GIVEUP = 8;   // secondes de poursuite sans toucher le joueur avant d'abandonner
 export const SPAWN_MIN = 68, SPAWN_MAX = 88;   // distance d'apparition autour du Joyau
