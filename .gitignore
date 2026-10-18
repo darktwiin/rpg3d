@@ -1,5 +1,5 @@
-   node_modules/
-   .DS_Store
-   *.log
-   data/
-   p9/
+node_modules/
+.DS_Store
+*.log
+data/
+p9/

@@ -1,3 +1,7 @@
+# Construit le lanceur Windows (.exe) et le publie dans les « Releases » GitHub.
+# Les lanceurs déjà installés se mettent à jour tout seuls à partir de ces Releases.
+# Lancement : onglet « Actions » > « Lanceur Windows » > « Run workflow »,
+# ou en poussant un tag du type launcher-v1.0.1
 name: Lanceur Windows
 on:
   workflow_dispatch:
@@ -16,6 +20,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Adresse du serveur (variable GAME_URL du dépôt, sinon config.json)
+        if: ${{ vars.GAME_URL != '' }}
+        shell: pwsh
+        run: |
+          $c = Get-Content config.json | ConvertFrom-Json
+          $c.gameUrl = "${{ vars.GAME_URL }}"
+          $c | ConvertTo-Json | Set-Content config.json
       - run: npm install
       - name: Construire et publier
         run: npx electron-builder --win nsis --publish always
