@@ -104,7 +104,7 @@ function getProfile(token, name) {
 function sendProfile(p) {
   const pr = p.prof;
   send(p.ws, { type: 'profile', token: p.token, shards: pr.shards, skills: pr.skills, best: pr.best, xp: pr.xp || 0, account: pr.account ? accounts[pr.account]?.name : null,
-    items: pr.items || [], equip: pr.equip || {}, skin: p.skin });
+    items: pr.items || [], equip: pr.equip || {}, skin: p.skin, ferite: pr.ferite || 0 });
 }
 // Recalcule les caractéristiques (en partie : la vie max change aussi)
 function refreshMods(p) {
@@ -439,7 +439,7 @@ class Room {
     const type = String(d.piece);
     const piece = W.PIECES[type];
     if (!piece || p.dead) return;
-    if (!p.free && !W.pieceUnlocked(type, p.mods)) return send(p.ws, { type: 'toast', text: 'Débloque cette construction à la forge du village.' });
+    if (!p.free && !W.pieceUnlocked(type, p.mods)) return send(p.ws, { type: 'toast', text: 'Débloque cette construction auprès du Gardien de maîtrise.' });
     const x = num(d.x), z = num(d.z), y = num(d.y), rot = clamp(Math.floor(num(d.rot)), 0, 3);
     const lv = clamp(Math.floor(num(d.lv)), 0, W.MAX_LEVEL);
     if (Math.abs(x) > W.WORLD_LIMIT || Math.abs(z) > W.WORLD_LIMIT) return;
@@ -1086,19 +1086,60 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // ----- Forge (au village) : fusion et fonte -----
+    if ((d.type === 'fuse' || d.type === 'smelt') && p.where === 'hub') {
+      const prof = p.prof, items = (prof.items ||= []), eq = (prof.equip ||= {});
+      const ids = Array.isArray(d.ids) ? [...new Set(d.ids.map(String))].slice(0, W.INV_MAX) : [];
+      const picked = ids.map((id) => items.find((i) => i.id === id)).filter((i) => i && Number.isInteger(i.r) && i.r >= 0 && i.r < W.FERITE.length);
+      if (!picked.length || picked.length !== ids.length) return;
+      if (d.type === 'fuse') {
+        const k = W.fuseKey(picked[0]);
+        if (picked.length !== W.FUSE_COUNT || picked.some((i) => W.fuseKey(i) !== k)) return send(ws, { type: 'toast', text: `Il faut ${W.FUSE_COUNT} objets identiques (même type, même rareté).` });
+        if (picked[0].r >= W.RARITIES.length - 1) return send(ws, { type: 'toast', text: 'Rareté maximale : impossible de fusionner.' });
+      }
+      const gone = new Set(ids);
+      for (const s in eq) if (gone.has(eq[s])) delete eq[s];
+      prof.items = items.filter((i) => !gone.has(i.id));
+      let msg;
+      if (d.type === 'fuse') {
+        const a = picked[0];
+        if (Math.random() < W.FUSE_CHANCE) {
+          const it = W.makeItem(a.slot, a.cls || p.skin, a.r + 1, Math.max(...picked.map((i) => i.lvl || 1)));
+          prof.items.push(it);
+          msg = `Fusion réussie : ${it.name} !`;
+          send(ws, { type: 'fuseResult', ok: true, id: it.id });
+        } else {
+          // échec : les objets sont perdus mais rendent leur férite
+          const f = W.FERITE[a.r] * W.FUSE_COUNT;
+          prof.ferite = (prof.ferite || 0) + f;
+          msg = `La fusion a échoué… les objets ont fondu (+${f} férite).`;
+          send(ws, { type: 'fuseResult', ok: false });
+        }
+      } else {
+        const f = picked.reduce((t, i) => t + W.FERITE[i.r], 0);
+        prof.ferite = (prof.ferite || 0) + f;
+        msg = `${picked.length} objet${picked.length > 1 ? 's' : ''} fondu${picked.length > 1 ? 's' : ''} : +${f} férite.`;
+      }
+      saveJSON('profiles.json', profiles);
+      sendProfile(p);
+      send(ws, { type: 'toast', text: msg });
+      return;
+    }
+
     if (p.where === 'hub') {
       switch (d.type) {
         case 'setClass': {
           if (!W.skinOk(d.skin) || d.skin === p.skin) return;
-          if (p.prof.shards < W.CLASS_CHANGE_COST) return send(ws, { type: 'toast', text: `Changer de classe coûte ${W.CLASS_CHANGE_COST} éclats.` });
-          p.prof.shards -= W.CLASS_CHANGE_COST;
+          // coûte 3 éclats sans jamais passer en négatif ; le niveau du héros repart à 1, les compétences restent
+          p.prof.shards -= Math.min(p.prof.shards, W.CLASS_CHANGE_COST);
+          p.prof.xp = 0;
           p.prof.skin = p.skin = d.skin;
           // l'arme et la tenue de l'ancienne classe sont rangées
           for (const k of ['weapon', 'chest']) { const it = (p.prof.items || []).find((i) => i.id === p.prof.equip?.[k]); if (it && it.cls && it.cls !== p.skin) delete p.prof.equip[k]; }
           saveJSON('profiles.json', profiles);
           sendProfile(p);
           hub.broadcast({ type: 'hubSkin', id: p.id, skin: p.skin });
-          send(ws, { type: 'toast', text: `Tu joues maintenant ${W.CLASS_NAMES[p.skin]} !` });
+          send(ws, { type: 'toast', text: `Tu joues maintenant ${W.CLASS_NAMES[p.skin]} ! Ton niveau repart à 1.` });
           break;
         }
         case 'hubMove':

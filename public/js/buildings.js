@@ -669,7 +669,7 @@ export class Buildings {
         if (distToBox(r.x, r.z, box) < r.r * 0.9) { plan.ok = false; plan.reason = r.kind === 'tree' ? 'Un arbre gêne' : r.kind === 'bush' ? 'Un buisson gêne' : 'Un rocher gêne'; break; }
       }
     }
-    if (!free && !pieceUnlocked(type, mods)) { plan.ok = false; plan.reason = 'À débloquer à la forge du village'; }
+    if (!free && !pieceUnlocked(type, mods)) { plan.ok = false; plan.reason = 'À débloquer auprès du Gardien de maîtrise'; }
     if (plan.ok && !free) {
       const c = pieceCost(type, mods);
       if (!canAfford(inv, c)) { plan.ok = false; plan.reason = 'Pas assez de matériaux'; }

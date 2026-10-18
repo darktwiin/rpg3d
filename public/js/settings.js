@@ -2,12 +2,12 @@
 
 export const ACTIONS = [
   ['forward', 'Avancer'], ['back', 'Reculer'], ['left', 'Gauche'], ['right', 'Droite'],
-  ['jump', 'Sauter'], ['run', 'Courir'], ['interact', 'Interagir / Joyau'], ['build', 'Menu construction'], ['demolish', 'Déconstruire'],
+  ['jump', 'Sauter'], ['run', 'Courir'], ['interact', 'Interagir / Joyau'], ['skill', 'Compétence de classe'], ['build', 'Menu construction'], ['demolish', 'Déconstruire'],
   ['map', 'Carte'], ['chat', 'Chat'], ['repair', 'Réparer (construction)'], ['punch', 'Coup de poing (allié)'], ['inventory', 'Inventaire / héros'],
 ];
 export const DEFAULT_KEYS = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', run: 'ShiftLeft',
-  interact: 'KeyE', build: 'KeyB', demolish: 'KeyF', map: 'KeyM', chat: 'Enter', repair: 'KeyR', punch: 'KeyG', inventory: 'KeyI',
+  interact: 'KeyF', skill: 'KeyE', build: 'KeyB', demolish: 'KeyF', map: 'KeyM', chat: 'Enter', repair: 'KeyR', punch: 'KeyG', inventory: 'KeyI',
 };
 const DEFAULTS = { master: 20, music: 60, amb: 70, sfx: 80, sens: 100, quality: 'high', keys: { ...DEFAULT_KEYS } };
 
@@ -22,6 +22,8 @@ export const settings = (() => {
   if ((s.kv || 0) < 2) { if (out.keys.build === 'KeyF') out.keys.build = 'KeyB'; out.keys.demolish = 'KeyF'; out.kv = 2; }
   // v0.1.0 : volume général à 20 % par défaut (le jeu était trop fort au lancement)
   if ((out.kv || 0) < 3) { out.master = 20; out.kv = 3; }
+  // v0.1.6 : la compétence de classe prend E, interagir passe sur F (déconstruire reste sur F en construction)
+  if ((out.kv || 0) < 4) { out.keys.interact = 'KeyF'; out.keys.skill = 'KeyE'; out.kv = 4; }
   const legacyQ = lsGet('rpg3d_quality');
   if (!s.quality && legacyQ) out.quality = legacyQ;
   return out;

@@ -55,7 +55,14 @@ export class HeroPage {
   }
   equipped(slot) { const p = this.ctx.profile; return (p.items || []).find((i) => i.id === p.equip?.[slot]) || null; }
   wearable(it) { return !it.cls || it.cls === this.ctx.me.skin; }
-  open() { this.ctx.setMode('hero'); this.render(); }
+  // mode : null (touche I), 'forge' (sélection multiple : fusion, fonte), 'class' (au Barbare)
+  open(mode = null) {
+    this.mode = mode; this.pick = new Set();
+    this.ctx.setMode('hero');
+    $('hero-classes').hidden = mode !== 'class';
+    if (mode === 'class') this.renderClasses();
+    this.render();
+  }
   render() {
     const { profile: P, me } = this.ctx;
     const mods = this.ctx.getMods();
@@ -78,9 +85,11 @@ export class HeroPage {
       row('💨', 'Endurance', mods.stamina),
       row('🛡', 'Dégâts reçus', `${Math.round(mods.armor * 100)} %`),
       row('◆', 'Éclats', P.shards),
+      row('🔥', 'Férite', P.ferite || 0),
     ].join('');
-    $('hero-class-btn').disabled = !this.ctx.inHub();
-    $('hero-class-btn').textContent = this.ctx.inHub() ? `Changer de classe (${W.CLASS_CHANGE_COST} ◆)` : 'Changer de classe : au village';
+    const atBarb = this.mode === 'class';
+    $('hero-class-btn').disabled = !atBarb;
+    $('hero-class-btn').textContent = atBarb ? `Changer de classe (${Math.min(P.shards, W.CLASS_CHANGE_COST)} ◆ · niveau remis à 1)` : 'Changer de classe : parle au Barbare du village';
     // emplacements portés
     for (const el of document.querySelectorAll('#heropanel .slot')) {
       const it = this.equipped(el.dataset.slot);
@@ -97,11 +106,15 @@ export class HeroPage {
     box.innerHTML = '';
     for (const it of items) {
       const c = document.createElement('div');
-      c.className = 'inv-cell' + (worn.has(it.id) ? ' worn' : '') + (this.wearable(it) ? '' : ' other') + (this.sel === it.id ? ' sel' : '');
+      c.className = 'inv-cell' + (worn.has(it.id) ? ' worn' : '') + (this.wearable(it) ? '' : ' other') + (this.sel === it.id ? ' sel' : '') + (this.pick?.has(it.id) ? ' pick' : '');
       c.setAttribute('style', rarityBg(it.r));
       c.innerHTML = `<div class="item-ico">${itemIcon(it)}</div>`;
-      c.onclick = () => { this.sel = it.id; this.ctx.audio.play('ui'); this.render(); };
-      c.ondblclick = () => this.equip(it);
+      c.onclick = () => {
+        if (this.mode === 'forge') { this.pick.has(it.id) ? this.pick.delete(it.id) : this.pick.add(it.id); this.sel = null; }
+        else this.sel = it.id;
+        this.ctx.audio.play('ui'); this.render();
+      };
+      c.ondblclick = () => { if (this.mode !== 'forge') this.equip(it); };
       c.onmouseenter = (e) => this.tip(it, e);
       c.onmousemove = (e) => this.tip(it, e);
       c.onmouseleave = () => this.tip(null);
@@ -110,7 +123,38 @@ export class HeroPage {
     if (!items.length) box.innerHTML = '<div class="hint" style="grid-column:1/-1">Aucun objet pour le moment. Les monstres lâchent parfois un coffre (1 %) : plus la nuit est avancée, plus l’objet est rare.</div>';
     this.renderSel();
   }
+  // Forge : fusion (5 objets identiques → rareté supérieure, 70 %) et fonte (→ férite)
+  renderForge() {
+    const items = this.ctx.profile.items || [];
+    for (const id of this.pick) if (!items.some((i) => i.id === id)) this.pick.delete(id);
+    const picked = items.filter((i) => this.pick.has(i.id));
+    const key = picked[0] && W.fuseKey(picked[0]);
+    const same = picked.every((i) => W.fuseKey(i) === key);
+    const canFuse = picked.length === W.FUSE_COUNT && same && picked[0].r < W.RARITIES.length - 1;
+    const twins = key ? items.filter((i) => W.fuseKey(i) === key) : [];
+    const ferite = picked.reduce((t, i) => t + W.FERITE[i.r], 0);
+    const box = $('hero-sel');
+    box.innerHTML = `<div class="nm">⚒ Forge</div>
+      <div>Sélection : <b>${picked.length}</b> objet${picked.length > 1 ? 's' : ''}${picked.length && !same ? ' (différents)' : ''}</div>
+      <div class="hint">Fusion : ${W.FUSE_COUNT} objets identiques (type, classe, rareté) → rareté supérieure, ${Math.round(W.FUSE_CHANCE * 100)} % de réussite (sinon ils fondent).</div>
+      <div class="btns">
+        <button class="btn small" id="fg-five" ${picked.length === 1 && twins.length >= W.FUSE_COUNT ? '' : 'disabled'}>Choisir ${W.FUSE_COUNT} identiques</button>
+        <button class="btn small primary" id="fg-fuse" ${canFuse ? '' : 'disabled'}>Fusionner</button>
+        <button class="btn small ghost" id="fg-smelt" ${picked.length ? '' : 'disabled'}>Fondre (+${ferite} férite)</button>
+      </div>`;
+    $('fg-five').onclick = () => {
+      const worn = new Set(Object.values(this.ctx.profile.equip || {}));
+      const pool = [...twins].sort((a, b) => worn.has(a.id) - worn.has(b.id) || a.val - b.val);
+      this.pick = new Set(pool.slice(0, W.FUSE_COUNT).map((i) => i.id)); this.ctx.audio.play('ui'); this.render();
+    };
+    $('fg-fuse').onclick = () => { this.ctx.send({ type: 'fuse', ids: [...this.pick] }); this.pick.clear(); };
+    $('fg-smelt').onclick = () => {
+      if (!$('fg-smelt').dataset.sure) { $('fg-smelt').dataset.sure = 1; $('fg-smelt').textContent = 'Sûr ? Re-clique'; return; }
+      this.ctx.send({ type: 'smelt', ids: [...this.pick] }); this.pick.clear(); this.ctx.audio.play('anvil');
+    };
+  }
   renderSel() {
+    if (this.mode === 'forge') return this.renderForge();
     const it = (this.ctx.profile.items || []).find((i) => i.id === this.sel);
     const box = $('hero-sel');
     if (!it) { box.innerHTML = '<div class="hint">Clique sur un objet pour le voir. Clique sur un emplacement pour retirer l’objet porté.</div>'; return; }

@@ -119,6 +119,28 @@ export function decorateVillage(v, SPOTS, villageHeight) {
   fg.updateMatrixWorld(true);
   for (const [lx, lz, r] of [[1.1, 0, 0.6], [2.4, -1.5, 0.75], [0.2, -2.15, 0.7], [2.5, 0.6, 0.6]]) { const w = fg.localToWorld(new THREE.Vector3(lx, 0, lz)); coll(w.x, w.z, r); }
 
+  // ---------------- Ateliers des PNJ (salle d'armes, sanctuaire) ----------------
+  const gput = (grp, name, x, z, ry = 0, s = 1, y = 0.25) => { const o = prop(name, KK * s); o.position.set(x, y, z); o.rotation.y = ry; grp.add(o); return o; };
+  const A = v.armoryGroup, S = v.sanctumGroup;
+  gput(A, 'd_banner_red', -1.8, -2.5, 0, 0.9, 0.9);
+  gput(A, 'd_banner_red', 1.8, -2.5, 0, 0.9, 0.9);
+  gput(A, 'd_sword_shield', 0, -2.55, 0, 0.9, 1.6);
+  gput(A, 's_Shield_Large_A', -2.3, -1.9, 0.3, 1.0, 0.25);
+  gput(A, 's_Axe', 2.3, -1.9, -0.3, 1.0, 0.9).rotation.z = 0.3;
+  gput(A, 'd_barrel_small', 2.4, 0.6, 0.8, 0.9);
+  gput(A, 'd_torch_lit', -2.75, 1.3, 0, 0.9, 1.6);
+  gput(S, 'd_banner_thin_blue', -1.8, -2.5, 0, 0.9, 0.9);
+  gput(S, 'd_banner_thin_blue', 1.8, -2.5, 0, 0.9, 0.9);
+  gput(S, 'd_table_medium_tablecloth_decorated_B', 1.9, -1.6, 0, 0.75);
+  gput(S, 'd_candle_triple', 1.7, -1.6, 0.5, 0.9, 0.25 + 1.0 * KK * 0.75);
+  gput(S, 'd_bottle_A_green', 2.2, -1.4, 0, 0.9, 0.25 + 1.0 * KK * 0.75);
+  gput(S, 'd_chest', -2.1, -1.8, 0.4, 0.8);
+  gput(S, 'd_candle_triple', -2.6, 1.0, 0, 0.9);
+  for (const [grp, pts] of [[A, [[2.4, 0.6, 0.6], [-2.3, -1.9, 0.6]]], [S, [[1.9, -1.6, 0.7], [-2.1, -1.8, 0.7]]]]) {
+    grp.updateMatrixWorld(true);
+    for (const [lx, lz, r] of pts) { const w = grp.localToWorld(new THREE.Vector3(lx, 0, lz)); coll(w.x, w.z, r); }
+  }
+
   // ---------------- Trésor autour du classement ----------------
   const B = SPOTS.board;
   put('d_chest_gold', B.x + 1.6, B.z + 2.6, -2.4, 0.75); coll(B.x + 1.6, B.z + 2.6, 0.7);
@@ -196,11 +218,11 @@ export function decorateVillage(v, SPOTS, villageHeight) {
 
 // ---------------- Le forgeron (PNJ) ----------------
 const LINES = [
-  'Pense à améliorer tes compétences à la forge !',
-  'Les éclats ◆ gagnés chaque nuit servent à acheter des compétences.',
+  'Apporte-moi 5 objets identiques : je les fusionne en mieux !',
+  'Un objet en trop ? Je le fonds en férite.',
   'Bâtisseur, récolteur ou combattant : choisis ta voie !',
   'Une bonne lame et de bons murs… voilà comment on survit.',
-  'Approche-toi de l’enclume pour voir l’arbre des compétences.',
+  'La fusion réussit 7 fois sur 10… le reste part à la fonte.',
 ];
 function bubbleSprite() {
   const c = document.createElement('canvas');
@@ -236,27 +258,45 @@ function drawBubble(s, text) {
   tex.needsUpdate = true;
 }
 
+export const LINES_ARMORY = [
+  'Envie de changer d’arme ? Je t’apprends une autre classe.',
+  'Changer de classe coûte 3 éclats ◆… si tu les as.',
+  'Ton niveau repart à 1, mais tes compétences restent !',
+  'Hache, épée, bâton ou arc : à toi de choisir.',
+];
+export const LINES_SANCTUM = [
+  'Approche… je connais les secrets de la maîtrise.',
+  'Les éclats ◆ gagnés chaque nuit ouvrent de nouvelles compétences.',
+  'Bâtisseur, récolteur, combattant ou rapide : choisis ta voie.',
+  'Chaque nuit survécue te rend plus fort.',
+];
+
+// PNJ du village : le forgeron par défaut ; opts change le modèle, l'outil, l'atelier et les phrases
 export class Blacksmith {
-  constructor(v, localPos, faceAngle) {
-    const { scene, animations } = skinnedModel('Ranger');
+  constructor(v, localPos, faceAngle, opts = {}) {
+    const { model = 'Ranger', tool = 't_hammer', group = v.forgeGroup, lines = LINES } = opts;
+    this.lines = lines;
+    const { scene, animations } = skinnedModel(model);
     this.model = scene;
     scene.scale.setScalar(KK);
     scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
     this.root = new THREE.Group();
     this.root.add(scene);
-    v.forgeGroup.add(this.root);
+    group.add(this.root);
     this.root.position.copy(localPos);
     this.baseYaw = faceAngle;
     this.root.rotation.y = faceAngle;
     // un marteau en main
     const hand = scene.getObjectByName('handslotr');
-    const hm = new THREE.Mesh(staticGeometry('t_hammer'), modelMaterial('t_hammer'));
-    hm.castShadow = true;
-    hand?.add(hm);
+    if (tool) {
+      const hm = new THREE.Mesh(staticGeometry(tool), modelMaterial(tool));
+      hm.castShadow = true;
+      hand?.add(hm);
+    }
     this.mixer = new THREE.AnimationMixer(scene);
     // il martèle l'enclume ; quand un aventurier approche, il le salue puis lui parle
     this.idle = this.mixer.clipAction(getClip(animations, 'Idle_A')); this.idle.play(); this.idle.weight = 0;
-    this.work = this.mixer.clipAction(getClip(animations, 'Hammering')); this.work.play(); this.work.weight = 1;
+    this.work = this.mixer.clipAction(getClip(animations, tool === 't_hammer' ? 'Hammering' : 'Idle_B') || getClip(animations, 'Idle_A')); this.work.play(); this.work.weight = 1;
     this.wave = this.mixer.clipAction(getClip(animations, 'Waving')); this.wave.setLoop(THREE.LoopOnce, 1); this.wave.clampWhenFinished = false;
     this.wave.play(); this.wave.weight = 0; this.wave.paused = true;
     this.waveT = 9; this.near = false; this.talk = 0;
@@ -265,7 +305,7 @@ export class Blacksmith {
     this.bubble.position.set(0, 2.45, 0);
     this.root.add(this.bubble);
     this.line = 0; this.lineT = 0;
-    drawBubble(this.bubble, LINES[0]);
+    drawBubble(this.bubble, this.lines[0]);
     const w = new THREE.Vector3(); this.root.getWorldPosition(w);
     v.colliders.push({ x: w.x, z: w.z, r: 0.5 });
     this.world = w;
@@ -295,7 +335,7 @@ export class Blacksmith {
     this.idle.weight = this.talk;
     // la bulle change de phrase et n'apparaît que si on est assez près
     this.lineT += dt;
-    if (this.lineT > 6) { this.lineT = 0; this.line = (this.line + 1) % LINES.length; drawBubble(this.bubble, LINES[this.line]); }
+    if (this.lineT > 6) { this.lineT = 0; this.line = (this.line + 1) % this.lines.length; drawBubble(this.bubble, this.lines[this.line]); }
     const vis = d < 16 ? 1 : 0;
     const m = this.bubble.material;
     m.opacity += (vis - m.opacity) * Math.min(1, dt * 4);
