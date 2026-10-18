@@ -1203,7 +1203,7 @@ function updateSkillHud() {
   const sk = inGame() ? W.classSkill(profile.ctree, me.skin, W.levelOf(profile.xp)) : null;
   const now = performance.now();
   let key, html, frac = 0;
-  if (!sk) { key = 'none'; html = `<span class="kbd">${keyLabel(settings.keys.skill)}</span> Compétence : choisis-la auprès du Gardien`; }
+  if (!sk) { key = 'none'; html = `<span class="kbd">${keyLabel(settings.keys.skill)}</span> Compétence : choisis-la dans les talents (${keyLabel(settings.keys.talents)}, au village)`; }
   else {
     const fx = me.rig?.skillFx, act = fx && fx.s === sk.def.id && now < fx.until;
     const rem = act ? (fx.until - now) / 1000 : 0, cd = Math.max(0, (skillUse.readyAt - now) / 1000);

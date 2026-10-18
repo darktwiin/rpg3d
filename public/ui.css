@@ -379,93 +379,89 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 #clock, #gem-hp { width: 230px; }
 .clock-row, .gem-row { white-space: nowrap; }
 
-/* ======================= v0.2.4 : thème « fantasy » (pack FantasyUIfree, pixel art) ======================= */
-/* Grands panneaux : planche de bois aux coins en os ; texte clair car le bois est plus sombre que l'ancien parchemin */
+/* ======================= v0.3.0 : thème « Fantasy UI » complet (ToffeeCraft) — images dans ui/fx/ ======================= */
+/* Règle : les cadres sont étirés (coins dorés), les fonds sont des textures répétées (nettes), tout en pixel art */
+:root { --fx-ink: #3b2414; --fx-cream: #f8ead0; --fx-gold: #ffd479; }
+
+/* --- Grandes fenêtres : cadre sombre aux coins dorés --- */
 .panel {
-  border: 22px solid transparent;
-  border-image: url(ui/fantasy/panel.png) 11 fill / 22px stretch;   /* étiré : répéter recopiait les bouts de planche (joints visibles) */
-  image-rendering: pixelated;
-  color: #fbecd2; --text: #fbecd2; --muted: #f0d8b4; --gold: #ffd27a;
-  text-shadow: 0 1px 0 #3a1c08;
+  border: 28px solid transparent;
+  border-image: url(ui/fx/frame.png) 14 / 28px stretch;
+  background: url(ui/fx/inner.png) 0 0 / 96px 48px repeat; background-clip: padding-box;
+  image-rendering: pixelated; border-radius: 0;
+  filter: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.6));
+  color: var(--fx-cream); --text: var(--fx-cream); --muted: #e4cfaa; --gold: var(--fx-gold);
+  text-shadow: 0 1px 0 #000;
 }
-.panel .hint { color: #f0d8b4; }
-.panel b { color: #ffe2a0; }
-.panel input { color: var(--ink); text-shadow: none; }
-/* Plaques du HUD : petit panneau */
+.panel .hint, .panel small { color: #dcc6a0; }
+.panel b { color: var(--fx-gold); }
+.panel .subtitle, .panel .field, .panel .field-label, .panel .cgu-row, .panel label { color: #f0dcb8; }
+.panel .linkbtn { color: var(--fx-gold); text-decoration: underline; }
+.panel input, .panel select { color: var(--fx-ink); text-shadow: none; }
+
+/* --- Titres : parchemin roulé --- */
+.panel-title, .lobby-panel h1, #death .big, #gameover .big {
+  background: none; border: 14px solid transparent; border-left-width: 10px; border-right-width: 10px;
+  border-image: url(ui/fx/scroll.png) 14 10 fill / 14px 10px stretch; image-rendering: pixelated;
+  color: var(--fx-ink); text-shadow: 0 1px 0 rgba(255, 245, 220, 0.6);
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.6));
+}
+.panel-title { height: auto; line-height: 26px; padding: 0 28px; margin: -50px auto 14px; width: min(400px, 90%); font-size: 19px; }
+.lobby-panel h1 { height: auto; line-height: 50px; margin: -78px auto 8px; width: 330px; font-size: 34px; }
+#death .big, #gameover .big { padding: 0 40px; color: var(--fx-ink); }
+.panel-title .x { filter: none; }
+
+/* --- Encarts du HUD : même cadre, plus fin --- */
 #clock, #gem-hp, .res, #hp, #shards, #hero, #party, #prompt, .toast, #power, #hub-help, .build-current, .build-level, #status:not(:empty), #skill, #sel-target {
-  border: 12px solid transparent;
-  border-image: url(ui/fantasy/panel_small.png) 10 fill / 12px stretch;
-  image-rendering: pixelated;
+  border: 14px solid transparent;
+  border-image: url(ui/fx/frame.png) 14 / 14px stretch;
+  background: url(ui/fx/inner.png) 0 0 / 48px 24px repeat; background-clip: padding-box;
+  image-rendering: pixelated; border-radius: 0; color: var(--fx-cream); text-shadow: 0 1px 0 #000;
 }
-/* Boutons : plaque de bois (image entière étirée, rendu pixel) */
+
+/* --- Boutons : pilules du pack (crème, doré pour l'action principale, sombre pour le secondaire) --- */
 .btn, .tabs button, .keybind button {
-  border: 0; border-image: none;
-  background: url(ui/fantasy/plaque.png) center / 100% 100% no-repeat;
-  image-rendering: pixelated;
-  color: #fff4dc; text-shadow: 0 2px 0 #3a1c08;
-  padding: 10px 16px 9px;
+  border: 0; border-style: solid; border-color: transparent; border-width: 12px 14px;
+  border-image: url(ui/fx/pill_cream.png) 6 8 fill / 12px 14px stretch;
+  background: none; box-shadow: none; border-radius: 0; image-rendering: pixelated;
+  color: var(--fx-ink); text-shadow: 0 1px 0 rgba(255, 245, 225, 0.7); font-weight: 800;
+  padding: 0 6px; min-height: 0; filter: none;
 }
-.btn.small { padding: 7px 12px 6px; }
-.btn.primary, .tabs button.on, .keybind button.wait { background: url(ui/fantasy/plaque.png) center / 100% 100% no-repeat; filter: sepia(0.3) saturate(1.8) hue-rotate(-12deg) brightness(1.05); color: #fff; }
-.btn.ghost { background: url(ui/fantasy/plaque_sq.png) center / 100% 100% no-repeat; filter: brightness(0.85) saturate(0.8); }
-.btn:hover { filter: brightness(1.12); }
-.btn.primary:hover { filter: sepia(0.3) saturate(1.8) hue-rotate(-12deg) brightness(1.18); }
-/* Joyau : orbe bleue à la place du losange */
-.gem-icon { display: inline-block; width: 18px; height: 18px; font-size: 0; background: url(ui/fantasy/orb_ice.png) center / contain no-repeat; image-rendering: pixelated; vertical-align: middle; }
-/* Cible (Tab) : barre « dragon » ; la vie remplit la zone rouge de l'image (39 % → 86 % de la largeur) */
+.btn.small { padding: 0 4px; font-size: 13px; }
+.btn.primary, .tabs button.on, .keybind button.wait { border-image-source: url(ui/fx/pill_gold.png); color: #3a2208; background: none; filter: none; }
+.btn.ghost { border-image-source: url(ui/fx/pill_dark.png); color: var(--fx-cream); text-shadow: 0 1px 0 #000; background: none; filter: none; }
+.btn:hover, .btn.primary:hover, .btn.ghost:hover, .tabs button:hover { background: none; filter: brightness(1.12); }
+.btn:active { transform: translateY(1px); filter: brightness(0.95); }
+.btn[disabled] { filter: grayscale(0.7) brightness(0.8); }
+
+/* --- Barres (vie, endurance, horloge…) : gaine sombre du pack --- */
+.bar { border: 0; border-style: solid; border-color: transparent; border-width: 4px 5px; border-radius: 0;
+  border-image: url(ui/fx/bar_empty.png) 4 5 fill / 4px 5px stretch; background: none; image-rendering: pixelated; }
+.bar .fill { border-radius: 2px; }
+
+/* --- Cartes et emplacements : parchemin clair (texte foncé) et cases d'inventaire du pack --- */
+#skins .skin, .ctree-path, .tlane, .node, .craft-card {
+  border: 12px solid transparent; border-image: url(ui/fx/parch.png) 16 fill / 12px stretch; background: none;
+  image-rendering: pixelated; color: var(--fx-ink); text-shadow: none; --text: var(--fx-ink); --muted: #6a4a30;
+}
+#skins .skin *, .ctree-path *, .tlane .tlane-head *, .node *, .craft-card * { color: inherit; text-shadow: none; }
+#skins .skin.on, .ctree-path.on, .tlane.mine, .node.owned { border-image-source: url(ui/fx/frame.png); border-image-slice: 14; background: url(ui/fx/inner.png) 0 0 / 48px 24px repeat; background-clip: padding-box; color: var(--fx-cream); }
+#skins .skin.on *, .ctree-path.on *, .tlane.mine .tlane-head *, .node.owned * { color: inherit; }
+.slot, .inv-cell { border: 6px solid transparent; border-image: url(ui/fx/slot.png) 12 fill / 6px stretch; background: none; image-rendering: pixelated; }
+
+/* --- Héros : lignes de caractéristiques --- */
+#hero-class, #hero-level { color: #e4cfaa; }
+.stat-row { background: rgba(0, 0, 0, 0.28); color: var(--fx-cream); border-radius: 3px; }
+.stat-row b { color: var(--fx-gold); }
+.stat-row .gear { color: #9be47a; }
+
+/* --- Joyau : gemme bleue ; cible (Tab) : barre « dragon » --- */
+.gem-icon { display: inline-block; width: 20px; height: 20px; font-size: 0; background: url(ui/fx/gem_blue.png) center / contain no-repeat; image-rendering: pixelated; vertical-align: middle; }
 #sel-target { width: 280px; }
-#sel-target .bar { position: relative; height: 64px; width: 224px; margin: 0 auto; border: 0; border-radius: 0;
+#sel-target .bar { position: relative; height: 64px; width: 224px; margin: 0 auto; border: 0; border-image: none;
   background: url(ui/fantasy/Dragonhpbar.png) -1568px 0 / 1792px 64px no-repeat; image-rendering: pixelated; }
 #sel-target .bar .fill { position: absolute; left: 39%; top: 31%; height: 28%; max-width: 47%; }
-/* textes sombres de l'ancien parchemin, illisibles sur le bois */
-.panel .subtitle, .panel .field, .panel .field-label, .panel .cgu-row, .panel label, .panel small { color: #f6e2c2; }
-.panel .linkbtn { color: #ffd27a; text-decoration: underline; }
-/* cartes claires (parchemin) à l'intérieur des panneaux : texte foncé */
-#skins .skin:not(.on), .ctree-path:not(.on), .tlane:not(.mine), .node:not(.owned), .craft-card, .slot, .inv-cell {
-  color: var(--ink); text-shadow: none; --text: var(--ink); --muted: var(--ink-soft);
-}
-#skins .skin:not(.on) *, .ctree-path:not(.on) *, .tlane:not(.mine) .tlane-head *, .node:not(.owned) *, .craft-card * { color: inherit; text-shadow: none; }
-
-/* v0.2.5 : titres sur une planche du pack (plus de bannière rouge Kenney) */
-.panel-title, .lobby-panel h1, #death .big, #gameover .big {
-  background: none; border: 12px solid transparent;
-  border-image: url(ui/fantasy/panel_small.png) 10 fill / 12px stretch; image-rendering: pixelated;
-  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.55));
-  color: #fff4dc; text-shadow: 0 2px 0 #3a1c08, 0 0 6px rgba(0, 0, 0, 0.5);
-}
-.panel-title { height: auto; line-height: 30px; padding: 0 30px; margin: -46px auto 12px; width: min(420px, 90%); }
-.lobby-panel h1 { height: auto; line-height: 56px; margin: -70px auto 6px; width: 320px; }
-#death .big, #gameover .big { padding: 2px 40px 6px; }
-/* en-tête et lignes de caractéristiques du héros : lisibles sur le bois */
-#hero-class, #hero-level { color: #f0d8b4; }
-.stat-row { background: rgba(40, 20, 8, 0.35); color: #fbecd2; }
-.stat-row b { color: #ffe2a0; }
-.stat-row .gear { color: #9be47a; }
-/* v0.2.5 : bois répété en parquet (net) au lieu d'une petite image étirée ; seul le cadre aux coins en os est étiré */
-.panel {
-  border-image: url(ui/fantasy/panel.png) 11 / 22px stretch;
-  background: url(ui/fantasy/wood.png) 0 0 / 98px 140px repeat; background-clip: padding-box;
-}
-#clock, #gem-hp, .res, #hp, #shards, #hero, #party, #prompt, .toast, #power, #hub-help, .build-current, .build-level, #status:not(:empty), #skill, #sel-target,
-.panel-title, .lobby-panel h1, #death .big, #gameover .big {
-  border-image: url(ui/fantasy/panel_small.png) 10 / 12px stretch;
-  background: url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; background-clip: padding-box;
-}
-/* boutons : bois du pack, liseré sombre et reflet ; rouge pour le bouton principal */
-.btn, .tabs button, .keybind button {
-  background: url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat;
-  border: 2px solid #3a1c08; border-radius: 4px;
-  box-shadow: inset 0 2px 0 rgba(255, 220, 160, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.3), 0 2px 0 #1e0e04;
-  filter: none;
-}
-.btn.primary, .tabs button.on, .keybind button.wait {
-  background: linear-gradient(rgba(200, 40, 20, 0.55), rgba(140, 20, 10, 0.55)), url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat;
-  filter: none;
-}
-.btn.ghost { background: linear-gradient(rgba(20, 10, 4, 0.35), rgba(20, 10, 4, 0.35)), url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; filter: none; }
-.btn:hover, .btn.primary:hover { filter: brightness(1.12); }
-/* plus aucun cadre de l'ancien pack sur les boutons ; le bois reste au survol */
-.btn, .btn.primary, .btn.ghost, .tabs button, .tabs button.on, .keybind button, .keybind button.wait { border-image: none; }
-.btn:hover { background: url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; }
-.btn.primary:hover { background: linear-gradient(rgba(200, 40, 20, 0.55), rgba(140, 20, 10, 0.55)), url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; }
-.btn.ghost:hover { background: linear-gradient(rgba(20, 10, 4, 0.35), rgba(20, 10, 4, 0.35)), url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; }
+.btn { white-space: nowrap; }
+/* « Partie solo / N joueurs » : sous l'horloge et le Joyau (il les recouvrait sous la boussole) */
+#status { top: 312px; }
+.craft-card.sel { border-image: url(ui/fx/frame.png) 14 fill / 12px stretch; color: var(--fx-cream); filter: drop-shadow(0 0 6px rgba(255, 210, 120, 0.9)); }

@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.2.5**
+Version actuelle : **ver.0.3.0**
 
 ## Comptes
 La création d'un compte demande d'accepter les **conditions d'utilisation** (bouton sur l'écran titre ; version enregistrée avec le compte) et un mot de passe d'au moins 6 caractères. Le bouton **Crédits** liste les artistes des modèles 3D.
@@ -182,6 +182,6 @@ Modèles 3D, tous sous licence CC0 (libres, même pour un usage commercial) :
 - **Medieval Village Pack** (maisons, moulin, clocher, puits, étals, charrettes) pour le village.
 - **Pirate Kit** de [Quaternius](https://quaternius.com) : bûches, cailloux et gemmes.
 - **KayKit Character Animations** (Kay Lousberg, CC0) : animations de combat, d'outils, des squelettes et du forgeron.
-- **Fantasy UI Free** (pixel art) : panneaux, plaques de boutons, orbes et barre « dragon » de l'interface (`public/ui/fantasy/`).
+- **ToffeeCraft — Fantasy UI** (pack complet, pixel art, [toffeecraft.itch.io](https://toffeecraft.itch.io/fantasy-ui-user-interaface)) : cadres, parchemins, boutons, barres, emplacements (`public/ui/fx/`) et barre « dragon » (`public/ui/fantasy/`). Licence : usage commercial autorisé, pas de redistribution des images seules.
 - **Kenney UI Pack Adventure** (Kenney, CC0) : bannières, cases à cocher, carte.
 - **Wood Frame Base Build Set** : constructions en bois (planchers, charpentes, murs, fenêtres, porte, escalier, toit).
