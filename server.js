@@ -1168,7 +1168,6 @@ wss.on('connection', (ws) => {
     // ----- Talents de classe (au village) : choix de la branche, définitif pour cette classe -----
     if (d.type === 'cPath' && p.where === 'hub') {
       const t = ((p.prof.ctree ||= {})[p.skin] ||= { path: null });
-      if (t.path) return send(ws, { type: 'toast', text: 'Ta branche est déjà choisie pour cette classe.' });
       if (!W.CLASS_SKILLS[p.skin]?.some((k) => k.id === d.path)) return;
       t.path = d.path;
       saveJSON('profiles.json', profiles);
