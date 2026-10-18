@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.1.7';
+export const VERSION = '0.1.8';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -527,12 +527,12 @@ export const CLASS_SKILLS = {
     { id: 'blood', name: 'Soif de sang', icon: '🩸', cd: 20, dur: 5, boost: 'dur', desc: 'Pendant 5 s : 50 % des dégâts infligés te soignent. Recharge 20 s.' },
   ],
   Mage: [
-    { id: 'element', soon: true, name: 'Élémentaire', icon: '❄', cd: 1, dur: 2, boost: 'dur', desc: 'Alterne feu / glace. La glace frappe un peu plus fort une seule cible et ralentit tous les monstres autour pendant 2 s.' },
-    { id: 'blink', soon: true, name: 'Blink', icon: '✨', cd: 10, boost: 'cd', desc: 'Téléporte d’environ 10 m vers l’avant. Recharge 10 s.' },
+    { id: 'element', name: 'Élémentaire', icon: '❄', cd: 1, dur: 2, boost: 'dur', desc: 'Alterne feu / glace. La glace frappe un peu plus fort une seule cible et ralentit tous les monstres autour pendant 2 s.' },
+    { id: 'blink', name: 'Blink', icon: '✨', cd: 10, boost: 'cd', desc: 'Téléporte d’environ 10 m vers l’avant. Recharge 10 s.' },
   ],
   Rogue: [
-    { id: 'sentinel', soon: true, name: 'Sentinelle', icon: '🔮', once: true, dur: 5, boost: 'dur', desc: 'Une orbe tourne autour de toi et tire sur les monstres à moins de 10 m. Une fois par nuit : sa cadence double pendant 5 s.' },
-    { id: 'deadeye', soon: true, name: 'Dead Eye', icon: '🎯', once: true, dur: 5, boost: 'dur', desc: 'Une fois par nuit : vise jusqu’à 10 cibles pendant 5 s (ou rappuie sur E), puis des flèches enflammées les frappent à 3× les dégâts.' },
+    { id: 'sentinel', name: 'Sentinelle', icon: '🔮', once: true, dur: 5, boost: 'dur', desc: 'Une orbe tourne autour de toi et tire sur les monstres à moins de 10 m. Une fois par nuit : sa cadence double pendant 5 s.' },
+    { id: 'deadeye', name: 'Dead Eye', icon: '🎯', once: true, dur: 5, boost: 'dur', desc: 'Une fois par nuit : vue à la première personne, vise jusqu’à 10 cibles pendant 5 s (ou rappuie sur E), puis des flèches enflammées les frappent à 3× les dégâts.' },
   ],
 };
 export const CLASS_STATS = [
@@ -541,6 +541,9 @@ export const CLASS_STATS = [
   { id: 'aspd', name: '+2 % de vitesse d’attaque', icon: '⏱' },
 ];
 export const BOOST_STEP = 0.5;
+export const SENTINEL = { range: 10, dmg: 0.4 };   // portée, part des dégâts de l'arc
+export const DEADEYE = { max: 10, mul: 3, range: 60 };
+export const ICE = { mul: 1.25 };   // glace : un peu plus de dégâts, une seule cible
 export const classPoints = (level) => ({ skill: Math.ceil(level / 2), stat: Math.floor(level / 2) });
 // Compétence active d'un joueur, avec ses améliorations : { def, dur, cd } ou null si aucune voie choisie
 export function classSkill(ctree, cls, level) {

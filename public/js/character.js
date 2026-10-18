@@ -323,6 +323,23 @@ export class CharacterRig {
     h.reset(); h.paused = false; h.play();
   }
 
+  // Mage (voie Élémentaire) : la flamme du bâton devient bleue en mode glace
+  setElement(el) {
+    this.element = el;
+    if (this.flame) this.flame.material.color.set(el === 'ice' ? '#7fd8ff' : '#ffffff');
+  }
+  // Voleuse (voie Sentinelle) : une orbe tourne autour du personnage
+  setSentinel(on) {
+    if (!!this.sentOrb === on) return;
+    if (!on) { this.root.remove(this.sentOrb); this.sentOrb = null; return; }
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.35, 'rgba(170,120,255,0.95)'); g.addColorStop(1, 'rgba(110,60,255,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    this.sentOrb = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.sentOrb.scale.setScalar(0.45);
+    this.root.add(this.sentOrb);
+  }
   // Larme de la cascade : l'épée brille en bleu
   setPower(on) {
     if (this.power === on) return;
@@ -486,6 +503,12 @@ export class CharacterRig {
     tl.visible = this.carry < 0.95;
     if (this.shield) this.shield.visible = this.carry < 0.5;
     if (this.flame) this.flame.scale.setScalar(0.45 + Math.sin(t * 13) * 0.05 + Math.sin(t * 7.1) * 0.05);
+    if (this.sentOrb) {
+      const fast = this.skillFx?.s === 'sentinel' && performance.now() < this.skillFx.until;
+      this.orbA = (this.orbA || 0) + dt * (fast ? 7 : 2.5);
+      this.sentOrb.position.set(Math.cos(this.orbA) * 0.95, 1.75 + Math.sin(t * 3) * 0.12, Math.sin(this.orbA) * 0.95);
+      this.sentOrb.scale.setScalar(fast ? 0.6 : 0.45);
+    }
 
     // ---- Flash rouge quand on est touché ----
     const flash = this.hurtT < 0.2 ? 1 - this.hurtT / 0.2 : 0;
