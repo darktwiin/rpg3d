@@ -10,13 +10,41 @@ Survie/construction multijoueur 3D (1 à 4 joueurs) dans le navigateur. Règles 
 - Données joueurs dans `data/` (comptes, profils, classement) : ignoré par git, ne jamais le supprimer ni l'écraser.
 - `launcher/` : lanceur Electron Windows, construit par GitHub Actions (`.github/workflows/launcher.yml`).
 
+- Caractéristiques d'un joueur : `computeMods()` (compétences + niveau + équipement), identique client et serveur.
+- Pas de bundler ni de framework. Audio 100 % synthétisé (`audio.js`), aucun fichier son.
+- Mode admin caché `/god` : ne jamais le mentionner aux joueurs (ni `/aide`, ni chat, ni README).
+- Le jeu s'appelle Nuit Blanche, mais dossier, processus pm2 et clés localStorage restent `rpg3d` : ne pas renommer.
+
 ## Commandes
 - Lancer : `npm install` puis `npm start` → http://localhost:3001
-- Pas de tests automatiques : vérifier en lançant le serveur (`node --check server.js` au minimum) et en jouant.
+- Pas de tests automatiques : `node --check` sur `server.js` et chaque fichier de `public/js/`, puis jouer.
+- Crochets de test dans le navigateur : `window.__game` (`pause()`, `advance(s)`, `send()`, `setView()`…). En navigateur automatisé, avancer le temps avec `advance()` plutôt qu'attendre.
 
 ## Déploiement
-VPS 51.210.104.194 : `git pull && npm install && pm2 restart rpg3d`. Ce qui est sur `main` part en production : passer par une branche + PR.
+VPS 51.210.104.194 : `cd ~/rpg3d && git pull && npm install && pm2 restart rpg3d`. Ce qui est sur `main` part en production : passer par une branche + PR. Un restart coupe les parties en cours.
+Le VPS héberge aussi **The Curse** : ne jamais toucher à ses processus, son dossier ni son port.
 
 ## Conventions
 - Code, commentaires et textes du jeu en français.
-- Après une modification visible par les joueurs, mettre à jour `README.md` et la version dans `package.json`.
+- Chaque livraison augmente la version : `VERSION` dans `world.js`, `package.json`, `index.html` et `README.md`.
+
+## À faire (prochaine version 0.1.5)
+Écrit dans l'ancienne conversation mais **perdu** (absent du dépôt), à refaire :
+- Barre de vie au centre en bas, agrandie ; vie perdue en rouge clair qui fond en 0,5 s ; tremblement à chaque coup ; orange sous 50 %, rouge sous 20 % (`updateHp()` dans `main.js`, image `ui/progress_orange.png`).
+- Messages d'interaction (« E Forge… ») en bas, au-dessus de la barre de vie ; barre de construction au-dessus de la barre de vie.
+
+Demandé, pas fait :
+- Ressources ramassées : petit « pop » et icône qui vole vers le compteur du HUD (aujourd'hui vers le personnage : `flyResources()`, `updateFlyers()`).
+- Bannières du village qui flottent à côté de leur mât (`villageDecor.js`) : placer d'après la boîte englobante.
+- Plus de maisons et de décor hors des remparts (`villageMedieval.js`).
+- Modèles 3D d'équipement affichés sur le personnage (aujourd'hui seulement des icônes SVG dans `hero.js`).
+
+## Bugs connus et limites
+- Anti-triche : le client décide de sa position (bornée à ±150 m) ; vitesse non validée côté serveur.
+- Pas de HTTPS ; le jeton de profil sert de session et n'expire jamais.
+- `data/` réécrit en entier à chaque sauvegarde, sans sauvegarde automatique.
+- Arc de la voleuse retourné en 0.1.2 : à revérifier sous tous les angles.
+- Grille de construction : alignement raté sur pentes très raides.
+- Maison `v_house_a` noire : retirée du placement, encore dans `village.glb`.
+- Performances du village (~12 Mo de modèles) jamais mesurées sur un petit PC.
+- Grotte derrière la cascade : pas encore le nouveau décor de rochers.
