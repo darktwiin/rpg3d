@@ -465,3 +465,27 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 /* « Partie solo / N joueurs » : sous l'horloge et le Joyau (il les recouvrait sous la boussole) */
 #status { top: 312px; }
 .craft-card.sel { border-image: url(ui/fx/frame.png) 14 fill / 12px stretch; color: var(--fx-cream); filter: drop-shadow(0 0 6px rgba(255, 210, 120, 0.9)); }
+/* v0.3.1 : pas d'ombre sous le texte des boutons clairs (elle faisait un 2e texte décalé, flou) */
+.btn, .btn.primary, .tabs button, .tabs button.on, .keybind button, .keybind button.wait { text-shadow: none; }
+/* grandes annonces (Jour / Nuit, défaite) : contour sombre au lieu d'une ombre décalée qui doublait le texte */
+#banner, #banner *, .overlay .big:not(.chip) { text-shadow: 0 0 2px #000, 0 0 3px #000, 0 3px 14px rgba(0, 0, 0, 0.85); }
+#death .big, #gameover .big { text-shadow: none; }
+/* cadres du pack plus épais : messages et popups remontés au-dessus de l'encart de compétence */
+#skill { bottom: 118px; white-space: nowrap; }
+#prompt { bottom: 186px; }
+#popups { bottom: 236px; }
+#skill { bottom: 148px; }
+#prompt { bottom: 214px; }
+#popups { bottom: 262px; }
+#chat { bottom: 205px; }
+#status { top: 364px; }   /* sous l'horloge et le Joyau, dont les cadres sont plus hauts */
+/* croix de fermeture : bouton du pack, grand, posé sur le coin doré en haut à droite de la fenêtre */
+.panel .x, .x {
+  position: absolute; top: -24px; right: -24px; z-index: 6;
+  width: 42px; height: 42px; padding: 0; border: 0; border-image: none;
+  background: url(ui/fx/close.png) center / contain no-repeat; image-rendering: pixelated;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.6)); font-size: 0; color: transparent;
+}
+.panel .x:hover, .x:hover { filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.6)) brightness(1.15); }
+.panel .x:active, .x:active { background-image: url(ui/fx/close_down.png); transform: translateY(1px); }
+.panel-title { filter: none; }   /* une ombre (filter) ferait du titre la référence de position de la croix */
