@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.1.9**
+Version actuelle : **ver.0.2.0**
 
 ## Comptes
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
@@ -25,10 +25,11 @@ Les monstres tués et les nuits survécues donnent de l'**expérience**. Chaque 
 (d'autres améliorations du héros viendront s'y ajouter).
 
 ## Talents de classe et compétence active (touche A)
-Touche **C** (ou bouton dans l'inventaire) : consultables partout, modifiables seulement au village. Chaque niveau du héros donne 1 point. Niveaux impairs : la compétence
-(le 1er point choisit la voie, les suivants ajoutent +0,5 s de durée ou -0,5 s de recharge — jamais de recharge réduite
-pour une compétence « une fois par nuit »). Niveaux pairs : une caractéristique au choix (+10 PV, +1 % de dégâts,
-+2 % de vitesse d'attaque). La voie et les caractéristiques se replacent gratuitement.
+Touche **C** (ou bouton dans l'inventaire) : consultables partout, modifiables seulement au village. Chaque classe a deux
+branches de 20 ronds (un par niveau, de 1 à 20), dépensés automatiquement. Choisir une branche verrouille l'autre.
+Rond 1 : la compétence ; ronds impairs suivants (3, 5…) : amélioration (+0,5 s de durée ou -0,5 s de recharge — jamais
+de recharge réduite pour une compétence « une fois par nuit ») ; ronds pairs : caractéristique (+10 PV, +1 % de dégâts,
++2 % de vitesse d'attaque, à tour de rôle).
 | Classe | Voie 1 | Voie 2 |
 |---|---|---|
 | Guerrier | Taunt ultime (1×/nuit, 10 s : tous les monstres viennent vers lui, -50 % de dégâts reçus) | Dernier rempart (1×/nuit, 5 s d'invulnérabilité) |
@@ -38,7 +39,7 @@ pour une compétence « une fois par nuit »). Niveaux pairs : une caractéristi
 
 ## Le village (lobby)
 On arrive au village, où l'on voit les autres joueurs.
-- **Gardien de maîtrise** (sanctuaire violet) : acheter des compétences avec les éclats (Constructeur, Récolteur, Combattant, Mobilité) ; « Réinitialiser l'arbre » rend tous les éclats dépensés, moins 3
+- **Maîtrise** (sanctuaire violet, Rogue encapuchonné) : acheter des compétences avec les éclats (Constructeur, Récolteur, Combattant, Mobilité) ; « Réinitialiser l'arbre » rend tous les éclats dépensés, moins 3
 - **Forge** : **fusionner** 5 objets identiques (même type, classe et rareté) en un objet de la rareté supérieure (70 % de réussite, sinon ils fondent) ; **fondre** des objets en **férite** (1, 2, 4, 8, 16, 32 selon la rareté), ressource qui servira à fabriquer de l'équipement
 - **Barbare** (salle d'armes rouge) : changer de classe
 - **Piédestal** : classement des meilleures parties (solo, duo, trio, équipe de 4)

@@ -324,8 +324,29 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 #ui.building #skill { display: none; }
 
 /* ======================= v0.1.9 : panneau des talents de classe ======================= */
-.talents-panel { width: 720px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); overflow-y: auto; box-sizing: border-box; }
+.talents-panel { width: 780px; max-width: calc(100vw - 32px); box-sizing: border-box; }
+#talents-body { max-height: calc(100vh - 150px); overflow-y: auto; }
 .ctree.locked .ctree-path, .ctree.locked .ctree-stats .btn { cursor: default; }
 .ctree-path:disabled { opacity: .6; }
 .ctree-path.on:disabled { opacity: 1; }
 #hero-talents-btn { margin-bottom: 6px; }
+
+/* ======================= v0.2.0 : talents en nodes rondes ======================= */
+.tlane { margin: 6px 0 4px; padding: 8px 10px 10px; border: 8px solid transparent; border-image: url(ui/panel_brown.png) 24 fill / 8px stretch; }
+.tlane.mine { border-image-source: url(ui/panel_brown_dark.png); color: var(--cream); }
+.tlane.locked { opacity: .4; filter: grayscale(.8); }
+.tlane-head .desc { font-size: 12px; line-height: 1.3; margin: 2px 0 6px; }
+.tnodes { position: relative; display: flex; justify-content: space-between; }
+.tnodes::before { content: ''; position: absolute; left: 12px; right: 12px; top: 50%; height: 3px; margin-top: -1.5px; background: #6b4a2a; }
+.tnode { position: relative; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: #e8d8b8; border: 2px solid #6b4a2a; font-size: 13px; box-shadow: 0 2px 3px rgba(0,0,0,.35); cursor: default; }
+.tnode i { position: absolute; bottom: -15px; font-size: 9px; font-style: normal; opacity: .7; }
+.tnode.skill { width: 38px; height: 38px; font-size: 19px; }
+.tnode.boost { background: #f3e2a0; }
+.tnode.on { background: radial-gradient(circle at 35% 35%, #ffe9a0, #e0a040); border-color: #fff4c8; box-shadow: 0 0 8px rgba(255, 210, 100, .9); }
+.tnode.pick { cursor: pointer; animation: tpulse 1.2s infinite; }
+.tnode.pick.sure { background: #ffd060; }
+@keyframes tpulse { 50% { box-shadow: 0 0 12px rgba(255, 200, 80, 1); transform: scale(1.08); } }
+.tlanes-gap { height: 4px; }
+.ctree-sum { margin-top: 10px; font-size: 13px; }
+@media (max-width: 700px) { .tnode { width: 20px; height: 20px; font-size: 10px; } .tnode.skill { width: 28px; height: 28px; font-size: 14px; } .tnode i { display: none; } }

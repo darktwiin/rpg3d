@@ -129,6 +129,10 @@ export function decorateVillage(v, SPOTS, villageHeight) {
   gput(A, 's_Axe', 2.3, -1.9, -0.3, 1.0, 0.9).rotation.z = 0.3;
   gput(A, 'd_barrel_small', 2.4, 0.6, 0.8, 0.9);
   gput(A, 'd_torch_lit', -2.75, 1.3, 0, 0.9, 1.6);
+  gput(A, 'd_table_long_decorated_A', -0.9, -1.9, 0, 0.7);
+  gput(A, 'd_sword_shield_gold', -2.3, -2.55, 0, 0.8, 1.4);
+  gput(A, 'd_barrel_small_stack', 2.3, -1.9, 0.4, 0.7);
+  gput(A, 'd_torch_lit', 2.75, 1.3, 0, 0.9, 1.6);
   gput(S, 'd_banner_thin_blue', -1.8, -2.5, 0, 0.9, 0.9);
   gput(S, 'd_banner_thin_blue', 1.8, -2.5, 0, 0.9, 0.9);
   gput(S, 'd_table_medium_tablecloth_decorated_B', 1.9, -1.6, 0, 0.75);
@@ -136,6 +140,12 @@ export function decorateVillage(v, SPOTS, villageHeight) {
   gput(S, 'd_bottle_A_green', 2.2, -1.4, 0, 0.9, 0.25 + 1.0 * KK * 0.75);
   gput(S, 'd_chest', -2.1, -1.8, 0.4, 0.8);
   gput(S, 'd_candle_triple', -2.6, 1.0, 0, 0.9);
+  gput(S, 'v_cauldron', -1.2, -1.6, 0.3, 0.55);
+  gput(S, 'd_candle_triple', 2.6, 1.0, 0.8, 0.9);
+  gput(S, 'd_chest_gold', 0.9, -2.2, 0, 0.6);
+  // tapis violet devant le gardien
+  const rug = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 3), new THREE.MeshStandardMaterial({ color: '#4a2a7a', roughness: 1 }));
+  rug.rotation.x = -Math.PI / 2; rug.position.set(0, 0.26, 0); rug.receiveShadow = true; S.add(rug);
   for (const [grp, pts] of [[A, [[2.4, 0.6, 0.6], [-2.3, -1.9, 0.6]]], [S, [[1.9, -1.6, 0.7], [-2.1, -1.8, 0.7]]]]) {
     grp.updateMatrixWorld(true);
     for (const [lx, lz, r] of pts) { const w = grp.localToWorld(new THREE.Vector3(lx, 0, lz)); coll(w.x, w.z, r); }
@@ -156,19 +166,6 @@ export function decorateVillage(v, SPOTS, villageHeight) {
     hang(sz > 0 ? 'd_banner_patternA_yellow' : 'd_banner_patternA_red', 0.75, -Math.PI / 2, x + 0.18, z, 1, 0, 3.5);   // sous la traverse (bas à 3,5)
     coll(x, z, 0.25);
   }
-
-  // ---------------- Bannières autour de la place ----------------
-  const cols = ['d_banner_blue', 'd_banner_red', 'd_banner_patternA_blue', 'd_banner_patternA_red', 'd_banner_thin_blue', 'd_banner_triple_red'];
-  // de part et d'autre des chemins nord et sud, jamais devant la forge, le classement ou un PNJ
-  [55, 125, 252, 288].forEach((deg, i) => {
-    const a = deg * Math.PI / 180;
-    const r = 13.2, x = Math.cos(a) * r, z = Math.sin(a) * r;
-    v.add(tmp, new THREE.CylinderGeometry(0.07, 0.09, 4.2, 8), v.M.log, x, 2.1, z);
-    // traverse accrochée contre le mât, côté place, et la bannière juste dessous
-    v.add(tmp, new THREE.BoxGeometry(0.1, 0.1, 1.3), v.M.log, x - Math.cos(a) * 0.14, 4.1, z - Math.sin(a) * 0.14).rotation.y = -a;
-    hang(cols[i], 0.7, -a - Math.PI / 2, x - Math.cos(a) * 0.2, z - Math.sin(a) * 0.2, -Math.cos(a), -Math.sin(a), 4.05);   // sous la traverse (bas à 4,05)
-    coll(x, z, 0.25);
-  });
 
   // ---------------- Devant les maisons ----------------
   const clusters = [
