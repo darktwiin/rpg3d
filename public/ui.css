@@ -383,7 +383,7 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 /* Grands panneaux : planche de bois aux coins en os ; texte clair car le bois est plus sombre que l'ancien parchemin */
 .panel {
   border: 22px solid transparent;
-  border-image: url(ui/fantasy/panel.png) 11 fill / 22px round;
+  border-image: url(ui/fantasy/panel.png) 11 fill / 22px stretch;   /* étiré : répéter recopiait les bouts de planche (joints visibles) */
   image-rendering: pixelated;
   color: #fbecd2; --text: #fbecd2; --muted: #f0d8b4; --gold: #ffd27a;
   text-shadow: 0 1px 0 #3a1c08;
@@ -394,7 +394,7 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 /* Plaques du HUD : petit panneau */
 #clock, #gem-hp, .res, #hp, #shards, #hero, #party, #prompt, .toast, #power, #hub-help, .build-current, .build-level, #status:not(:empty), #skill, #sel-target {
   border: 12px solid transparent;
-  border-image: url(ui/fantasy/panel_small.png) 10 fill / 12px round;
+  border-image: url(ui/fantasy/panel_small.png) 10 fill / 12px stretch;
   image-rendering: pixelated;
 }
 /* Boutons : plaque de bois (image entière étirée, rendu pixel) */
@@ -425,3 +425,47 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
   color: var(--ink); text-shadow: none; --text: var(--ink); --muted: var(--ink-soft);
 }
 #skins .skin:not(.on) *, .ctree-path:not(.on) *, .tlane:not(.mine) .tlane-head *, .node:not(.owned) *, .craft-card * { color: inherit; text-shadow: none; }
+
+/* v0.2.5 : titres sur une planche du pack (plus de bannière rouge Kenney) */
+.panel-title, .lobby-panel h1, #death .big, #gameover .big {
+  background: none; border: 12px solid transparent;
+  border-image: url(ui/fantasy/panel_small.png) 10 fill / 12px stretch; image-rendering: pixelated;
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.55));
+  color: #fff4dc; text-shadow: 0 2px 0 #3a1c08, 0 0 6px rgba(0, 0, 0, 0.5);
+}
+.panel-title { height: auto; line-height: 30px; padding: 0 30px; margin: -46px auto 12px; width: min(420px, 90%); }
+.lobby-panel h1 { height: auto; line-height: 56px; margin: -70px auto 6px; width: 320px; }
+#death .big, #gameover .big { padding: 2px 40px 6px; }
+/* en-tête et lignes de caractéristiques du héros : lisibles sur le bois */
+#hero-class, #hero-level { color: #f0d8b4; }
+.stat-row { background: rgba(40, 20, 8, 0.35); color: #fbecd2; }
+.stat-row b { color: #ffe2a0; }
+.stat-row .gear { color: #9be47a; }
+/* v0.2.5 : bois répété en parquet (net) au lieu d'une petite image étirée ; seul le cadre aux coins en os est étiré */
+.panel {
+  border-image: url(ui/fantasy/panel.png) 11 / 22px stretch;
+  background: url(ui/fantasy/wood.png) 0 0 / 98px 140px repeat; background-clip: padding-box;
+}
+#clock, #gem-hp, .res, #hp, #shards, #hero, #party, #prompt, .toast, #power, #hub-help, .build-current, .build-level, #status:not(:empty), #skill, #sel-target,
+.panel-title, .lobby-panel h1, #death .big, #gameover .big {
+  border-image: url(ui/fantasy/panel_small.png) 10 / 12px stretch;
+  background: url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; background-clip: padding-box;
+}
+/* boutons : bois du pack, liseré sombre et reflet ; rouge pour le bouton principal */
+.btn, .tabs button, .keybind button {
+  background: url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat;
+  border: 2px solid #3a1c08; border-radius: 4px;
+  box-shadow: inset 0 2px 0 rgba(255, 220, 160, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.3), 0 2px 0 #1e0e04;
+  filter: none;
+}
+.btn.primary, .tabs button.on, .keybind button.wait {
+  background: linear-gradient(rgba(200, 40, 20, 0.55), rgba(140, 20, 10, 0.55)), url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat;
+  filter: none;
+}
+.btn.ghost { background: linear-gradient(rgba(20, 10, 4, 0.35), rgba(20, 10, 4, 0.35)), url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; filter: none; }
+.btn:hover, .btn.primary:hover { filter: brightness(1.12); }
+/* plus aucun cadre de l'ancien pack sur les boutons ; le bois reste au survol */
+.btn, .btn.primary, .btn.ghost, .tabs button, .tabs button.on, .keybind button, .keybind button.wait { border-image: none; }
+.btn:hover { background: url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; }
+.btn.primary:hover { background: linear-gradient(rgba(200, 40, 20, 0.55), rgba(140, 20, 10, 0.55)), url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; }
+.btn.ghost:hover { background: linear-gradient(rgba(20, 10, 4, 0.35), rgba(20, 10, 4, 0.35)), url(ui/fantasy/wood.png) 0 0 / 49px 70px repeat; }
