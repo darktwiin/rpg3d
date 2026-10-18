@@ -378,3 +378,50 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 /* v0.2.3 : sous la boussole, le temps restant tenait sur 2 lignes et passait sous la barre */
 #clock, #gem-hp { width: 230px; }
 .clock-row, .gem-row { white-space: nowrap; }
+
+/* ======================= v0.2.4 : thème « fantasy » (pack FantasyUIfree, pixel art) ======================= */
+/* Grands panneaux : planche de bois aux coins en os ; texte clair car le bois est plus sombre que l'ancien parchemin */
+.panel {
+  border: 22px solid transparent;
+  border-image: url(ui/fantasy/panel.png) 11 fill / 22px round;
+  image-rendering: pixelated;
+  color: #fbecd2; --text: #fbecd2; --muted: #f0d8b4; --gold: #ffd27a;
+  text-shadow: 0 1px 0 #3a1c08;
+}
+.panel .hint { color: #f0d8b4; }
+.panel b { color: #ffe2a0; }
+.panel input { color: var(--ink); text-shadow: none; }
+/* Plaques du HUD : petit panneau */
+#clock, #gem-hp, .res, #hp, #shards, #hero, #party, #prompt, .toast, #power, #hub-help, .build-current, .build-level, #status:not(:empty), #skill, #sel-target {
+  border: 12px solid transparent;
+  border-image: url(ui/fantasy/panel_small.png) 10 fill / 12px round;
+  image-rendering: pixelated;
+}
+/* Boutons : plaque de bois (image entière étirée, rendu pixel) */
+.btn, .tabs button, .keybind button {
+  border: 0; border-image: none;
+  background: url(ui/fantasy/plaque.png) center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  color: #fff4dc; text-shadow: 0 2px 0 #3a1c08;
+  padding: 10px 16px 9px;
+}
+.btn.small { padding: 7px 12px 6px; }
+.btn.primary, .tabs button.on, .keybind button.wait { background: url(ui/fantasy/plaque.png) center / 100% 100% no-repeat; filter: sepia(0.3) saturate(1.8) hue-rotate(-12deg) brightness(1.05); color: #fff; }
+.btn.ghost { background: url(ui/fantasy/plaque_sq.png) center / 100% 100% no-repeat; filter: brightness(0.85) saturate(0.8); }
+.btn:hover { filter: brightness(1.12); }
+.btn.primary:hover { filter: sepia(0.3) saturate(1.8) hue-rotate(-12deg) brightness(1.18); }
+/* Joyau : orbe bleue à la place du losange */
+.gem-icon { display: inline-block; width: 18px; height: 18px; font-size: 0; background: url(ui/fantasy/orb_ice.png) center / contain no-repeat; image-rendering: pixelated; vertical-align: middle; }
+/* Cible (Tab) : barre « dragon » ; la vie remplit la zone rouge de l'image (39 % → 86 % de la largeur) */
+#sel-target { width: 280px; }
+#sel-target .bar { position: relative; height: 64px; width: 224px; margin: 0 auto; border: 0; border-radius: 0;
+  background: url(ui/fantasy/Dragonhpbar.png) -1568px 0 / 1792px 64px no-repeat; image-rendering: pixelated; }
+#sel-target .bar .fill { position: absolute; left: 39%; top: 31%; height: 28%; max-width: 47%; }
+/* textes sombres de l'ancien parchemin, illisibles sur le bois */
+.panel .subtitle, .panel .field, .panel .field-label, .panel .cgu-row, .panel label, .panel small { color: #f6e2c2; }
+.panel .linkbtn { color: #ffd27a; text-decoration: underline; }
+/* cartes claires (parchemin) à l'intérieur des panneaux : texte foncé */
+#skins .skin:not(.on), .ctree-path:not(.on), .tlane:not(.mine), .node:not(.owned), .craft-card, .slot, .inv-cell {
+  color: var(--ink); text-shadow: none; --text: var(--ink); --muted: var(--ink-soft);
+}
+#skins .skin:not(.on) *, .ctree-path:not(.on) *, .tlane:not(.mine) .tlane-head *, .node:not(.owned) *, .craft-card * { color: inherit; text-shadow: none; }

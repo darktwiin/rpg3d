@@ -502,6 +502,8 @@ export class Village {
     }
     ctx.fillRect(P(SPOTS.forge.x - 2.6), P(SPOTS.forge.z - 3.3), 5.2 * k, 6.6 * k);
     ctx.beginPath(); ctx.arc(P(SPOTS.board.x), P(SPOTS.board.z), 2 * k, 0, Math.PI * 2); ctx.fill();
+    // pas d'herbe sous les ateliers des PNJ (salle d'armes, Maîtrise)
+    for (const S of [SPOTS.armory, SPOTS.sanctum]) { ctx.beginPath(); ctx.arc(P(S.x), P(S.z), 3.8 * k, 0, Math.PI * 2); ctx.fill(); }
   }
 
   update(dt, focus) {
@@ -527,10 +529,21 @@ export class Village {
     }
     // particules du portail
     this.pT = (this.pT || 0) - dt;
-    if (this.pT <= 0) {
-      this.pT = 0.08;
-      const a = Math.random() * Math.PI * 2;
-      this.fx.spawn({ geo: this.fx.box, mat: this.pMat ||= new THREE.MeshBasicMaterial({ color: 0xd2b0ff }), pos: new THREE.Vector3(Math.cos(a) * 2.2, 0.6, Math.sin(a) * 2.2), vel: new THREE.Vector3(-Math.cos(a) * 0.4, 1.2 + Math.random(), -Math.sin(a) * 0.4), size: 0.04, life: 2, gravity: -0.2, drag: 0.3, spin: 4 });
+    // particules du portail : étincelles qui montent en spirale + éclats aspirés vers le tourbillon
+    this.pMats ||= [0xd2b0ff, 0xff9ef0, 0xffffff, 0x8ad8ff, 0xb070ff].map((c) => new THREE.MeshBasicMaterial({ color: c }));
+    while (this.pT <= 0) {
+      this.pT += 0.025;
+      const a = Math.random() * Math.PI * 2, mat = this.pMats[(Math.random() * this.pMats.length) | 0];
+      if (Math.random() < 0.6) {
+        const r = 2 + Math.random() * 0.6;
+        this.fx.spawn({ geo: this.fx.box, mat, pos: new THREE.Vector3(Math.cos(a) * r, 0.5, Math.sin(a) * r),
+          vel: new THREE.Vector3(-Math.sin(a) * 1.2 - Math.cos(a) * 0.3, 1.4 + Math.random() * 1.4, Math.cos(a) * 1.2 - Math.sin(a) * 0.3), size: 0.03 + Math.random() * 0.05, life: 1.8, gravity: -0.3, drag: 0.4, spin: 6 });
+      } else {
+        // part de l'extérieur et file vers l'anneau du portail (centre à 2,35 m de haut)
+        const r = 4 + Math.random() * 2, y = 1 + Math.random() * 2.8;
+        const pos = new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r), to = new THREE.Vector3(0, 2.35, 0).sub(pos).multiplyScalar(1.4);
+        this.fx.spawn({ geo: this.fx.box, mat, pos, vel: to, size: 0.025 + Math.random() * 0.03, life: 0.7, gravity: 0, drag: 0.2, spin: 8 });
+      }
     }
     this.smith.update(dt, focus);
     for (const n of this.npcs) n.update(dt, focus);

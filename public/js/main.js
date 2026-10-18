@@ -1235,7 +1235,7 @@ function updateTargetHud() {
   if (!selMon) return;
   $('sel-name').textContent = W.MONSTERS[selMon.kind]?.name || 'Monstre';
   const f = clamp(selMon.hp / selMon.max, 0, 1);
-  $('sel-fill').style.width = f * 100 + '%';
+  $('sel-fill').style.width = f * 47 + '%';   // la zone rouge de la barre « dragon » fait 47 % de l'image
   $('sel-hp').textContent = `${Math.max(0, Math.round(selMon.hp))} / ${selMon.max}`;
 }
 
