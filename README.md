@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.1.7**
+Version actuelle : **ver.0.1.8**
 
 ## Comptes
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
@@ -33,8 +33,8 @@ pour une compétence « une fois par nuit »). Niveaux pairs : une caractéristi
 |---|---|---|
 | Guerrier | Taunt ultime (1×/nuit, 10 s : tous les monstres viennent vers lui, -50 % de dégâts reçus) | Dernier rempart (1×/nuit, 5 s d'invulnérabilité) |
 | Barbare | Rage (5 s : +60 % de vitesse, attaque ×2, recharge 20 s) | Soif de sang (5 s : 50 % de vol de vie, recharge 20 s) |
-| Mage | Élémentaire (bientôt) | Blink (bientôt) |
-| Voleuse | Sentinelle (bientôt) | Dead Eye (bientôt) |
+| Mage | Élémentaire (E alterne feu / glace, 1 s entre deux : la glace frappe ×1,25 une seule cible et ralentit toute la zone 2 s) | Blink (téléportation de ~10 m vers l'avant, recharge 10 s) |
+| Voleuse | Sentinelle (orbe qui tire seule à 10 m, à la cadence de l'arc, 40 % des dégâts ; E : cadence ×2 pendant 5 s, 1×/nuit) | Dead Eye (1×/nuit : vue à la 1re personne 5 s, survole jusqu'à 10 cibles, puis flèches enflammées à 3× les dégâts) |
 
 ## Le village (lobby)
 On arrive au village, où l'on voit les autres joueurs.

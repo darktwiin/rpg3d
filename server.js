@@ -243,7 +243,7 @@ class Room {
   }
   sys(text, kind = 'sys') { this.broadcast({ type: 'chat', sys: kind, text }); }
   pub(p) {
-    return { id: p.id, name: p.name, color: p.color, skin: p.skin, x: p.x, y: p.y, z: p.z, ry: p.ry || 0, hp: p.hp, maxHp: p.mods.maxHp, dead: p.dead };
+    return { id: p.id, name: p.name, color: p.color, skin: p.skin, x: p.x, y: p.y, z: p.z, ry: p.ry || 0, hp: p.hp, maxHp: p.mods.maxHp, dead: p.dead, path: p.prof.ctree?.[p.skin]?.path || null, el: p.element || 'fire' };
   }
 
   addPlayer(p, color) {
@@ -298,6 +298,7 @@ class Room {
     const wasNight = this.isNight();
     this.time += dt;
     if (!wasNight && this.isNight()) this.startNight();
+    this.updateSentinels(dt);
     if (this.time >= W.CYCLE) { this.time -= W.CYCLE; this.startDay(); }
 
     // La nuit, les monstres arrivent en continu : dès qu'un meurt, un autre le remplace
@@ -724,7 +725,8 @@ class Room {
     p.lastSword = now;
     // Larme de la cascade : tue en un coup pendant la nuit choisie
     const one = p.oneShot && this.isNight() && this.night === p.oneShot;
-    const dmg = one ? 99999 : cls.dmg * p.mods.dmg;
+    const ice = cls.aoe && p.element === 'ice' && p.prof.ctree?.[p.skin]?.path === 'element';
+    const dmg = one ? 99999 : cls.dmg * p.mods.dmg * (ice ? W.ICE.mul : 1);
     let targets = [];
     if (cls.aoe) {
       // mage : boule de feu autour du point d'impact (pas trop loin du joueur)
@@ -732,6 +734,13 @@ class Room {
       const dd = Math.hypot(cx - p.x, cz - p.z), maxR = (cls.range || cls.reach) + 4;
       if (dd > maxR) { cx = p.x + (cx - p.x) / dd * maxR; cz = p.z + (cz - p.z) / dd * maxR; }
       for (const o of this.monsters.values()) if (!o.dead && Math.hypot(o.x - cx, o.z - cz) < cls.aoe) targets.push(o);
+      if (ice) {
+        // glace : seule la cible touchée (ou la plus proche de l'impact) prend les dégâts, toute la zone est ralentie
+        const slow = W.classSkill(p.prof.ctree, p.skin, W.levelOf(p.prof.xp || 0))?.dur || 2;
+        for (const o of targets) o.frost = Math.max(o.frost || 0, slow);
+        const main = m && targets.includes(m) ? m : targets.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))[0];
+        targets = main ? [main] : [];
+      }
     } else {
       if (!m) return;
       const dist = Math.hypot(m.x - p.x, m.z - p.z);
@@ -758,7 +767,7 @@ class Room {
       if (dd > 0.01) { t.x += dx / dd * push / t.T.scale; t.z += dz / dd * push / t.T.scale; }
       if (!t.gemOnly) t.aggro = p.id;
       t.cd = Math.max(t.cd, 0.4);
-      if (cls.burn && t.hp > 0) {
+      if (cls.burn && !ice && t.hp > 0) {
         t.burnT = cls.burn.dur; t.burnDps = cls.burn.dps * p.mods.dmg; t.burnBy = p.id;
         this.broadcast({ type: 'mBurn', id: t.id, t: cls.burn.dur });
       }
@@ -781,9 +790,49 @@ class Room {
     // « une fois par nuit » : propre à cette partie (une nouvelle partie repart à la nuit 0)
     if (sk.def.once ? p.skillRoom === this && p.skillNight === this.night : now < (p.skillReady || 0)) return;
     if (sk.def.once) { p.skillRoom = this; p.skillNight = this.night; } else p.skillReady = now + sk.cd * 1000;
-    p.skill = { id: sk.def.id, until: now + sk.dur * 1000 };
-    this.broadcast({ type: 'skill', id: p.id, s: sk.def.id, dur: sk.dur, cd: sk.cd, night: this.night });
+    if (sk.def.id === 'element') p.element = p.element === 'ice' ? 'fire' : 'ice';
+    const dur = sk.def.id === 'element' || sk.def.id === 'blink' ? 0 : sk.dur;   // ces deux-là n'ont pas d'effet qui dure
+    p.skill = { id: sk.def.id, until: now + dur * 1000 };
+    if (sk.def.id === 'deadeye') p.deadeye = { until: now + (dur + 1.5) * 1000, done: false };
+    this.broadcast({ type: 'skill', id: p.id, s: sk.def.id, dur, cd: sk.cd, night: this.night, el: p.element });
     if (sk.def.id === 'taunt') this.sys(`📯 ${p.name} attire tous les monstres !`, 'warn');
+  }
+  // dégâts directs d'une compétence (Sentinelle, Dead Eye)
+  skillHurt(p, t, dmg) {
+    t.hp -= dmg;
+    this.broadcast({ type: 'mHurt', id: t.id, hp: Math.max(0, t.hp), by: p.id });
+    if (t.hp <= 0) { this.killMonster(t, false); this.giveXp(p, W.XP_KILL[t.kind] || 3); }
+  }
+  // Dead Eye : le client envoie les cibles marquées pendant le focus ; une seule salve par activation
+  deadeye(p, ids) {
+    const de = p.deadeye;
+    if (!de || de.done || Date.now() > de.until || p.dead || !Array.isArray(ids)) return;
+    de.done = true;
+    const dmg = W.classOf(p.skin).dmg * p.mods.dmg * W.DEADEYE.mul;
+    const hit = [];
+    for (const id of [...new Set(ids.map(String))].slice(0, W.DEADEYE.max)) {
+      const t = this.monsters.get(id);
+      if (!t || t.dead || Math.hypot(t.x - p.x, t.z - p.z) > W.DEADEYE.range) continue;
+      hit.push(t.id);
+    }
+    this.broadcast({ type: 'deadeyeShot', id: p.id, ms: hit });
+    // les flèches mettent un instant à arriver
+    setTimeout(() => { if (!rooms.has(this) || !this.players.has(p.id)) return; for (const id of hit) { const t = this.monsters.get(id); if (t && !t.dead) this.skillHurt(p, t, dmg); } }, 450);
+  }
+  // Sentinelle : l'orbe tire toute seule sur le monstre le plus proche (10 m), à la cadence de l'arc (×2 pendant la compétence)
+  updateSentinels(dt) {
+    for (const p of this.players.values()) {
+      if (p.dead || p.skin !== 'Rogue' || p.prof.ctree?.Rogue?.path !== 'sentinel') continue;
+      p.sentCd = (p.sentCd || 0) - dt;
+      if (p.sentCd > 0) continue;
+      let t = null, bd = W.SENTINEL.range;
+      for (const m of this.monsters.values()) { if (m.dead || m.wake > 0) continue; const d = Math.hypot(m.x - p.x, m.z - p.z); if (d < bd) { bd = d; t = m; } }
+      if (!t) { p.sentCd = 0.25; continue; }
+      const cls = W.classOf(p.skin);
+      p.sentCd = cls.cd / p.mods.atkSpeed / (this.skillOn(p, 'sentinel') ? 2 : 1);
+      this.broadcast({ type: 'sentShot', id: p.id, m: t.id });
+      this.skillHurt(p, t, cls.dmg * p.mods.dmg * W.SENTINEL.dmg);
+    }
   }
 
   // Coup de poing entre alliés : la victime est assommée et roule par terre
@@ -1298,6 +1347,7 @@ wss.on('connection', (ws) => {
       }
       case 'admin': R.admin(p, d); break;
       case 'skill': R.useSkill(p); break;
+      case 'deadeye': R.deadeye(p, d.ids); break;
       case 'backToHub': R.removePlayer(p, true); break;
     }
   };

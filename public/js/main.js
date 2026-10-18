@@ -290,7 +290,7 @@ addEventListener('keydown', (e) => {
   if (e.code === K.punch) punchAlly();
   if (e.code === K.inventory) { openHero(); return; }
   if (e.code === K.interact && !(inGame() && game.build.on && e.code === K.demolish)) interact();
-  if (inGame() && e.code === K.skill && !me.dead) send({ type: 'skill' });
+  if (inGame() && e.code === K.skill && !me.dead) { if (deadeye) endDeadeye(); else send({ type: 'skill' }); }
   if (game.build.on && /^Digit[1-9]$/.test(e.code)) selectPiece(+e.code.slice(5) - 1);
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -469,11 +469,27 @@ function connect() {
 
 const handlers = {
   toast: (d) => toast(d.text),
+  sentShot: (d) => {
+    const o = d.id === me.id ? me : others.get(d.id), m = monsters.map.get(d.m);
+    if (!o?.rig?.sentOrb || !m) return;
+    flyArrow(o.rig.sentOrb.getWorldPosition(new THREE.Vector3()), m, 0.6, false);
+  },
+  deadeyeShot: (d) => {
+    const o = d.id === me.id ? me : others.get(d.id);
+    if (!o?.rig) return;
+    const from = o.rig.root.position.clone().setY(o.rig.root.position.y + 1.4);
+    for (const id of d.ms) { const m = monsters.map.get(id); if (m) flyArrow(from, m, 2.4, true); }
+    audio.play('fire', from);
+    if (d.id === me.id && d.ms.length) showBanner('🎯 Feu !', `${d.ms.length} cible${d.ms.length > 1 ? 's' : ''}`, 1200);
+  },
   skill: (d) => {
     const o = d.id === me.id ? me : others.get(d.id);
     if (!o?.rig) return;
     o.rig.skillFx = { s: d.s, until: performance.now() + d.dur * 1000 };
     audio.play(SKILL_SFX[d.s] || 'ui', o.rig.root.position);
+    if (d.s === 'element') { o.rig.setElement(d.el); if (d.id === me.id) popup(d.el === 'ice' ? '❄ Glace' : '🔥 Feu', d.el === 'ice' ? '#9be4ff' : '#ffb060'); }
+    if (d.s === 'blink') { magicPuff(o.rig.root.position); if (d.id === me.id) doBlink(); }
+    if (d.s === 'deadeye' && d.id === me.id) startDeadeye(d.dur);
     if (d.id === me.id) {
       skillUse = { night: d.night, readyAt: performance.now() + (d.cd || 0) * 1000 };
       camShake = 0.15;
@@ -771,6 +787,8 @@ function addOther(p) {
   scene.add(rig.root, rig.trail.mesh);
   if (p.dead) rig.die();
   rig.setHp((p.hp ?? 100) / (p.maxHp || W.PLAYER_HP));
+  rig.path = p.path; if (p.el) rig.setElement(p.el);
+  rig.setSentinel(p.skin === 'Rogue' && p.path === 'sentinel');
   others.set(p.id, { id: p.id, rig, name: p.name, color: p.color, maxHp: p.maxHp || W.PLAYER_HP, target: new THREE.Vector3(p.x, p.y, p.z), ry: p.ry || 0, s: 0, g: true });
 }
 function removeOther(id) {
@@ -835,6 +853,8 @@ function enterHub(d) {
 
 function enterGame(d) {
   fade();
+  if (deadeye) endDeadeye(true);
+  me.rig?.setElement(d.you?.el || 'fire');
   game.scene = 'game';
   game.over = false;
   game.solo = d.solo; game.host = d.host;
@@ -1116,7 +1136,8 @@ function updateSkillHud() {
     const fx = me.rig?.skillFx, act = fx && fx.s === sk.def.id && now < fx.until;
     const rem = act ? (fx.until - now) / 1000 : 0, cd = Math.max(0, (skillUse.readyAt - now) / 1000);
     const used = sk.def.once && skillUse.night === game.clock.night;
-    const st = act ? `${rem.toFixed(1)} s` : used ? 'utilisée cette nuit' : cd > 0 ? `recharge ${cd.toFixed(1)} s` : 'prête';
+    const st = sk.def.id === 'element' ? (me.rig?.element === 'ice' ? '❄ glace' : '🔥 feu')
+      : act ? `${rem.toFixed(1)} s` : used ? 'utilisée cette nuit' : cd > 0 ? `recharge ${cd.toFixed(1)} s` : 'prête';
     frac = act ? rem / sk.dur : 0;
     key = sk.def.id + st;
     html = `<span class="kbd">${keyLabel(settings.keys.skill)}</span> ${sk.def.icon} ${sk.def.name} · <b>${st}</b>`;
@@ -1668,9 +1689,11 @@ function updateArrows(dt) {
     a.mesh.position.lerpVectors(a.from, a.to, k);
     a.mesh.position.y += Math.sin(k * Math.PI) * a.arc;
     a.mesh.lookAt(a.mesh.position.clone().add(a.mesh.position.clone().sub(prev)));
+    if (a.fire) for (let j = 0; j < 2; j++) fx.spawn({ geo: fx.box, mat: fireMats[(Math.random() * 3) | 0], pos: a.mesh.position.clone(), vel: new THREE.Vector3((Math.random() - 0.5), 0.6, (Math.random() - 0.5)), size: 0.12, life: 0.4, gravity: -1, drag: 2 });
     if (k >= 1) {
       worldRoot.remove(a.mesh);
       arrows.splice(i, 1);
+      if (a.fire) fireBurst(a.to);
       if (a.mon && a.mon.id && !a.mon.dead && a.mine) { send({ type: 'hitM', id: a.mon.id }); audio.play('swordHit', a.to); }
       fx.spawn({ geo: fx.box, mat: fx.mats.wood, pos: a.to, vel: new THREE.Vector3(0, 2, 0), size: 0.04, life: 0.4, gravity: 10 });
     }
@@ -1694,6 +1717,73 @@ function fireBurst(p) {
   fx.puff(new THREE.Vector3(p.x, p.y + 0.3, p.z), 0xff9a40, 5, 0.7);
   audio.play('fire', p);
 }
+const iceMats = ['#ffffff', '#9be4ff', '#4ab8ff'].map((c) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.9 }));
+function iceBurst(p) {
+  for (let i = 0; i < 22; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.random() * W.CLASSES.Mage.aoe;
+    fx.spawn({ geo: fx.box, mat: iceMats[i % 3], pos: new THREE.Vector3(p.x + Math.cos(a) * r * 0.3, p.y + 0.2, p.z + Math.sin(a) * r * 0.3),
+      vel: new THREE.Vector3(Math.cos(a) * r * 1.4, 1 + Math.random() * 2, Math.sin(a) * r * 1.4), size: 0.07 + Math.random() * 0.08, life: 0.7, gravity: 4, drag: 2.5, spin: 6 });
+  }
+  fx.puff(new THREE.Vector3(p.x, p.y + 0.3, p.z), 0x9be4ff, 5, 0.7);
+  audio.play('splash', p);
+}
+// petites particules au bout du bâton : couleur de l'élément actif (voie Élémentaire)
+const _tip = new THREE.Vector3();
+function staffSparks() {
+  for (const o of [me, ...others.values()]) {
+    const r = o.rig;
+    if (!r?.flame || !r.element || (o === me ? profile.ctree?.Mage?.path : r.path) !== 'element' || Math.random() > 0.3) continue;
+    r.flame.getWorldPosition(_tip);
+    fx.spawn({ geo: fx.box, mat: (r.element === 'ice' ? iceMats : fireMats)[(Math.random() * 3) | 0], pos: _tip.clone(), vel: new THREE.Vector3((Math.random() - 0.5) * 0.6, 0.7, (Math.random() - 0.5) * 0.6), size: 0.05, life: 0.45, gravity: r.element === 'ice' ? 1 : -1, drag: 2 });
+  }
+  me.rig?.setSentinel(inGame() && me.skin === 'Rogue' && profile.ctree?.Rogue?.path === 'sentinel');
+}
+function magicPuff(p) { fx.puff(new THREE.Vector3(p.x, p.y + 1, p.z), 0xb090ff, 7, 0.8); audio.play('dash', p); }
+// Blink : téléportation d'environ 10 m vers l'avant (le serveur a validé la recharge)
+function doBlink() {
+  const bx = -Math.sin(camYaw), bz = -Math.cos(camYaw);
+  me.pos.x = clamp(me.pos.x + bx * 10, -WORLD_LIMIT, WORLD_LIMIT);
+  me.pos.z = clamp(me.pos.z + bz * 10, -WORLD_LIMIT, WORLD_LIMIT);
+  me.pos.y = Math.max(me.pos.y, terrainH(me.pos.x, me.pos.z));
+  me.rig.root.position.copy(me.pos);
+  magicPuff(me.pos);
+}
+// flèche d'une compétence (dégâts déjà appliqués par le serveur) : petite pour la Sentinelle, grosse et enflammée pour Dead Eye
+function flyArrow(from, mon, size, fire) {
+  const mesh = prop('x_arrow', 1.1 * size);
+  mesh.position.copy(from);
+  worldRoot.add(mesh);
+  const to = mon.rig.root.position.clone().setY(mon.rig.root.position.y + 1.1);
+  const dist = from.distanceTo(to);
+  arrows.push({ mesh, from: from.clone(), to, t: 0, dur: Math.max(0.12, dist / (fire ? 30 : 40)), mon, arc: fire ? dist * 0.08 : 0, fire });
+}
+// Dead Eye : focus à la première personne, on survole jusqu'à 10 cibles, puis les flèches partent
+let deadeye = null;
+function startDeadeye(dur) {
+  deadeye = { until: performance.now() + dur * 1000, marks: new Set() };
+  if (me.rig) me.rig.root.visible = false;
+  canvas.style.filter = 'sepia(0.55) saturate(1.5) contrast(1.1)';
+  $('ui').classList.add('deadeye');
+}
+function updateDeadeye() {
+  if (!deadeye) return;
+  if (performance.now() > deadeye.until || me.dead) { endDeadeye(); return; }
+  const m = monsters.findAlongAim(me.pos, camera, W.DEADEYE.range);
+  if (m && !deadeye.marks.has(m.id) && deadeye.marks.size < W.DEADEYE.max) {
+    deadeye.marks.add(m.id); m.rig.marked = true;
+    audio.play('ui');
+  }
+}
+function endDeadeye(silent = false) {
+  const ids = [...deadeye.marks];
+  for (const id of ids) { const m = monsters.map.get(id); if (m) m.rig.marked = false; }
+  deadeye = null;
+  if (me.rig) me.rig.root.visible = true;
+  canvas.style.filter = '';
+  $('ui').classList.remove('deadeye');
+  if (!silent) send({ type: 'deadeye', ids });
+}
+
 // Boule de feu du mage : part du bâton, explose à l'impact (dégâts en zone + brûlure)
 const fireballs = [];
 let fireTex = null;
@@ -1716,10 +1806,12 @@ function shootFire(rig, to, mon, mine = false) {
   else rig.root.getWorldPosition(from).setY(from.y + 1.4);
   const target = new THREE.Vector3(to.x, to.y ?? heightAt(to.x, to.z), to.z);
   const mesh = fireballMesh();
+  const ice = rig.element === 'ice';
+  if (ice) mesh.material.color.set('#9be4ff');
   mesh.position.copy(from);
   worldRoot.add(mesh);
   const dist = from.distanceTo(target);
-  fireballs.push({ mesh, from, to: target, t: 0, dur: Math.max(0.1, dist / 24), mon, mine, arc: dist * 0.06 });
+  fireballs.push({ mesh, from, to: target, t: 0, dur: Math.max(0.1, dist / 24), mon, mine, arc: dist * 0.06, ice });
   audio.play('fire', from);
 }
 function updateFireballs(dt) {
@@ -1731,12 +1823,12 @@ function updateFireballs(dt) {
     f.mesh.position.lerpVectors(f.from, f.to, k);
     f.mesh.position.y += Math.sin(k * Math.PI) * f.arc;
     f.mesh.scale.setScalar(0.7 + Math.sin(f.t * 30) * 0.1);
-    if (Math.random() < 0.7) fx.spawn({ geo: fx.box, mat: fireMats[(Math.random() * 3) | 0], pos: f.mesh.position.clone(), vel: new THREE.Vector3((Math.random() - 0.5), 0.8, (Math.random() - 0.5)), size: 0.07, life: 0.35, gravity: -1, drag: 2 });
+    if (Math.random() < 0.7) fx.spawn({ geo: fx.box, mat: (f.ice ? iceMats : fireMats)[(Math.random() * 3) | 0], pos: f.mesh.position.clone(), vel: new THREE.Vector3((Math.random() - 0.5), 0.8, (Math.random() - 0.5)), size: 0.07, life: 0.35, gravity: -1, drag: 2 });
     if (k >= 1) {
       worldRoot.remove(f.mesh); f.mesh.material.dispose();
       fireballs.splice(i, 1);
       const c = new THREE.Vector3(f.to.x, heightAt(f.to.x, f.to.z), f.to.z);
-      fireBurst(c);
+      if (f.ice) iceBurst(c); else fireBurst(c);
       if (f.mine) { send({ type: 'hitM', id: f.mon && !f.mon.dead ? f.mon.id : null, x: +c.x.toFixed(2), z: +c.z.toFixed(2) }); camShake = Math.max(camShake, 0.06); }
     }
   }
@@ -2074,6 +2166,14 @@ function updateCamera(dt) {
   // dans une grotte, la caméra se rapproche et reste sous le plafond
   const cave = inGame() ? W.caveAt(me.pos.x, me.pos.z) : null;
   camCaveK += ((cave ? 1 : 0) - camCaveK) * (1 - Math.exp(-dt * 4));
+  if (deadeye) {
+    // Dead Eye : vue à la première personne
+    const cp = Math.cos(camPitch);
+    camera.position.set(me.pos.x, me.pos.y + 1.5, me.pos.z);
+    camera.lookAt(me.pos.x - Math.sin(camYaw) * cp, me.pos.y + 1.5 - Math.sin(camPitch), me.pos.z - Math.cos(camYaw) * cp);
+    audio.setListener(camera.position.x, camera.position.y, camera.position.z, -fwdZ, fwdX);
+    return;
+  }
   const dist = camDist + (Math.min(camDist, 3.6) - camDist) * camCaveK;
   const horiz = dist * Math.cos(camPitch);
   camera.position.set(camTarget.x + Math.sin(camYaw) * horiz, camTarget.y + dist * Math.sin(camPitch), camTarget.z + Math.cos(camYaw) * horiz);
@@ -2147,6 +2247,8 @@ function tick(dt) {
     nature.update(dt, time, wind.uWind.value, focus, nightAmount);
     updateFlyers(dt);
     updateSkillHud();
+    updateDeadeye();
+    staffSparks();
     updateArrows(dt);
   if (inGame()) loots.update(dt, me.dead ? null : me.pos, send);
   updateFireballs(dt);

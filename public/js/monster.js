@@ -306,7 +306,8 @@ export class MonsterRig {
     // en feu (bâton du mage) : lueur orange qui vacille
     this.fireT = Math.max(0, (this.fireT || 0) - dt);
     const fire = this.fireT > 0 ? 0.35 + Math.sin(this.time * 17) * 0.12 : 0;
-    for (const m of this.mats) m.emissive.setRGB(flash * 0.9 + this.burn * 0.9 + fire, flash * 0.9 + this.burn * 0.3 + ice * 0.5 + fire * 0.35, flash * 0.9 + ice);
+    const mk = this.marked ? 0.6 : 0;   // cible marquée par Dead Eye : surbrillance blanche
+    for (const m of this.mats) m.emissive.setRGB(flash * 0.9 + this.burn * 0.9 + fire + mk, flash * 0.9 + this.burn * 0.3 + ice * 0.5 + fire * 0.35 + mk, flash * 0.9 + ice + mk);
     if (this.orb) this.orb.material.opacity = this.deadT >= 0 ? 0 : 0.55 + Math.sin(this.time * 5) * 0.15 + (this.atkT < 0.6 ? Math.sin(this.atkT / 0.6 * Math.PI) * 0.4 : 0);
 
     if (this.updateSkull(dt, sink)) ev.skull = true;
