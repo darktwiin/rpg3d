@@ -1098,27 +1098,43 @@ function openTalents() {
 }
 function renderClassTree() {
   const edit = inHub();   // consultable partout, modifiable seulement au village
-  const lvl = W.levelOf(profile.xp), pts = W.classPoints(lvl);
-  const t = profile.ctree?.[me.skin] || { path: null, picks: [] };
-  const picks = t.picks.slice(0, pts.stat), free = pts.stat - picks.length;
+  const lvl = W.levelOf(profile.xp), reached = Math.min(lvl, W.TALENT_NODES);
+  const path = profile.ctree?.[me.skin]?.path || null;
   const sk = W.classSkill(profile.ctree, me.skin, lvl);
-  const box = $('talents-body');
-  const count = (id) => picks.filter((k) => k === id).length;
-  box.innerHTML = `<div class="ctree${edit ? '' : ' locked'}">
-    <div class="ctree-head">${W.CLASS_NAMES[me.skin]} · niveau <b>${lvl}</b> · niveaux impairs : compétence (E) · niveaux pairs : caractéristique</div>
-    <div class="ctree-paths">${W.CLASS_SKILLS[me.skin].map((d) => `
-      <button class="ctree-path${t.path === d.id ? ' on' : ''}" data-path="${d.id}" ${d.soon || !edit ? 'disabled' : ''}>
-        <div class="nm">${d.icon} ${d.name}${t.path === d.id ? ' ✔' : ''}${d.soon ? ' (bientôt)' : ''}</div><div class="desc">${d.desc}</div>
-        ${t.path === d.id && sk ? `<div class="up">${sk.boosts} amélioration${sk.boosts > 1 ? 's' : ''} : ${sk.dur ? `durée ${sk.dur} s` : ''}${sk.dur && sk.cd ? ' · ' : ''}${sk.cd ? `recharge ${sk.cd} s` : d.once ? ' · une fois par nuit' : ''}</div>` : ''}
-      </button>`).join('')}</div>
-    <div class="ctree-stats"><div>Caractéristiques : <b>${free}</b> point${free > 1 ? 's' : ''} à placer</div>
-      ${W.CLASS_STATS.map((c) => `<button class="btn small" data-stat="${c.id}" ${free && edit ? '' : 'disabled'}>${c.icon} ${c.name} <b>×${count(c.id)}</b></button>`).join('')}
-      <button class="btn small ghost" id="ctree-reset" ${picks.length && edit ? '' : 'disabled'}>Replacer les points (gratuit)</button></div>
-    <div class="hint">${edit ? 'La voie et les points se changent gratuitement, au village.' : '🔒 En partie : consultation seulement. Les talents se modifient au village.'} Compétence : touche <b>${keyLabel(settings.keys.skill)}</b>.</div>
+  const tip = (d, n) => {
+    const k = W.nodeKind(n);
+    if (k === 'skill') return `${d.name} — ${d.desc}`;
+    if (k === 'boost') return d.boost === 'cd' && !d.once ? `Niveau ${n} : -${W.BOOST_STEP} s de recharge` : `Niveau ${n} : +${W.BOOST_STEP} s de durée`;
+    return `Niveau ${n} : ${W.CLASS_STATS[k].name}`;
+  };
+  const icon = (d, n) => { const k = W.nodeKind(n); return k === 'skill' ? d.icon : k === 'boost' ? '⚡' : W.CLASS_STATS[k].icon; };
+  const lane = (d) => {
+    const mine = path === d.id, locked = path && !mine;
+    const pick = !path && edit;
+    const nodes = Array.from({ length: W.TALENT_NODES }, (_, i) => {
+      const n = i + 1, on = mine && n <= reached;
+      return `<div class="tnode ${W.nodeKind(n)}${on ? ' on' : ''}${n === 1 && pick ? ' pick' : ''}" title="${tip(d, n)}" ${n === 1 && pick ? `data-path="${d.id}"` : ''}><span>${icon(d, n)}</span><i>${n}</i></div>`;
+    }).join('');
+    return `<div class="tlane${mine ? ' mine' : ''}${locked ? ' locked' : ''}">
+      <div class="tlane-head"><b>${d.icon} ${d.name}</b>${mine ? ' ✔' : locked ? ' 🔒' : ''}<div class="desc">${d.desc}</div></div>
+      <div class="tnodes">${nodes}</div></div>`;
+  };
+  // totaux des caractéristiques gagnées
+  const tot = { hp: 0, dmg: 0, aspd: 0 };
+  if (path) for (let n = 2; n <= reached; n += 2) tot[W.nodeKind(n)]++;
+  $('talents-body').innerHTML = `<div class="ctree${edit ? '' : ' locked'}">
+    <div class="ctree-head">${W.CLASS_NAMES[me.skin]} · niveau <b>${lvl}</b> · <b>${path ? reached : 0}</b> / ${W.TALENT_NODES} points dépensés automatiquement</div>
+    ${W.CLASS_SKILLS[me.skin].map(lane).join('')}
+    <div class="ctree-sum">${path && sk
+      ? `Compétence (touche <b>${keyLabel(settings.keys.skill)}</b>) : ${sk.dur ? `durée <b>${sk.dur} s</b>` : ''}${sk.dur && (sk.cd || sk.def.once) ? ' · ' : ''}${sk.def.once ? 'une fois par nuit' : sk.cd ? `recharge <b>${sk.cd} s</b>` : ''} · Bonus : +${tot.hp * 10} PV, +${tot.dmg} % de dégâts, +${tot.aspd * 2} % de vitesse d’attaque`
+      : edit ? 'Clique sur le premier rond d’une branche pour la choisir. <b>Attention : l’autre branche sera verrouillée.</b>' : 'Choisis ta branche au village.'}</div>
+    ${edit ? '' : '<div class="hint">🔒 En partie : consultation seulement.</div>'}
+    <div class="hint">⚡ amélioration de la compétence · ❤ ⚔ ⏱ caractéristiques · un rond par niveau, jusqu’au niveau ${W.TALENT_NODES}</div>
   </div>`;
-  for (const b of box.querySelectorAll('[data-path]')) b.onclick = () => { send({ type: 'cPath', path: b.dataset.path }); audio.play('ui'); };
-  for (const b of box.querySelectorAll('[data-stat]')) b.onclick = () => { send({ type: 'cStat', stat: b.dataset.stat }); audio.play('ui'); };
-  $('ctree-reset').onclick = () => { send({ type: 'cReset' }); audio.play('ui'); };
+  for (const b of $('talents-body').querySelectorAll('[data-path]')) b.onclick = () => {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.classList.add('sure'); toast('Clique encore pour confirmer : l’autre branche sera verrouillée.'); return; }
+    send({ type: 'cPath', path: b.dataset.path }); audio.play('levelUp');
+  };
 }
 
 // Compétence de classe : état local pour le HUD (le serveur décide)
@@ -1202,7 +1218,7 @@ function hubInteraction() {
   if (near(SPOTS.portal)) return { kind: 'portal', label: 'Entrer dans le portail' };
   if (near(SPOTS.forge)) return { kind: 'forge', label: 'Forge : fusion et fonte' };
   if (near(SPOTS.armory)) return { kind: 'armory', label: 'Barbare : changer de classe' };
-  if (near(SPOTS.sanctum)) return { kind: 'sanctum', label: 'Gardien de maîtrise : compétences' };
+  if (near(SPOTS.sanctum)) return { kind: 'sanctum', label: 'Maîtrise : compétences' };
   if (near(SPOTS.board)) return { kind: 'board', label: 'Voir le classement' };
   let best = null, bd = 2.6;
   for (const o of others.values()) {

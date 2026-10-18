@@ -73,7 +73,8 @@ function textSprite(text, color = '#f0c96a', scale = 1) {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 128;
   const ctx = c.getContext('2d');
-  ctx.font = 'bold 64px Georgia, serif';
+  let fs = 64;
+  do ctx.font = `bold ${fs}px Georgia, serif`; while (ctx.measureText(text).width > 480 && (fs -= 4) > 24);
   ctx.textAlign = 'center';
   ctx.lineWidth = 10; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(0,0,0,0.75)';
   ctx.strokeText(text, 256, 84);
@@ -191,7 +192,7 @@ export class Village {
     sign('Forge', SPOTS.forge.x, 5.6, SPOTS.forge.z, '#ffb070');
     sign('Classement', SPOTS.board.x, 5.6, SPOTS.board.z, '#f0c96a');
     sign('Salle d’armes', SPOTS.armory.x, 5.6, SPOTS.armory.z, '#ff9070');
-    sign('Gardien de maîtrise', SPOTS.sanctum.x, 5.6, SPOTS.sanctum.z, '#c0a8ff');
+    sign('Maîtrise', SPOTS.sanctum.x, 5.6, SPOTS.sanctum.z, '#c0a8ff');
   }
 
   pathDist(x, z) {
@@ -244,13 +245,13 @@ export class Village {
 
   // ---------------- Forge ----------------
   // Abri ouvert vers la place (sol, 4 poteaux, toit, mur du fond) : forge et ateliers des PNJ
-  stallShell(M, spot, ry, roofMat = M.shingles) {
+  stallShell(M, spot, ry, roofMat = M.shingles, posts = true) {
     const g = new THREE.Group();
     g.position.set(spot.x, 0, spot.z);
     g.rotation.y = ry;
     this.root.add(g);
     this.add(g, new THREE.BoxGeometry(6, 0.25, 4.6), M.stone, 0, 0.12, -0.6);
-    for (const [px, pz] of [[-2.8, 1.4], [2.8, 1.4], [-2.8, -2.6], [2.8, -2.6]]) this.add(g, new THREE.CylinderGeometry(0.15, 0.17, 3.4, 8), M.log, px, 1.7, pz);
+    if (posts) for (const [px, pz] of [[-2.8, 1.4], [2.8, 1.4], [-2.8, -2.6], [2.8, -2.6]]) this.add(g, new THREE.CylinderGeometry(0.15, 0.17, 3.4, 8), M.log, px, 1.7, pz);
     const roof = this.add(g, new THREE.BoxGeometry(6.6, 0.16, 5.2), roofMat, 0, 3.55, -0.6);
     roof.rotation.x = -0.18;
     this.add(g, new THREE.BoxGeometry(6.2, 2.4, 0.3), M.planksDark, 0, 1.45, -2.75);
@@ -265,7 +266,19 @@ export class Village {
   buildWorkshops(M) {
     const face = (s) => Math.atan2(-s.x, -s.z);   // ouverts vers le portail
     const mk = (spot, col, roofCol) => {
-      const g = this.stallShell(M, spot, face(spot), new THREE.MeshStandardMaterial({ color: roofCol, roughness: 0.9 }));
+      const g = this.stallShell(M, spot, face(spot), new THREE.MeshStandardMaterial({ color: roofCol, roughness: 0.9 }), false);
+      // colonnes de pierre sculptées aux 4 coins, poutre de façade, murets latéraux et marche d'entrée
+      for (const [px, pz] of [[-2.8, 1.4], [2.8, 1.4], [-2.8, -2.6], [2.8, -2.6]]) {
+        const c = prop('d_pillar_decorated', 1);
+        const b = new THREE.Box3().setFromObject(c), h = b.max.y - b.min.y;
+        c.scale.multiplyScalar(3.35 / h);
+        c.position.set(px, 0.25, pz);
+        g.add(c);
+      }
+      this.add(g, new THREE.BoxGeometry(6.2, 0.3, 0.3), M.log, 0, 3.3, 1.4);
+      this.add(g, new THREE.BoxGeometry(6.2, 0.3, 0.3), M.log, 0, 3.3, -2.6);
+      for (const sx of [-1, 1]) this.add(g, new THREE.BoxGeometry(0.3, 1.0, 3.4), M.stone, sx * 2.85, 0.75, -0.75);
+      this.add(g, new THREE.BoxGeometry(3.2, 0.14, 0.7), M.stone, 0, 0.07, 1.95);
       const l = new THREE.PointLight(col, 4, 8, 1.5);
       l.position.set(0, 2.6, -1.2);
       g.add(l);
@@ -314,7 +327,6 @@ export class Village {
     this.add(g, new THREE.BoxGeometry(0.5, 1.6, 0.5), M.stone, 0, 1.4, 0);
     this.add(g, new THREE.BoxGeometry(3.6, 2.6, 0.3), M.stone, 0, 3.2, -0.1);
     this.add(g, new THREE.BoxGeometry(3.9, 0.25, 0.45), M.stoneLight, 0, 4.55, -0.1);
-    this.add(g, new THREE.ConeGeometry(0.35, 0.6, 4), M.rune, 0, 4.95, -0.1);
     const c = document.createElement('canvas');
     c.width = 768; c.height = 560;
     this.boardCanvas = c;
@@ -410,7 +422,7 @@ export class Village {
     })();
     this.glows = [];
     // angles (degrés) choisis pour éviter la forge, le classement, la salle d'armes et le sanctuaire
-    for (const deg of [30, 78, 102, 150, 258, 282]) {
+    for (const deg of [78, 102, 150, 258, 282]) {
       const a = deg * Math.PI / 180, r = 21.8;
       const x = Math.cos(a) * r, z = Math.sin(a) * r, y = villageHeight(x, z);
       this.add(this.root, new THREE.CylinderGeometry(0.07, 0.1, 2.8, 8), M.log, x, y + 1.4, z);

@@ -1165,16 +1165,12 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // ----- Arbre de classe (au Gardien de maîtrise) : voie de la compétence E et caractéristiques -----
-    if ((d.type === 'cPath' || d.type === 'cStat' || d.type === 'cReset') && p.where === 'hub') {
-      const prof = p.prof, t = ((prof.ctree ||= {})[p.skin] ||= { path: null, picks: [] });
-      const pts = W.classPoints(W.levelOf(prof.xp || 0));
-      if (d.type === 'cPath') { if (W.CLASS_SKILLS[p.skin]?.some((k) => k.id === d.path && !k.soon)) t.path = d.path; }
-      else if (d.type === 'cStat') {
-        t.picks = t.picks.slice(0, pts.stat);
-        if (t.picks.length >= pts.stat) return send(ws, { type: 'toast', text: 'Plus de point de caractéristique : monte de niveau.' });
-        if (W.CLASS_STATS.some((k) => k.id === d.stat)) t.picks.push(d.stat);
-      } else t.picks = [];
+    // ----- Talents de classe (au village) : choix de la branche, définitif pour cette classe -----
+    if (d.type === 'cPath' && p.where === 'hub') {
+      const t = ((p.prof.ctree ||= {})[p.skin] ||= { path: null });
+      if (t.path) return send(ws, { type: 'toast', text: 'Ta branche est déjà choisie pour cette classe.' });
+      if (!W.CLASS_SKILLS[p.skin]?.some((k) => k.id === d.path)) return;
+      t.path = d.path;
       saveJSON('profiles.json', profiles);
       sendProfile(p);
       return;

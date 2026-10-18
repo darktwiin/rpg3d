@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.1.9';
+export const VERSION = '0.2.0';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -513,10 +513,10 @@ const STAT_BASE = { weapon: 4, ring: 2.5, chest: 8, hat: 5, boots: 2 };   // % d
 const RARITY_MUL = [1, 1.6, 2.4, 3.5, 5, 7];
 export const INV_MAX = 60;
 export const CLASS_CHANGE_COST = 3;
-// ---------- Arbre de classe : compétence active (touche E) + caractéristiques ----------
-// Chaque niveau donne 1 point : niveaux impairs → compétence (le 1er choisit la voie, les suivants l'améliorent),
-// niveaux pairs → une caractéristique au choix. Amélioration : +0,5 s de durée (boost 'dur') ou -0,5 s de recharge
-// (boost 'cd') ; jamais de recharge réduite sur une compétence « une fois par nuit ».
+// ---------- Talents de classe : compétence active (touche A) + caractéristiques ----------
+// Deux branches par classe ; choisir l'une verrouille l'autre. 20 nodes par branche, un par niveau (1 à 20),
+// dépensés automatiquement : node 1 = la compétence, nodes impairs suivants = amélioration (+0,5 s de durée ou
+// -0,5 s de recharge, jamais de recharge réduite sur « une fois par nuit »), nodes pairs = caractéristique.
 export const CLASS_SKILLS = {
   Knight: [
     { id: 'taunt', name: 'Taunt ultime', icon: '📯', once: true, dur: 10, boost: 'dur', desc: 'Une fois par nuit : attire tous les monstres de la carte vers toi pendant 10 s, et tu reçois 50 % de dégâts en moins. Plusieurs guerriers : chaque monstre va vers le plus proche.' },
@@ -535,16 +535,20 @@ export const CLASS_SKILLS = {
     { id: 'deadeye', name: 'Dead Eye', icon: '🎯', once: true, dur: 5, boost: 'dur', desc: 'Une fois par nuit : vue à la première personne, vise jusqu’à 10 cibles pendant 5 s (ou rappuie sur E), puis des flèches enflammées les frappent à 3× les dégâts.' },
   ],
 };
-export const CLASS_STATS = [
-  { id: 'hp', name: '+10 points de vie', icon: '❤' },
-  { id: 'dmg', name: '+1 % de dégâts', icon: '⚔' },
-  { id: 'aspd', name: '+2 % de vitesse d’attaque', icon: '⏱' },
-];
+export const CLASS_STATS = {
+  hp: { name: '+10 points de vie', icon: '❤' },
+  dmg: { name: '+1 % de dégâts', icon: '⚔' },
+  aspd: { name: '+2 % de vitesse d’attaque', icon: '⏱' },
+};
+export const TALENT_NODES = 20;
+export const STAT_SEQ = ['hp', 'dmg', 'aspd'];   // nodes pairs, dans l'ordre (2 = PV, 4 = dégâts, 6 = vitesse…)
 export const BOOST_STEP = 0.5;
 export const SENTINEL = { range: 10, dmg: 0.4 };   // portée, part des dégâts de l'arc
 export const DEADEYE = { max: 10, mul: 3, range: 60 };
 export const ICE = { mul: 1.25 };   // glace : un peu plus de dégâts, une seule cible
-export const classPoints = (level) => ({ skill: Math.ceil(level / 2), stat: Math.floor(level / 2) });
+export const classPoints = (level) => { const l = Math.min(level, TALENT_NODES); return { skill: Math.ceil(l / 2), stat: Math.floor(l / 2) }; };
+// node n (1 à 20) : 'skill' | 'boost' | une caractéristique
+export const nodeKind = (n) => n === 1 ? 'skill' : n % 2 ? 'boost' : STAT_SEQ[(n / 2 - 1) % STAT_SEQ.length];
 // Compétence active d'un joueur, avec ses améliorations : { def, dur, cd } ou null si aucune voie choisie
 export function classSkill(ctree, cls, level) {
   const t = ctree?.[cls], def = t && CLASS_SKILLS[cls]?.find((s) => s.id === t.path);
@@ -554,10 +558,11 @@ export function classSkill(ctree, cls, level) {
   const cd = def.once ? 0 : Math.max(1, (def.cd || 0) - (def.boost === 'cd' ? n * BOOST_STEP : 0));
   return { def, dur, cd, boosts: n };
 }
-// Caractéristiques de l'arbre de classe (seuls les points disponibles au niveau actuel comptent)
+// Caractéristiques des talents : nodes pairs atteints de la branche choisie
 export function applyClassTree(mods, ctree, cls, level) {
-  const picks = (ctree?.[cls]?.picks || []).slice(0, classPoints(level).stat);
-  for (const k of picks) {
+  if (!ctree?.[cls]?.path) return mods;
+  for (let n = 2; n <= Math.min(level, TALENT_NODES); n += 2) {
+    const k = nodeKind(n);
     if (k === 'hp') mods.maxHp += 10;
     else if (k === 'dmg') mods.dmg *= 1.01;
     else if (k === 'aspd') mods.atkSpeed *= 1.02;
