@@ -84,6 +84,7 @@
           <div class="res"><span class="ico twig"></span><b id="inv-twig">0</b> Brindilles</div>
         </div>
       </div>
+      <div id="skill"><div id="skill-text"></div><div class="bar"><div id="skill-fill" class="fill"></div></div></div>
       <div id="hp">
         <div class="hp-label"><span class="lvl" title="Niveau du héros">Niv. <b class="hero-lvl">1</b></span> ❤ <span id="hp-text">100</span></div>
         <div class="bar"><div class="ghost"></div><div id="hp-fill" class="fill"></div></div>
@@ -179,7 +180,7 @@
     <!-- Forge : compétences -->
     <div id="skills" class="overlay" hidden>
       <div class="panel skills-panel">
-        <div class="panel-title">La Forge — compétences <span class="shards-inline">◆ <b id="skills-shards">0</b> éclats</span><button class="x" data-close>✕</button></div>
+        <div class="panel-title">Gardien de maîtrise — compétences <span class="shards-inline">◆ <b id="skills-shards">0</b> éclats</span><button class="x" data-close>✕</button></div>
         <div class="hint left">Les éclats se gagnent en survivant aux nuits (1 la première nuit, puis de plus en plus). Les compétences sont permanentes.</div>
         <div class="skills-tools"><button id="skills-reset" class="btn small ghost">↺ Réinitialiser l'arbre (3 ◆)</button><span class="hint">Tous tes éclats dépensés te sont rendus, moins 3.</span></div>
         <div id="skill-tabs" class="tabs"></div>
@@ -226,7 +227,7 @@
         <div id="recap-score" class="recap-score"></div>
         <div class="recap-title">Comment tenir plus longtemps ?</div>
         <div class="recap-steps">
-          <div class="recap-step"><div class="n">1</div><div><b>La Forge</b> (au village) : dépense tes <b>éclats ◆</b> dans 4 arbres de compétences — Constructeur (murs plus solides, tours), Récolteur (plus de ressources), Combattant (dégâts, vie) et Mobilité (dash, double saut). Chaque nuit survécue rapporte des éclats, de plus en plus.</div></div>
+          <div class="recap-step"><div class="n">1</div><div><b>Le Gardien de maîtrise</b> (au village) : dépense tes <b>éclats ◆</b> dans 4 arbres de compétences — Constructeur (murs plus solides, tours), Récolteur (plus de ressources), Combattant (dégâts, vie) et Mobilité (dash, double saut). Chaque nuit survécue rapporte des éclats, de plus en plus.</div></div>
           <div class="recap-step"><div class="n">2</div><div><b>L'équipement</b> : les monstres lâchent parfois des objets (arme, armure, chapeau, bottes, anneau). Plus la nuit est avancée, plus ils sont rares et puissants. Ouvre ton inventaire avec <span class="kbd">I</span> pour les équiper.</div></div>
           <div class="recap-step"><div class="n">3</div><div><b>Le niveau du héros</b> : chaque monstre tué et chaque nuit survécue donnent de l'expérience. Chaque niveau donne de la vie et des dégâts en plus.</div></div>
           <div class="recap-step"><div class="n">4</div><div><b>Le jour compte</b> : récolte beaucoup, entoure le Joyau de murs et de tours, répare tes constructions (<span class="kbd">R</span> en construction) et pose des dalles de chemin pour te déplacer plus vite.</div></div>
@@ -316,7 +317,7 @@
   </div>
 
   <div id="fade"></div>
-  <div id="version">ver.0.1.6</div>
+  <div id="version">ver.0.1.7</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

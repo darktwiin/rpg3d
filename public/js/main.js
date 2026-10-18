@@ -103,7 +103,7 @@ const me = {
 };
 const profile = { token: lsGet('rpg3d_token') || '', shards: 0, skills: [], best: 0, xp: 0, account: lsGet('rpg3d_account') || null, items: [], equip: {} };
 // caractéristiques = compétences + niveau du héros + équipement porté
-function computeMods() { return W.applyGear(W.skillMods(profile.skills, W.levelOf(profile.xp)), profile.items, profile.equip, me.skin); }
+function computeMods() { const l = W.levelOf(profile.xp); return W.applyGear(W.applyClassTree(W.skillMods(profile.skills, l), profile.ctree, me.skin, l), profile.items, profile.equip, me.skin); }
 let mods = W.skillMods([]);
 const others = new Map();
 let heroPage = null;
@@ -290,6 +290,7 @@ addEventListener('keydown', (e) => {
   if (e.code === K.punch) punchAlly();
   if (e.code === K.inventory) { openHero(); return; }
   if (e.code === K.interact && !(inGame() && game.build.on && e.code === K.demolish)) interact();
+  if (inGame() && e.code === K.skill && !me.dead) send({ type: 'skill' });
   if (game.build.on && /^Digit[1-9]$/.test(e.code)) selectPiece(+e.code.slice(5) - 1);
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -468,6 +469,18 @@ function connect() {
 
 const handlers = {
   toast: (d) => toast(d.text),
+  skill: (d) => {
+    const o = d.id === me.id ? me : others.get(d.id);
+    if (!o?.rig) return;
+    o.rig.skillFx = { s: d.s, until: performance.now() + d.dur * 1000 };
+    audio.play(SKILL_SFX[d.s] || 'ui', o.rig.root.position);
+    if (d.id === me.id) {
+      skillUse = { night: d.night, readyAt: performance.now() + (d.cd || 0) * 1000 };
+      camShake = 0.15;
+      const def = W.CLASS_SKILLS[me.skin]?.find((k) => k.id === d.s);
+      if (def) showBanner(`${def.icon} ${def.name}`, '', 1400);
+    }
+  },
   fuseResult: (d) => { audio.play(d.ok ? 'levelUp' : 'buildBreak'); if (d.ok && heroPage) heroPage.sel = d.id; },
   authErr: (d) => {
     $('title-error').textContent = d.text; audio.play('ui');
@@ -486,7 +499,7 @@ const handlers = {
   },
   profile: (d) => {
     const before = profile.shards;
-    Object.assign(profile, { token: d.token, shards: d.shards, skills: d.skills, best: d.best, xp: d.xp || 0, account: d.account || null, items: d.items || [], equip: d.equip || {}, ferite: d.ferite || 0 });
+    Object.assign(profile, { token: d.token, shards: d.shards, skills: d.skills, best: d.best, xp: d.xp || 0, account: d.account || null, items: d.items || [], equip: d.equip || {}, ferite: d.ferite || 0, ctree: d.ctree || {} });
     lsSet('rpg3d_token', d.token);
     if (d.account) lsSet('rpg3d_account', d.account);
     if (d.skin && d.skin !== me.skin && me.rig) ensureMyRig(me.color, me.name, d.skin);
@@ -856,6 +869,7 @@ function enterGame(d) {
   for (const f of flyers) worldRoot.remove(f.mesh);
   flyers.length = 0;
   flyGen++;   // les icônes encore en vol vers le HUD ne comptent plus
+  skillUse = { night: -1, readyAt: 0 };
   flyPending.wood = flyPending.stone = flyPending.twig = 0;
   serverInv = { ...d.inv };
   me.inv = { ...d.inv };
@@ -1012,6 +1026,14 @@ function renderSkills() {
   }
   const box = $('skill-trees');
   box.innerHTML = '';
+  {
+    const b = document.createElement('button');
+    b.className = skillTab === 'class' ? 'on' : '';
+    b.innerHTML = `${W.CLASS_SKILLS[me.skin]?.[0] ? '⭐' : ''} ${W.CLASS_NAMES[me.skin]} <small>touche E</small>`;
+    b.onclick = () => { skillTab = 'class'; audio.play('ui'); renderSkills(); };
+    tabs.append(b);
+  }
+  if (skillTab === 'class') { renderClassTree(); return; }
   const tree = W.SKILL_TREES.find((t) => t.id === skillTab) || W.SKILL_TREES[0];
   const col = document.createElement('div');
   col.className = 'tree';
@@ -1052,6 +1074,57 @@ function renderSkills() {
   }
   col.append(grid);
   box.append(col);
+}
+
+// Arbre de classe : voie de la compétence E (niveaux impairs) et caractéristiques (niveaux pairs)
+function renderClassTree() {
+  const lvl = W.levelOf(profile.xp), pts = W.classPoints(lvl);
+  const t = profile.ctree?.[me.skin] || { path: null, picks: [] };
+  const picks = t.picks.slice(0, pts.stat), free = pts.stat - picks.length;
+  const sk = W.classSkill(profile.ctree, me.skin, lvl);
+  const box = $('skill-trees');
+  const count = (id) => picks.filter((k) => k === id).length;
+  box.innerHTML = `<div class="ctree">
+    <div class="ctree-head">${W.CLASS_NAMES[me.skin]} · niveau <b>${lvl}</b> · niveaux impairs : compétence (E) · niveaux pairs : caractéristique</div>
+    <div class="ctree-paths">${W.CLASS_SKILLS[me.skin].map((d) => `
+      <button class="ctree-path${t.path === d.id ? ' on' : ''}" data-path="${d.id}" ${d.soon ? 'disabled' : ''}>
+        <div class="nm">${d.icon} ${d.name}${t.path === d.id ? ' ✔' : ''}${d.soon ? ' (bientôt)' : ''}</div><div class="desc">${d.desc}</div>
+        ${t.path === d.id && sk ? `<div class="up">${sk.boosts} amélioration${sk.boosts > 1 ? 's' : ''} : ${sk.dur ? `durée ${sk.dur} s` : ''}${sk.dur && sk.cd ? ' · ' : ''}${sk.cd ? `recharge ${sk.cd} s` : d.once ? ' · une fois par nuit' : ''}</div>` : ''}
+      </button>`).join('')}</div>
+    <div class="ctree-stats"><div>Caractéristiques : <b>${free}</b> point${free > 1 ? 's' : ''} à placer</div>
+      ${W.CLASS_STATS.map((c) => `<button class="btn small" data-stat="${c.id}" ${free ? '' : 'disabled'}>${c.icon} ${c.name} <b>×${count(c.id)}</b></button>`).join('')}
+      <button class="btn small ghost" id="ctree-reset" ${picks.length ? '' : 'disabled'}>Replacer les points (gratuit)</button></div>
+    <div class="hint">La voie peut être changée à tout moment ici, gratuitement. Le changement de classe remet le niveau à 1.</div>
+  </div>`;
+  for (const b of box.querySelectorAll('[data-path]')) b.onclick = () => { send({ type: 'cPath', path: b.dataset.path }); audio.play('ui'); };
+  for (const b of box.querySelectorAll('[data-stat]')) b.onclick = () => { send({ type: 'cStat', stat: b.dataset.stat }); audio.play('ui'); };
+  $('ctree-reset').onclick = () => { send({ type: 'cReset' }); audio.play('ui'); };
+}
+
+// Compétence de classe : état local pour le HUD (le serveur décide)
+let skillUse = { night: -1, readyAt: 0 };
+const fxOn = (o, s) => o?.rig?.skillFx?.s === s && performance.now() < o.rig.skillFx.until;
+const SKILL_SFX = { taunt: 'portal', bulwark: 'gemPick', rage: 'monsterGrowl', blood: 'monsterAttack' };
+let skillHudKey = '';
+function updateSkillHud() {
+  const el = $('skill');
+  const sk = inGame() ? W.classSkill(profile.ctree, me.skin, W.levelOf(profile.xp)) : null;
+  const now = performance.now();
+  let key, html, frac = 0;
+  if (!sk) { key = 'none'; html = `<span class="kbd">${keyLabel(settings.keys.skill)}</span> Compétence : choisis-la auprès du Gardien`; }
+  else {
+    const fx = me.rig?.skillFx, act = fx && fx.s === sk.def.id && now < fx.until;
+    const rem = act ? (fx.until - now) / 1000 : 0, cd = Math.max(0, (skillUse.readyAt - now) / 1000);
+    const used = sk.def.once && skillUse.night === game.clock.night;
+    const st = act ? `${rem.toFixed(1)} s` : used ? 'utilisée cette nuit' : cd > 0 ? `recharge ${cd.toFixed(1)} s` : 'prête';
+    frac = act ? rem / sk.dur : 0;
+    key = sk.def.id + st;
+    html = `<span class="kbd">${keyLabel(settings.keys.skill)}</span> ${sk.def.icon} ${sk.def.name} · <b>${st}</b>`;
+    el.classList.toggle('ready', !act && !used && cd <= 0);
+    el.classList.toggle('active', !!act);
+  }
+  if (key !== skillHudKey) { skillHudKey = key; $('skill-text').innerHTML = html; }
+  $('skill-fill').style.width = frac * 100 + '%';
 }
 
 let boardTab = 1;
@@ -1540,6 +1613,7 @@ function tryAttack() {
   if (!me.rig || me.rig.attacking || me.dead || me.rig.blocking || (inGame() && gem.state.carrier === me.id)) return;
   const cls = me.rig.cls;
   const now = performance.now() / 1000;
+  const aspd = mods.atkSpeed * (fxOn(me, 'rage') ? 2 : 1);   // Rage : vitesse d'attaque doublée
   const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
   // au village : on frappe dans le vide, devant la caméra (avant, la direction restait celle du départ)
   if (inHub()) { if (me.rig.attack(cls.kind, mods.atkSpeed)) { me.attackDir = Math.atan2(fx, fz); send({ type: 'act', k: cls.kind }); audio.play('swing', me.pos); } return; }
@@ -1549,8 +1623,8 @@ function tryAttack() {
   const kind = t ? (t.kind === 'tree' ? 'chop' : t.kind === 'rock' ? 'mine' : cls.kind) : cls.kind;
   const combat = kind === cls.kind;
   // temps entre deux coups propre à chaque style
-  if (combat && now - lastAtk < cls.cd / mods.atkSpeed * 0.95) return;
-  const sp = combat ? Math.max(1, (cls.kind === 'shoot' ? 0.95 : 0.6) / (cls.cd / mods.atkSpeed)) * (cls.kind === 'shoot' ? 1 : mods.atkSpeed) : mods.harvestSpeed;
+  if (combat && now - lastAtk < cls.cd / aspd * 0.95) return;
+  const sp = combat ? Math.max(1, (cls.kind === 'shoot' ? 0.95 : 0.6) / (cls.cd / aspd)) * (cls.kind === 'shoot' ? 1 : aspd) : mods.harvestSpeed;
   if (combat) lastAtk = now;
   me.rig.attack(kind, sp);
   me.attackTarget = t;
@@ -1846,7 +1920,7 @@ function updatePlayer(dt) {
   const wantRun = pressed('run') && moving && canMove;
   const running = wantRun && !me.tired && me.stam > 0;
   if (running) useStam(mods.sprintCost * dt);
-  let speed = (running ? RUN_SPEED : WALK_SPEED) * mods.speed;
+  let speed = (running ? RUN_SPEED : WALK_SPEED) * mods.speed * (fxOn(me, 'rage') ? 1.6 : 1);
   if (rig.attacking) speed *= rig.atk?.kind === 'shoot' ? 0.5 : 0.3;
   if (rig.blocking) speed *= 0.5;
   // dalles de chemin : on va beaucoup plus vite (le sprint aussi)
@@ -2072,6 +2146,7 @@ function tick(dt) {
     buildings.update(dt, ps);
     nature.update(dt, time, wind.uWind.value, focus, nightAmount);
     updateFlyers(dt);
+    updateSkillHud();
     updateArrows(dt);
   if (inGame()) loots.update(dt, me.dead ? null : me.pos, send);
   updateFireballs(dt);

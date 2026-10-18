@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.1.6**
+Version actuelle : **ver.0.1.7**
 
 ## Comptes
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
@@ -23,6 +23,18 @@ en créant un compte depuis ce navigateur, la progression d'invité est reprise.
 ## Niveau du héros
 Les monstres tués et les nuits survécues donnent de l'**expérience**. Chaque niveau donne +2 PV et +1 % de dégâts
 (d'autres améliorations du héros viendront s'y ajouter).
+
+## Arbre de classe et compétence active (touche E)
+Au **Gardien de maîtrise**, onglet de ta classe : chaque niveau du héros donne 1 point. Niveaux impairs : la compétence
+(le 1er point choisit la voie, les suivants ajoutent +0,5 s de durée ou -0,5 s de recharge — jamais de recharge réduite
+pour une compétence « une fois par nuit »). Niveaux pairs : une caractéristique au choix (+10 PV, +1 % de dégâts,
++2 % de vitesse d'attaque). La voie et les caractéristiques se replacent gratuitement.
+| Classe | Voie 1 | Voie 2 |
+|---|---|---|
+| Guerrier | Taunt ultime (1×/nuit, 10 s : tous les monstres viennent vers lui, -50 % de dégâts reçus) | Dernier rempart (1×/nuit, 5 s d'invulnérabilité) |
+| Barbare | Rage (5 s : +60 % de vitesse, attaque ×2, recharge 20 s) | Soif de sang (5 s : 50 % de vol de vie, recharge 20 s) |
+| Mage | Élémentaire (bientôt) | Blink (bientôt) |
+| Voleuse | Sentinelle (bientôt) | Dead Eye (bientôt) |
 
 ## Le village (lobby)
 On arrive au village, où l'on voit les autres joueurs.
@@ -70,7 +82,7 @@ Chaque apparence a son style de combat :
 | Clic droit (maintenu) | Parade au bouclier (Guerrier) |
 | B | Fenêtre de construction (choisir une pièce) |
 | F (en construction) | Déconstruire |
-| E | Compétence de classe (bientôt) |
+| E | Compétence de classe (choisie au Gardien de maîtrise) |
 | F | Interagir (forge, PNJ, portail, inviter) / prendre ou poser le Joyau |
 | M | Carte |
 | Entrée | Chat |
