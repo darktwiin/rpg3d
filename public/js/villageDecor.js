@@ -159,16 +159,16 @@ export function decorateVillage(v, SPOTS, villageHeight) {
 
   // ---------------- Bannières autour de la place ----------------
   const cols = ['d_banner_blue', 'd_banner_red', 'd_banner_patternA_blue', 'd_banner_patternA_red', 'd_banner_thin_blue', 'd_banner_triple_red'];
-  for (let i = 0; i < 6; i++) {
-    const a = i / 6 * Math.PI * 2 + Math.PI / 6 + 0.25;
+  // de part et d'autre des chemins nord et sud, jamais devant la forge, le classement ou un PNJ
+  [55, 125, 252, 288].forEach((deg, i) => {
+    const a = deg * Math.PI / 180;
     const r = 13.2, x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (Math.abs(x) < 3) continue;
     v.add(tmp, new THREE.CylinderGeometry(0.07, 0.09, 4.2, 8), v.M.log, x, 2.1, z);
     // traverse accrochée contre le mât, côté place, et la bannière juste dessous
     v.add(tmp, new THREE.BoxGeometry(0.1, 0.1, 1.3), v.M.log, x - Math.cos(a) * 0.14, 4.1, z - Math.sin(a) * 0.14).rotation.y = -a;
     hang(cols[i], 0.7, -a - Math.PI / 2, x - Math.cos(a) * 0.2, z - Math.sin(a) * 0.2, -Math.cos(a), -Math.sin(a), 4.05);   // sous la traverse (bas à 4,05)
     coll(x, z, 0.25);
-  }
+  });
 
   // ---------------- Devant les maisons ----------------
   const clusters = [

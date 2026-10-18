@@ -201,10 +201,10 @@ addEventListener('wheel', (e) => {
 }, { passive: true });
 
 // ===================== Panneaux =====================
-const PANELS = ['pause', 'admin', 'mapview', 'skills', 'board', 'launch', 'players', 'craft', 'recap', 'heropanel'];
+const PANELS = ['pause', 'admin', 'mapview', 'skills', 'board', 'launch', 'players', 'craft', 'recap', 'heropanel', 'talents'];
 function setMode(m) {
   game.mode = m;
-  const map = { pause: 'pause', admin: 'admin', map: 'mapview', skills: 'skills', board: 'board', launch: 'launch', players: 'players', craft: 'craft', recap: 'recap', hero: 'heropanel' };
+  const map = { pause: 'pause', admin: 'admin', map: 'mapview', skills: 'skills', board: 'board', launch: 'launch', players: 'players', craft: 'craft', recap: 'recap', hero: 'heropanel', talents: 'talents' };
   for (const id of PANELS) $(id).hidden = map[m] !== id;
   if (m === 'pause') $('btn-quit').hidden = !inGame();
   $('mapview').classList.toggle('tp', m === 'map' && game.tpMode);
@@ -279,6 +279,7 @@ addEventListener('keydown', (e) => {
   if (game.invite && (e.code === 'KeyY' || e.code === 'KeyN')) { answerInvite(e.code === 'KeyY'); return; }
   if (game.mode === 'craft' && e.code === K.build) { closePanel(); return; }
   if (game.mode === 'hero' && e.code === K.inventory) { closePanel(); return; }
+  if (game.mode === 'talents' && e.code === K.talents) { closePanel(); return; }
   if (e.code === K.chat || e.code === 'NumpadEnter') { e.preventDefault(); if (!game.mode) openChat(); return; }
   if (inHub() && e.code === 'Tab') { if (game.mode === 'players') closePanel(); else if (!game.mode) openPlayers(); return; }
   if (inGame() && e.code === K.map) { toggleMap(false); return; }
@@ -289,6 +290,7 @@ addEventListener('keydown', (e) => {
   if (inGame() && game.build.on && e.code === K.repair) repairPiece();
   if (e.code === K.punch) punchAlly();
   if (e.code === K.inventory) { openHero(); return; }
+  if (e.code === K.talents) { openTalents(); return; }
   if (e.code === K.interact && !(inGame() && game.build.on && e.code === K.demolish)) interact();
   if (inGame() && e.code === K.skill && !me.dead) { if (deadeye) endDeadeye(); else send({ type: 'skill' }); }
   if (game.build.on && /^Digit[1-9]$/.test(e.code)) selectPiece(+e.code.slice(5) - 1);
@@ -525,6 +527,7 @@ const handlers = {
     if (game.mode === 'hero') heroPage.render();
     $('shards-n').textContent = profile.shards;
     if (game.mode === 'skills') renderSkills();
+    if (game.mode === 'talents') renderClassTree();
     if (inGame() && d.shards > before) popup(`+${d.shards - before} ◆ éclats`, '#d8b8ff');
   },
   skillBought: (d) => {
@@ -1046,14 +1049,6 @@ function renderSkills() {
   }
   const box = $('skill-trees');
   box.innerHTML = '';
-  {
-    const b = document.createElement('button');
-    b.className = skillTab === 'class' ? 'on' : '';
-    b.innerHTML = `${W.CLASS_SKILLS[me.skin]?.[0] ? '⭐' : ''} ${W.CLASS_NAMES[me.skin]} <small>touche E</small>`;
-    b.onclick = () => { skillTab = 'class'; audio.play('ui'); renderSkills(); };
-    tabs.append(b);
-  }
-  if (skillTab === 'class') { renderClassTree(); return; }
   const tree = W.SKILL_TREES.find((t) => t.id === skillTab) || W.SKILL_TREES[0];
   const col = document.createElement('div');
   col.className = 'tree';
@@ -1097,24 +1092,29 @@ function renderSkills() {
 }
 
 // Arbre de classe : voie de la compétence E (niveaux impairs) et caractéristiques (niveaux pairs)
+function openTalents() {
+  if (!playing() || me.dead) return;
+  setMode('talents'); renderClassTree(); audio.play('ui');
+}
 function renderClassTree() {
+  const edit = inHub();   // consultable partout, modifiable seulement au village
   const lvl = W.levelOf(profile.xp), pts = W.classPoints(lvl);
   const t = profile.ctree?.[me.skin] || { path: null, picks: [] };
   const picks = t.picks.slice(0, pts.stat), free = pts.stat - picks.length;
   const sk = W.classSkill(profile.ctree, me.skin, lvl);
-  const box = $('skill-trees');
+  const box = $('talents-body');
   const count = (id) => picks.filter((k) => k === id).length;
-  box.innerHTML = `<div class="ctree">
+  box.innerHTML = `<div class="ctree${edit ? '' : ' locked'}">
     <div class="ctree-head">${W.CLASS_NAMES[me.skin]} · niveau <b>${lvl}</b> · niveaux impairs : compétence (E) · niveaux pairs : caractéristique</div>
     <div class="ctree-paths">${W.CLASS_SKILLS[me.skin].map((d) => `
-      <button class="ctree-path${t.path === d.id ? ' on' : ''}" data-path="${d.id}" ${d.soon ? 'disabled' : ''}>
+      <button class="ctree-path${t.path === d.id ? ' on' : ''}" data-path="${d.id}" ${d.soon || !edit ? 'disabled' : ''}>
         <div class="nm">${d.icon} ${d.name}${t.path === d.id ? ' ✔' : ''}${d.soon ? ' (bientôt)' : ''}</div><div class="desc">${d.desc}</div>
         ${t.path === d.id && sk ? `<div class="up">${sk.boosts} amélioration${sk.boosts > 1 ? 's' : ''} : ${sk.dur ? `durée ${sk.dur} s` : ''}${sk.dur && sk.cd ? ' · ' : ''}${sk.cd ? `recharge ${sk.cd} s` : d.once ? ' · une fois par nuit' : ''}</div>` : ''}
       </button>`).join('')}</div>
     <div class="ctree-stats"><div>Caractéristiques : <b>${free}</b> point${free > 1 ? 's' : ''} à placer</div>
-      ${W.CLASS_STATS.map((c) => `<button class="btn small" data-stat="${c.id}" ${free ? '' : 'disabled'}>${c.icon} ${c.name} <b>×${count(c.id)}</b></button>`).join('')}
-      <button class="btn small ghost" id="ctree-reset" ${picks.length ? '' : 'disabled'}>Replacer les points (gratuit)</button></div>
-    <div class="hint">La voie peut être changée à tout moment ici, gratuitement. Le changement de classe remet le niveau à 1.</div>
+      ${W.CLASS_STATS.map((c) => `<button class="btn small" data-stat="${c.id}" ${free && edit ? '' : 'disabled'}>${c.icon} ${c.name} <b>×${count(c.id)}</b></button>`).join('')}
+      <button class="btn small ghost" id="ctree-reset" ${picks.length && edit ? '' : 'disabled'}>Replacer les points (gratuit)</button></div>
+    <div class="hint">${edit ? 'La voie et les points se changent gratuitement, au village.' : '🔒 En partie : consultation seulement. Les talents se modifient au village.'} Compétence : touche <b>${keyLabel(settings.keys.skill)}</b>.</div>
   </div>`;
   for (const b of box.querySelectorAll('[data-path]')) b.onclick = () => { send({ type: 'cPath', path: b.dataset.path }); audio.play('ui'); };
   for (const b of box.querySelectorAll('[data-stat]')) b.onclick = () => { send({ type: 'cStat', stat: b.dataset.stat }); audio.play('ui'); };
@@ -1564,7 +1564,7 @@ function placePiece() {
 // Page du héros / inventaire (touche I)
 function openHero(mode = null) {   // mode : null (touche I) | 'forge' (fusion, fonte) | 'class' (changement de classe)
   if (!playing() || me.dead) return;
-  heroPage ||= new HeroPage({ profile, me, getMods: () => mods, send, audio, inHub, setMode, toast });
+  heroPage ||= new HeroPage({ profile, me, getMods: () => mods, send, audio, inHub, setMode, toast, openTalents });
   heroPage.open(mode);
   if (mode === 'forge') audio.play('anvil', village.anvilPos);
   audio.play('ui');

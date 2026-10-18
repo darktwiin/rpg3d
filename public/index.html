@@ -197,6 +197,7 @@
             <div class="hero-head"><img id="hero-face" alt=""><div><b id="hero-name"></b><div id="hero-class"></div><div id="hero-level"></div></div></div>
             <div class="bar xpbar"><div class="fill xp-fill"></div></div>
             <div id="hero-statlist"></div>
+            <button id="hero-talents-btn" class="btn small primary">Talents de classe <span class="kbd">C</span></button>
             <button id="hero-class-btn" class="btn small">Changer de classe (3 ◆)</button>
             <div id="hero-classes" hidden></div>
           </div>
@@ -241,6 +242,13 @@
     </div>
 
     <!-- Classement -->
+    <div id="talents" class="overlay" hidden>
+      <div class="panel talents-panel">
+        <div class="panel-title">Talents de classe <button class="x" data-close>✕</button></div>
+        <div id="talents-body"></div>
+      </div>
+    </div>
+
     <div id="board" class="overlay" hidden>
       <div class="panel board-panel">
         <div class="panel-title">Classement — nuits survécues <button class="x" data-close>✕</button></div>
@@ -317,7 +325,7 @@
   </div>
 
   <div id="fade"></div>
-  <div id="version">ver.0.1.8</div>
+  <div id="version">ver.0.1.9</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
