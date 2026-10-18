@@ -104,7 +104,7 @@ function getProfile(token, name) {
 function sendProfile(p) {
   const pr = p.prof;
   send(p.ws, { type: 'profile', token: p.token, shards: pr.shards, skills: pr.skills, best: pr.best, xp: pr.xp || 0, account: pr.account ? accounts[pr.account]?.name : null,
-    items: pr.items || [], equip: pr.equip || {}, skin: p.skin, ferite: pr.ferite || 0 });
+    items: pr.items || [], equip: pr.equip || {}, skin: p.skin, ferite: pr.ferite || 0, ctree: pr.ctree || {} });
 }
 // Recalcule les caractéristiques (en partie : la vie max change aussi)
 function refreshMods(p) {
@@ -116,7 +116,8 @@ function refreshMods(p) {
 }
 // Caractéristiques d'un joueur : compétences + niveau du héros + équipement porté
 function computeMods(p) {
-  return W.applyGear(W.skillMods(p.prof.skills, W.levelOf(p.prof.xp || 0)), p.prof.items || [], p.prof.equip || {}, p.skin);
+  const lvl = W.levelOf(p.prof.xp || 0);
+  return W.applyGear(W.applyClassTree(W.skillMods(p.prof.skills, lvl), p.prof.ctree, p.skin, lvl), p.prof.items || [], p.prof.equip || {}, p.skin);
 }
 function recordScore(room) {
   if (room.adminUsed || room.survived <= 0 || room.recorded) return;
@@ -272,6 +273,7 @@ class Room {
 
   removePlayer(p, toHub) {
     if (!this.players.delete(p.id)) return;
+    p.skill = null;
     if (this.gem.carrier === p.id) this.dropGem(p.x, p.z, null);
     if (this.hostId === p.id) this.hostId = this.players.keys().next().value ?? null;
     this.broadcast({ type: 'leave', id: p.id });
@@ -623,7 +625,8 @@ class Room {
 
   // ---------------- Joueurs ----------------
   damagePlayer(p, dmg, from) {
-    if (p.dead || p.invuln || Date.now() < (p.protectUntil || 0) || Date.now() < (p.dodgeUntil || 0)) return;
+    if (p.dead || p.invuln || Date.now() < (p.protectUntil || 0) || Date.now() < (p.dodgeUntil || 0) || this.skillOn(p, 'bulwark')) return;
+    if (this.skillOn(p, 'taunt')) dmg *= 0.5;   // bonus du Taunt ultime
     if (from && from.T) from.lastDmgT = Date.now() / 1000;   // le monstre a touché sa cible
     // parade du guerrier : le bouclier encaisse presque tout
     const blocked = p.blocking ? W.classOf(p.skin).block : 0;
@@ -633,6 +636,7 @@ class Room {
     this.broadcast({ type: 'pHp', id: p.id, hp: Math.max(0, Math.round(p.hp)), max: p.mods.maxHp, hurt: true, blocked: !!blocked });
     if (p.hp <= 0) {
       p.dead = true;
+      p.skill = null;   // l'effet de la compétence s'arrête à la mort
       if (this.gem.carrier === p.id) this.dropGem(p.x, p.z, null);
       this.broadcast({ type: 'pDie', id: p.id });
       this.sys(`💀 ${p.name} est tombé au combat`, 'warn');
@@ -716,7 +720,7 @@ class Room {
     const m = id != null ? this.monsters.get(String(id)) : null;
     if (id != null && (!m || m.dead)) return;
     const now = Date.now();
-    if (now - (p.lastSword || 0) < cls.cd * 1000 * 0.85 / p.mods.atkSpeed) return;
+    if (now - (p.lastSword || 0) < cls.cd * 1000 * 0.85 / (p.mods.atkSpeed * (this.skillOn(p, 'rage') ? 2 : 1))) return;
     p.lastSword = now;
     // Larme de la cascade : tue en un coup pendant la nuit choisie
     const one = p.oneShot && this.isNight() && this.night === p.oneShot;
@@ -744,8 +748,11 @@ class Room {
         }
       }
     }
+    let healed = 0;
+    const blood = this.skillOn(p, 'blood');
     for (const t of targets) {
       const dx = t.x - p.x, dz = t.z - p.z, dd = Math.hypot(dx, dz);
+      if (blood) healed += Math.min(dmg, Math.max(0, t.hp)) * 0.5;   // Soif de sang : 50 % des dégâts réels
       t.hp -= dmg;
       const push = cls.ranged ? 0.25 : cls.cleave ? 0.6 : 0.45;
       if (dd > 0.01) { t.x += dx / dd * push / t.T.scale; t.z += dz / dd * push / t.T.scale; }
@@ -758,6 +765,25 @@ class Room {
       this.broadcast({ type: 'mHurt', id: t.id, hp: Math.max(0, t.hp), by: p.id });
       if (t.hp <= 0) { this.killMonster(t, false); this.giveXp(p, W.XP_KILL[t.kind] || 3); }
     }
+    if (healed > 0 && p.hp < p.mods.maxHp) {
+      p.hp = Math.min(p.mods.maxHp, p.hp + healed);
+      this.broadcast({ type: 'pHp', id: p.id, hp: Math.round(p.hp), max: p.mods.maxHp });
+    }
+  }
+
+  // ----- Compétence de classe (touche E) -----
+  skillOn(p, id) { return p.skill?.id === id && Date.now() < p.skill.until; }
+  useSkill(p) {
+    if (p.dead) return;
+    const sk = W.classSkill(p.prof.ctree, p.skin, W.levelOf(p.prof.xp || 0));
+    if (!sk) return send(p.ws, { type: 'toast', text: 'Choisis d’abord ta compétence auprès du Gardien de maîtrise.' });
+    const now = Date.now();
+    // « une fois par nuit » : propre à cette partie (une nouvelle partie repart à la nuit 0)
+    if (sk.def.once ? p.skillRoom === this && p.skillNight === this.night : now < (p.skillReady || 0)) return;
+    if (sk.def.once) { p.skillRoom = this; p.skillNight = this.night; } else p.skillReady = now + sk.cd * 1000;
+    p.skill = { id: sk.def.id, until: now + sk.dur * 1000 };
+    this.broadcast({ type: 'skill', id: p.id, s: sk.def.id, dur: sk.dur, cd: sk.cd, night: this.night });
+    if (sk.def.id === 'taunt') this.sys(`📯 ${p.name} attire tous les monstres !`, 'warn');
   }
 
   // Coup de poing entre alliés : la victime est assommée et roule par terre
@@ -900,6 +926,10 @@ class Room {
         if (m.chaseId !== aggroP.id) { m.chaseId = aggroP.id; m.chaseT = now; }
         if (!m.gemOnly && now - Math.max(m.chaseT, m.lastDmgT || 0) > W.CHASE_GIVEUP) { m.gemOnly = true; m.aggro = null; aggroP = null; }
       } else m.chaseId = null;
+      // Taunt ultime : tous les monstres de la carte vont vers le guerrier qui l'a lancé (le plus proche s'il y en a plusieurs)
+      let taunter = null, td = Infinity;
+      for (const p of alive) if (this.skillOn(p, 'taunt')) { const d = Math.hypot(p.x - m.x, p.z - m.z); if (d < td) { td = d; taunter = p; } }
+      if (taunter) { aggroP = taunter; m.aggro = taunter.id; m.chaseId = taunter.id; m.chaseT = now; m.gemOnly = false; }
       if (aggroP && this.gem.carrier !== aggroP.id) { tx = aggroP.x; tz = aggroP.z; tr = 0.4; tk = { kind: 'player', id: aggroP.id }; }
 
       const dx = tx - m.x, dz = tz - m.z, dist = Math.hypot(dx, dz);
@@ -1086,6 +1116,21 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // ----- Arbre de classe (au Gardien de maîtrise) : voie de la compétence E et caractéristiques -----
+    if ((d.type === 'cPath' || d.type === 'cStat' || d.type === 'cReset') && p.where === 'hub') {
+      const prof = p.prof, t = ((prof.ctree ||= {})[p.skin] ||= { path: null, picks: [] });
+      const pts = W.classPoints(W.levelOf(prof.xp || 0));
+      if (d.type === 'cPath') { if (W.CLASS_SKILLS[p.skin]?.some((k) => k.id === d.path && !k.soon)) t.path = d.path; }
+      else if (d.type === 'cStat') {
+        t.picks = t.picks.slice(0, pts.stat);
+        if (t.picks.length >= pts.stat) return send(ws, { type: 'toast', text: 'Plus de point de caractéristique : monte de niveau.' });
+        if (W.CLASS_STATS.some((k) => k.id === d.stat)) t.picks.push(d.stat);
+      } else t.picks = [];
+      saveJSON('profiles.json', profiles);
+      sendProfile(p);
+      return;
+    }
+
     // ----- Forge (au village) : fusion et fonte -----
     if ((d.type === 'fuse' || d.type === 'smelt') && p.where === 'hub') {
       const prof = p.prof, items = (prof.items ||= []), eq = (prof.equip ||= {});
@@ -1252,6 +1297,7 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'admin': R.admin(p, d); break;
+      case 'skill': R.useSkill(p); break;
       case 'backToHub': R.removePlayer(p, true); break;
     }
   };

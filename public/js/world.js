@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.1.6';
+export const VERSION = '0.1.7';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -513,6 +513,55 @@ const STAT_BASE = { weapon: 4, ring: 2.5, chest: 8, hat: 5, boots: 2 };   // % d
 const RARITY_MUL = [1, 1.6, 2.4, 3.5, 5, 7];
 export const INV_MAX = 60;
 export const CLASS_CHANGE_COST = 3;
+// ---------- Arbre de classe : compétence active (touche E) + caractéristiques ----------
+// Chaque niveau donne 1 point : niveaux impairs → compétence (le 1er choisit la voie, les suivants l'améliorent),
+// niveaux pairs → une caractéristique au choix. Amélioration : +0,5 s de durée (boost 'dur') ou -0,5 s de recharge
+// (boost 'cd') ; jamais de recharge réduite sur une compétence « une fois par nuit ».
+export const CLASS_SKILLS = {
+  Knight: [
+    { id: 'taunt', name: 'Taunt ultime', icon: '📯', once: true, dur: 10, boost: 'dur', desc: 'Une fois par nuit : attire tous les monstres de la carte vers toi pendant 10 s, et tu reçois 50 % de dégâts en moins. Plusieurs guerriers : chaque monstre va vers le plus proche.' },
+    { id: 'bulwark', name: 'Dernier rempart', icon: '🛡', once: true, dur: 5, boost: 'dur', desc: 'Une fois par nuit : invulnérable pendant 5 s.' },
+  ],
+  Barbarian: [
+    { id: 'rage', name: 'Rage', icon: '🔥', cd: 20, dur: 5, boost: 'dur', desc: 'Pendant 5 s : +60 % de vitesse de déplacement et vitesse d’attaque doublée. Recharge 20 s.' },
+    { id: 'blood', name: 'Soif de sang', icon: '🩸', cd: 20, dur: 5, boost: 'dur', desc: 'Pendant 5 s : 50 % des dégâts infligés te soignent. Recharge 20 s.' },
+  ],
+  Mage: [
+    { id: 'element', soon: true, name: 'Élémentaire', icon: '❄', cd: 1, dur: 2, boost: 'dur', desc: 'Alterne feu / glace. La glace frappe un peu plus fort une seule cible et ralentit tous les monstres autour pendant 2 s.' },
+    { id: 'blink', soon: true, name: 'Blink', icon: '✨', cd: 10, boost: 'cd', desc: 'Téléporte d’environ 10 m vers l’avant. Recharge 10 s.' },
+  ],
+  Rogue: [
+    { id: 'sentinel', soon: true, name: 'Sentinelle', icon: '🔮', once: true, dur: 5, boost: 'dur', desc: 'Une orbe tourne autour de toi et tire sur les monstres à moins de 10 m. Une fois par nuit : sa cadence double pendant 5 s.' },
+    { id: 'deadeye', soon: true, name: 'Dead Eye', icon: '🎯', once: true, dur: 5, boost: 'dur', desc: 'Une fois par nuit : vise jusqu’à 10 cibles pendant 5 s (ou rappuie sur E), puis des flèches enflammées les frappent à 3× les dégâts.' },
+  ],
+};
+export const CLASS_STATS = [
+  { id: 'hp', name: '+10 points de vie', icon: '❤' },
+  { id: 'dmg', name: '+1 % de dégâts', icon: '⚔' },
+  { id: 'aspd', name: '+2 % de vitesse d’attaque', icon: '⏱' },
+];
+export const BOOST_STEP = 0.5;
+export const classPoints = (level) => ({ skill: Math.ceil(level / 2), stat: Math.floor(level / 2) });
+// Compétence active d'un joueur, avec ses améliorations : { def, dur, cd } ou null si aucune voie choisie
+export function classSkill(ctree, cls, level) {
+  const t = ctree?.[cls], def = t && CLASS_SKILLS[cls]?.find((s) => s.id === t.path);
+  if (!def) return null;
+  const n = Math.max(0, classPoints(level).skill - 1);
+  const dur = (def.dur || 0) + (def.boost === 'dur' ? n * BOOST_STEP : 0);
+  const cd = def.once ? 0 : Math.max(1, (def.cd || 0) - (def.boost === 'cd' ? n * BOOST_STEP : 0));
+  return { def, dur, cd, boosts: n };
+}
+// Caractéristiques de l'arbre de classe (seuls les points disponibles au niveau actuel comptent)
+export function applyClassTree(mods, ctree, cls, level) {
+  const picks = (ctree?.[cls]?.picks || []).slice(0, classPoints(level).stat);
+  for (const k of picks) {
+    if (k === 'hp') mods.maxHp += 10;
+    else if (k === 'dmg') mods.dmg *= 1.01;
+    else if (k === 'aspd') mods.atkSpeed *= 1.02;
+  }
+  return mods;
+}
+
 // Forge : fusion de 5 objets identiques (même emplacement, classe et rareté) → rareté supérieure (70 %),
 // fonte d'objets en férite (ressource future pour fabriquer de l'équipement)
 export const FUSE_COUNT = 5;

@@ -119,6 +119,8 @@ class SwordTrail {
 
 // Garde seulement les pistes du haut du corps (pour frapper tout en marchant)
 const clipCache = new Map();
+const AURA = { rage: [0.75, 0.05, 0, true], blood: [0.45, 0, 0.08], bulwark: [0.55, 0.45, 0.1], taunt: [0.6, 0.28, 0] };
+
 export function getClip(anims, name, upper = false) {
   const key = name + (upper ? '_u' : '');
   if (!clipCache.has(key)) {
@@ -487,9 +489,16 @@ export class CharacterRig {
 
     // ---- Flash rouge quand on est touché ----
     const flash = this.hurtT < 0.2 ? 1 - this.hurtT / 0.2 : 0;
-    if (flash > 0 || this.flashing) {
-      for (const m of this.mats) m.emissive.setRGB(flash * 0.6, 0, 0);
-      this.flashing = flash > 0;
+    // aura de la compétence de classe active (skillFx = { s, until } posé par main.js)
+    const AU = this.skillFx && performance.now() < this.skillFx.until ? AURA[this.skillFx.s] : null;
+    if (flash > 0 || this.flashing || AU || this.auraOn) {
+      const k = AU && AU[3] ? 0.5 + 0.5 * Math.sin(t * 18) : 1;   // la Rage clignote
+      for (const m of this.mats) {
+        if (flash > 0) m.emissive.setRGB(flash * 0.6, 0, 0);
+        else if (AU) m.emissive.setRGB(AU[0] * k, AU[1] * k, AU[2] * k);
+        else m.emissive.setRGB(0, 0, 0);
+      }
+      this.flashing = flash > 0; this.auraOn = !!AU;
     }
 
     // ---- Traînée de l'arme (en coordonnées du monde) ----
