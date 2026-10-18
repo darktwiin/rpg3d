@@ -166,7 +166,7 @@ canvas.addEventListener('mousedown', (e) => {
   else if (e.button === 2) setBlock(true);
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-addEventListener('mouseup', (e) => { if (e.button === 0) mouseHeld = false; if (e.button === 2) setBlock(false); });
+addEventListener('mouseup', (e) => { if (e.button === 0) { mouseHeld = false; if (me.carryingId && throwK > 0) throwAlly(); } if (e.button === 2) setBlock(false); });
 // Parade du guerrier (clic droit maintenu)
 function setBlock(on) {
   if (!me.rig || !me.rig.cls.block) return;
@@ -283,6 +283,7 @@ addEventListener('keydown', (e) => {
   if (game.mode === 'talents' && e.code === K.talents) { closePanel(); return; }
   if (e.code === K.chat || e.code === 'NumpadEnter') { e.preventDefault(); if (!game.mode) openChat(); return; }
   if (inHub() && e.code === 'Tab') { if (game.mode === 'players') closePanel(); else if (!game.mode) openPlayers(); return; }
+  if (inGame() && e.code === 'Tab' && !game.mode) { cycleTarget(); return; }
   if (inGame() && e.code === K.map) { toggleMap(false); return; }
   if (game.mode) return;
   if (e.code === K.run) tryDash();
@@ -290,6 +291,8 @@ addEventListener('keydown', (e) => {
   if (inGame() && game.build.on && e.code === K.demolish) demolishPiece();
   if (inGame() && game.build.on && e.code === K.repair) repairPiece();
   if (e.code === K.punch) punchAlly();
+  if (e.code === K.grab && !(inGame() && game.build.on)) grabAlly();
+  if (me.carriedBy && e.code === K.jump) send({ type: 'escape' });
   if (e.code === K.inventory) { openHero(); return; }
   if (e.code === K.talents) { openTalents(); return; }
   if (e.code === K.interact && !(inGame() && game.build.on && e.code === K.demolish)) interact();
@@ -477,6 +480,32 @@ function connect() {
 
 const handlers = {
   toast: (d) => toast(d.text),
+  online: (d) => { $('conn-state').textContent = `● Connecté · ${d.n} joueur${d.n > 1 ? 's' : ''} en ligne`; },
+  pickTaken: (d) => setPickup(d.id, false),
+  pickReset: () => { for (const id of pickups.map.keys()) setPickup(id, true); },
+  grab: (d) => {
+    const o = others.get(d.from);
+    if (o) o.carryingId = d.to;
+    if (d.from === me.id) { me.carryingId = d.to; throwK = 0; popup('Maintiens le clic pour lancer !', '#ffe08a'); }
+    if (d.to === me.id) { me.carriedBy = d.from; popup(`Tu es porté ! ${keyLabel(settings.keys.jump)} pour te dégager`, '#ffe08a'); }
+    const r = (d.to === me.id ? me : others.get(d.to))?.rig;
+    if (r) audio.play('gemPick', r.root.position);
+  },
+  thrown: (d) => {
+    const o = others.get(d.from);
+    if (o) o.carryingId = null;
+    if (d.from === me.id) { me.carryingId = null; throwK = 0; $('throw').hidden = true; }
+    if (d.to === me.id) {
+      me.carriedBy = null;
+      if (d.pow > 0) {
+        // lancé : glissade et saut proportionnels à la jauge
+        me.stunT = 0.5 + d.pow; me.knockDir = d.dir; me.knockV = 4 + W.GRAB.maxV * d.pow;
+        me.vy = 3 + W.GRAB.maxUp * d.pow; me.grounded = false; camShake = 0.3;
+        popup('🌀 Lancé !', '#ffe08a');
+      }
+    }
+    if (d.pow > 0) { const r = (d.to === me.id ? me : others.get(d.to))?.rig; if (r) audio.play('dash', r.root.position); }
+  },
   sentShot: (d) => {
     const o = d.id === me.id ? me : others.get(d.id), m = monsters.map.get(d.m);
     if (!o?.rig?.sentOrb || !m) return;
@@ -862,6 +891,7 @@ function enterHub(d) {
 
 function enterGame(d) {
   fade();
+  buildPickups(d.pickups || []);
   if (deadeye) endDeadeye(true);
   me.rig?.setElement(d.you?.el || 'fire');
   game.scene = 'game';
@@ -899,6 +929,7 @@ function enterGame(d) {
   flyers.length = 0;
   flyGen++;   // les icônes encore en vol vers le HUD ne comptent plus
   skillUse = { night: -1, readyAt: 0 };
+  me.carryingId = null; me.carriedBy = null; throwK = 0;
   flyPending.wood = flyPending.stone = flyPending.twig = 0;
   serverInv = { ...d.inv };
   me.inv = { ...d.inv };
@@ -944,7 +975,9 @@ function enterVillage(mode) {
     if (!n) { $('title-error').textContent = 'Entre ton pseudo.'; nameInput.focus(); return; }
     if (!$('pass').value) { $('title-error').textContent = 'Entre ton mot de passe.'; $('pass').focus(); return; }
     lsSet('rpg3d_name', n);
-    return send({ type: 'hello', auth: mode, name: n, pass: $('pass').value, token: profile.token, skin: chosenSkin });
+    if (mode === 'register' && !$('cgu-ok').checked) { $('title-error').textContent = 'Coche « J’accepte les conditions d’utilisation » pour créer un compte.'; return; }
+    if (mode === 'register' && $('pass').value.length < 6) { $('title-error').textContent = 'Mot de passe : au moins 6 caractères.'; $('pass').focus(); return; }
+    return send({ type: 'hello', auth: mode, name: n, pass: $('pass').value, token: profile.token, skin: chosenSkin, cgu: mode === 'register' ? W.CGU_VERSION : undefined });
   }
   // invité
   const g = n || 'Aventurier' + Math.floor(Math.random() * 1000);
@@ -979,6 +1012,9 @@ renderSkins();
 $('btn-enter').onclick = () => enterVillage('session');
 $('btn-login').onclick = () => enterVillage('login');
 $('btn-register').onclick = () => enterVillage('register');
+$('btn-credits').onclick = () => { $('credits').hidden = false; audio.play('ui'); };
+$('btn-cgu').onclick = (e) => { e.preventDefault(); $('cgu').hidden = false; audio.play('ui'); };
+for (const b of document.querySelectorAll('[data-hide]')) b.onclick = () => { $(b.dataset.hide).hidden = true; audio.play('ui'); };
 $('btn-guest').onclick = () => enterVillage('guest');
 $('btn-logout').onclick = () => {
   // on oublie la session : le prochain joueur de ce navigateur repart de zéro (ou se connecte)
@@ -1183,6 +1219,60 @@ function updateSkillHud() {
   $('skill-fill').style.width = frac * 100 + '%';
 }
 
+// Cible choisie avec Tab : barre de vie en haut de l'écran ; l'arc et le bâton tirent dessus sans viser
+let selMon = null;
+function cycleTarget() {
+  const list = [...monsters.map.values()].filter((m) => !m.dead && Math.hypot(m.rig.root.position.x - me.pos.x, m.rig.root.position.z - me.pos.z) < 40)
+    .sort((a, b) => Math.hypot(a.rig.root.position.x - me.pos.x, a.rig.root.position.z - me.pos.z) - Math.hypot(b.rig.root.position.x - me.pos.x, b.rig.root.position.z - me.pos.z));
+  if (selMon) selMon.rig.selected = false;
+  selMon = list.length ? list[(list.indexOf(selMon) + 1) % list.length] : null;   // Tab suivant : monstre suivant, du plus proche au plus loin
+  if (selMon) { selMon.rig.selected = true; audio.play('ui'); }
+}
+function updateTargetHud() {
+  if (selMon && (selMon.dead || monsters.map.get(selMon.id) !== selMon || !inGame())) { selMon.rig.selected = false; selMon = null; }
+  $('sel-target').hidden = !selMon;
+  if (!selMon) return;
+  $('sel-name').textContent = W.MONSTERS[selMon.kind]?.name || 'Monstre';
+  const f = clamp(selMon.hp / selMon.max, 0, 1);
+  $('sel-fill').style.width = f * 100 + '%';
+  $('sel-hp').textContent = `${Math.max(0, Math.round(selMon.hp))} / ${selMon.max}`;
+}
+
+// Bouts de bois et cailloux au sol (InstancedMesh, un par type)
+const pickups = { map: new Map(), meshes: {} };
+const _pm = new THREE.Matrix4(), _pq = new THREE.Quaternion(), _pe = new THREE.Euler(), _ps = new THREE.Vector3(), _pp = new THREE.Vector3();
+function buildPickups(list) {
+  for (const m of Object.values(pickups.meshes)) worldRoot.remove(m);
+  pickups.map.clear(); pickups.meshes = {};
+  for (const [k, geo, mat, sc] of [['s', flyGeo.wood, flyMat.wood, 2.2], ['p', flyGeo.stone, flyMat.stone, 1.6]]) {
+    const items = list.filter((r) => r.k === k);
+    const mesh = new THREE.InstancedMesh(geo, mat, items.length);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    items.forEach((r, i) => { pickups.map.set(r.id, { ...r, i, sc, on: !r.taken }); });
+    pickups.meshes[k] = mesh;
+    worldRoot.add(mesh);
+  }
+  for (const id of pickups.map.keys()) setPickup(id, pickups.map.get(id).on);
+}
+function setPickup(id, on) {
+  const r = pickups.map.get(id), mesh = r && pickups.meshes[r.k];
+  if (!mesh) return;
+  r.on = on;
+  _pe.set(r.k === 's' ? Math.PI / 2 : 0, r.ry, 0); _pq.setFromEuler(_pe);   // le bout de bois est couché au sol
+  _pp.set(r.x, terrainH(r.x, r.z) + (r.k === 's' ? 0.12 : 0.08), r.z);
+  _pm.compose(_pp, _pq, _ps.setScalar(on ? r.sc : 0));
+  mesh.setMatrixAt(r.i, _pm); mesh.instanceMatrix.needsUpdate = true;
+}
+function nearPickup() {
+  let best = null, bd = W.PICKUP_REACH;
+  for (const r of pickups.map.values()) {
+    if (!r.on) continue;
+    const d = Math.hypot(r.x - me.pos.x, r.z - me.pos.z);
+    if (d < bd) { bd = d; best = r; }
+  }
+  return best;
+}
+
 let boardTab = 1;
 function openBoard() { setMode('board'); renderBoard(); }
 function renderBoard() {
@@ -1373,7 +1463,7 @@ function flyResources(from, gain) {
       mesh.castShadow = true;
       mesh.visible = false;
       worldRoot.add(mesh);
-      const drop = DROP[k];
+      const drop = DROP[k] && !from.pick;
       const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2;
       flyers.push({
         mesh, k, t: drop ? 0 : -delay, dur: 0.55 + Math.random() * 0.15,
@@ -1613,6 +1703,24 @@ function repairPiece() {
 }
 // Coup de poing à un allié tout proche (il est assommé et roule par terre)
 let lastPunch = 0;
+// Attraper un allié (F) puis le lancer : clic maintenu = jauge de puissance, relâcher = lancer
+let throwK = 0;
+function grabAlly() {
+  if (me.dead || game.mode) return;
+  if (me.carriedBy) { send({ type: 'escape' }); return; }
+  if (me.carryingId) return;
+  let best = null, bd = W.GRAB.reach;
+  for (const o of others.values()) {
+    const p = o.rig.root.position, d = Math.hypot(p.x - me.pos.x, p.z - me.pos.z);
+    if (d < bd && !o.rig.dead) { bd = d; best = o; }
+  }
+  if (!best) { toast('Approche-toi d’un allié pour l’attraper'); return; }
+  send({ type: 'grab', id: best.id });
+}
+function throwAlly() {
+  send({ type: 'throw', pow: +throwK.toFixed(2), dir: +Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw)).toFixed(3) });
+  throwK = 0; $('throw').hidden = true;
+}
 function punchAlly() {
   if (me.dead || !me.rig || me.rig.attacking || me.stunT > 0) return;
   const now = performance.now() / 1000;
@@ -1651,6 +1759,7 @@ function interact() {
     return;
   }
   if (features.distToRelic(me.pos.x, me.pos.z) < 2.4 && gem.state.carrier !== me.id) { send({ type: 'relicPick' }); return; }
+  { const pk = nearPickup(); if (pk && gem.state.carrier !== me.id) { send({ type: 'pickup', id: pk.id }); return; } }
   if (gem.state.carrier === me.id) {
     const fx = Math.sin(me.ry), fz = Math.cos(me.ry);
     const x = me.pos.x + fx * 1.4, z = me.pos.z + fz * 1.4;
@@ -1666,7 +1775,7 @@ function interact() {
 let currentTarget = null, currentMonster = null;
 let lastAtk = 0;
 function tryAttack() {
-  if (!me.rig || me.rig.attacking || me.dead || me.rig.blocking || (inGame() && gem.state.carrier === me.id)) return;
+  if (!me.rig || me.rig.attacking || me.dead || me.rig.blocking || me.carryingId || me.carriedBy || (inGame() && gem.state.carrier === me.id)) return;
   const cls = me.rig.cls;
   const now = performance.now() / 1000;
   const aspd = mods.atkSpeed * (fxOn(me, 'rage') ? 2 : 1);   // Rage : vitesse d'attaque doublée
@@ -1674,9 +1783,12 @@ function tryAttack() {
   // au village : on frappe dans le vide, devant la caméra (avant, la direction restait celle du départ)
   if (inHub()) { if (me.rig.attack(cls.kind, mods.atkSpeed)) { me.attackDir = Math.atan2(fx, fz); send({ type: 'act', k: cls.kind }); audio.play('swing', me.pos); } return; }
   // la voleuse vise loin avec son arc ; les autres frappent au corps à corps
-  const mon = cls.ranged || cls.missile ? (currentTarget ? null : monsters.findAlongAim(me.pos, camera, cls.range)) : monsters.findInFront(me.pos.x, me.pos.z, fx, fz, cls.reach - 1.4);
+  const sel = (cls.ranged || cls.missile) && selMon && !selMon.dead
+    && Math.hypot(selMon.rig.root.position.x - me.pos.x, selMon.rig.root.position.z - me.pos.z) <= cls.range ? selMon : null;
+  const mon = sel || (cls.ranged || cls.missile ? (currentTarget ? null : monsters.findAlongAim(me.pos, camera, cls.range)) : monsters.findInFront(me.pos.x, me.pos.z, fx, fz, cls.reach - 1.4));
   const t = mon ? null : currentTarget;
-  const kind = t ? (t.kind === 'tree' ? 'chop' : t.kind === 'rock' ? 'mine' : cls.kind) : cls.kind;
+  // buisson : coupé à la hache par toutes les classes (avant, l'arc et le bâton tiraient dessus sans le toucher)
+  const kind = t ? (t.kind === 'tree' || t.kind === 'bush' ? 'chop' : t.kind === 'rock' ? 'mine' : cls.kind) : cls.kind;
   const combat = kind === cls.kind;
   // temps entre deux coups propre à chaque style
   if (combat && now - lastAtk < cls.cd / aspd * 0.95) return;
@@ -2026,10 +2138,12 @@ function updateStamHud() {
 function updatePlayer(dt) {
   const rig = me.rig;
   const carrying = inGame() && gem.state.carrier === me.id;
-  rig.carrying = carrying;
+  rig.carrying = carrying || !!me.carryingId;
+  if (me.carryingId) { throwK = mouseHeld ? Math.min(1, throwK + dt / W.GRAB.charge) : throwK; $('throw').hidden = !(throwK > 0); $('throw-fill').style.width = throwK * 100 + '%'; }
+  if (me.carriedBy) { const c = others.get(me.carriedBy)?.rig; if (c) me.pos.set(c.root.position.x, c.root.position.y + 1.9, c.root.position.z); me.vy = 0; }
   if (me.stunT > 0) me.stunT -= dt;
   const stunned = me.stunT > 0;
-  const canMove = !me.dead && !stunned && (!game.mode || game.mode === 'map');
+  const canMove = !me.dead && !stunned && !me.carriedBy && (!game.mode || game.mode === 'map');
   if (stunned && me.knockV > 0) {
     // glissade après le coup de poing
     me.pos.x += Math.sin(me.knockDir) * me.knockV * dt; me.pos.z += Math.cos(me.knockDir) * me.knockV * dt;
@@ -2176,6 +2290,7 @@ function updatePlayer(dt) {
   } else ch.classList.remove('active');
 
   if (!me.dead && !carrying && features.distToRelic(me.pos.x, me.pos.z) < 2.4) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Prendre la Larme de la cascade`; }
+  else if (!me.dead && !carrying && nearPickup()) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Ramasser ${nearPickup().k === 's' ? 'le bout de bois' : 'le caillou'}`; }
   else if (!me.dead && carrying) { pr.style.display = 'block'; pr.innerHTML = `<kbd>${K}</kbd> Poser le Joyau <span class="gem-timer">${Math.max(0, Math.ceil(((game.gemCarryEnd || 0) - performance.now()) / 1000))} s</span>`; }
   else if (!me.dead && !gem.state.carrier && Math.hypot(gem.pos.x - me.pos.x, gem.pos.z - me.pos.z) < 2.6) {
     const rest = Math.ceil(((game.gemReady || 0) - performance.now()) / 1000);
@@ -2230,7 +2345,7 @@ function updateOthers(dt) {
     const r = o.rig;
     r.root.position.lerp(o.target, Math.min(1, dt * 12));
     r.root.rotation.y += wrap(o.ry - r.root.rotation.y) * Math.min(1, dt * 12);
-    r.carrying = inGame() && gem.state.carrier === id;
+    r.carrying = (inGame() && gem.state.carrier === id) || !!o.carryingId;
     r.update(dt, { speed: o.s, grounded: o.g, wind: wind.uWind.value.z });
   }
 }
@@ -2282,6 +2397,7 @@ function tick(dt) {
     nature.update(dt, time, wind.uWind.value, focus, nightAmount);
     updateFlyers(dt);
     updateSkillHud();
+    updateTargetHud();
     updateDeadeye();
     staffSparks();
     updateArrows(dt);
@@ -2332,7 +2448,7 @@ window.__game = {
   me, nature, others, camera, monsters, buildings, gem, game, keys, tryAttack, send, audio, village, profile, renderer, flyers, setBlock,
   mySkin: (s) => ensureMyRig(me.color, me.name, s),
   testSkills: (l) => { profile.skills = l; mods = computeMods(); me.stam = mods.stamina; },
-  get heroPage() { return heroPage; }, get loots() { return loots; }, profile,
+  get heroPage() { return heroPage; }, get loots() { return loots; }, pickups, get selMon() { return selMon; }, profile,
   get mods() { return mods; },
   setView: (yaw, pitch, dist) => { camYaw = yaw; camPitch = pitch; camDist = dist; },
   pause: (v = true) => { paused = v; },

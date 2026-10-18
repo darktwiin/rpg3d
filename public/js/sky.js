@@ -41,15 +41,9 @@ void main() {
   vec3 col = mix(uZenith, uHorizon, t);
   if (y < 0.0) col = uHorizon * (1.0 + y * 0.6);
 
-  // Halo et disque du soleil
   float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, 5.0) * 0.18 + pow(sd, 60.0) * 0.5);
-  col += uSunColor * smoothstep(0.9990, 0.9995, sd) * 12.0;
-
-  // Lune (à l'opposé du soleil)
   float md = max(dot(d, -uSunDir), 0.0);
-  col += vec3(0.8, 0.85, 1.0) * smoothstep(0.9993, 0.9996, md) * 2.0 * uNight;
-  col += vec3(0.25, 0.3, 0.5) * pow(md, 40.0) * 0.4 * uNight;
+  col += uSunColor * pow(sd, 5.0) * 0.18;
 
   // Étoiles
   if (y > 0.0 && uNight > 0.01) {
@@ -62,6 +56,7 @@ void main() {
   }
 
   // Nuages
+  float cloudCov = 0.0;
   if (y > 0.0) {
     vec2 uv = d.xz / (y + 0.12) * 0.9 + uCloudOffset;
     float n = fbm(uv);
@@ -72,7 +67,15 @@ void main() {
     cloud += uSunColor * pow(sd, 6.0) * 0.5; // bord des nuages éclairé
     float fade = smoothstep(0.0, 0.22, y);
     col = mix(col, cloud, cov * fade * 0.92);
+    cloudCov = cov * fade;
   }
+
+  // Soleil (disque + halo doux) et lune pâle, par-dessus le ciel ; les nuages les voilent en partie
+  float veil = 1.0 - cloudCov * 0.75;
+  col += uSunColor * (pow(sd, 60.0) * 0.6 + pow(sd, 400.0) * 1.2) * veil;
+  col += uSunColor * vec3(1.4, 1.3, 1.15) * smoothstep(0.9980, 0.9987, sd) * 14.0 * veil;
+  col += vec3(0.8, 0.85, 1.0) * smoothstep(0.9990, 0.9994, md) * 2.0 * uNight * veil;
+  col += vec3(0.25, 0.3, 0.5) * pow(md, 40.0) * 0.4 * uNight * veil;
 
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>

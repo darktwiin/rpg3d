@@ -60,12 +60,13 @@ function authenticate(d, p) {
   const mode = d.auth;
   if (mode === 'register') {
     if (!/^[\p{L}\p{N} _.-]{3,16}$/u.test(name)) return { err: 'Pseudo : 3 à 16 lettres ou chiffres.' };
-    if (String(d.pass || '').length < 4) return { err: 'Mot de passe : au moins 4 caractères.' };
+    if (String(d.pass || '').length < 6) return { err: 'Mot de passe : au moins 6 caractères.' };
+    if (d.cgu !== W.CGU_VERSION) return { err: 'Accepte les conditions d’utilisation pour créer un compte.' };
     if (acc) return { err: 'Ce pseudo est déjà pris.' };
     // on garde la progression faite en invité sur ce navigateur
     const t = typeof d.token === 'string' && profiles[d.token] && !profiles[d.token].account ? d.token : crypto.randomBytes(16).toString('hex');
     const salt = crypto.randomBytes(16).toString('hex');
-    accounts[key] = { name, salt, hash: hashPass(d.pass, salt), token: t, created: Date.now() };
+    accounts[key] = { name, salt, hash: hashPass(d.pass, salt), token: t, created: Date.now(), cgu: { v: W.CGU_VERSION, at: Date.now() } };
     if (!profiles[t]) profiles[t] = { name, shards: 0, skills: [], best: 0, xp: 0, created: Date.now() };
     profiles[t].account = key;
     saveJSON('accounts.json', accounts);
@@ -135,6 +136,30 @@ function recordScore(room) {
 // Village (lobby jouable)
 // ============================================================================
 const HUB_COLORS = [0x2e6fd8, 0xc0392b, 0x27ae60, 0xd4a017, 0x8e44ad, 0xd35400, 0x16a085, 0xd6458f];
+// ----- Attraper / lancer un allié (au village comme en partie) -----
+// G = le groupe (hub ou partie) : ses joueurs et sa diffusion
+function unlinkGrab(p, G) {
+  const t = G.players.get(p.carryingId) || G.players.get(p.carriedBy);
+  if (t) { t.carryingId = null; t.carriedBy = null; G.broadcast({ type: 'thrown', from: p.carryingId ? p.id : t.id, to: p.carryingId ? t.id : p.id, dir: 0, pow: 0 }); }
+  p.carryingId = null; p.carriedBy = null;
+}
+function grabMsg(p, d, G) {
+  if (d.type === 'grab') {
+    const t = G.players.get(num(d.id));
+    if (!t || t === p || p.dead || t.dead || p.carryingId || p.carriedBy || t.carriedBy || t.carryingId) return;
+    if (G.gem && (G.gem.carrier === t.id || G.gem.carrier === p.id)) return;   // pas en portant le Joyau
+    if (Math.hypot(t.x - p.x, t.z - p.z) > W.GRAB.reach) return;
+    p.carryingId = t.id; t.carriedBy = p.id;
+    G.broadcast({ type: 'grab', from: p.id, to: t.id });
+  } else if (d.type === 'throw' || d.type === 'escape') {
+    const t = d.type === 'throw' ? G.players.get(p.carryingId) : G.players.get(p.carriedBy);
+    if (!t) { p.carryingId = null; p.carriedBy = null; return; }
+    const thrower = d.type === 'throw' ? p : t, victim = d.type === 'throw' ? t : p;
+    thrower.carryingId = null; victim.carriedBy = null;
+    G.broadcast({ type: 'thrown', from: thrower.id, to: victim.id, dir: num(d.dir), pow: d.type === 'throw' ? clamp(num(d.pow), 0, 1) : 0 });
+  }
+}
+
 const hub = {
   players: new Map(),
   broadcast(obj, except) {
@@ -155,6 +180,7 @@ const hub = {
     if (p.party) sendParty(p.party);
   },
   leave(p) {
+    unlinkGrab(p, this);
     if (!this.players.delete(p.id)) return;
     this.broadcast({ type: 'hubLeave', id: p.id });
   },
@@ -210,6 +236,7 @@ class Room {
     this.adminUsed = false;
     this.seed = Math.floor(Math.random() * 1e9);
     this.resources = new Map(W.generateResources(this.seed).map((r) => [r.id, { ...r, hp: W.RES_HP[r.k] }]));
+    this.pickups = new Map(W.generatePickups(this.seed).map((r) => [r.id, { ...r, taken: false }]));
     this.resN = 10000;
     this.rand = W.seededRandom(this.seed + 7);
     this.buildings = new Map();
@@ -264,6 +291,7 @@ class Room {
       type: 'welcome', you: this.pub(p), solo: this.solo, host: this.hostId,
       players: [...this.players.values()].filter((o) => o !== p).map((o) => this.pub(o)),
       resources: [...this.resources.values()],
+      pickups: [...this.pickups.values()],
       buildings: [...this.buildings.values()],
       monsters: [...this.monsters.values()].map((m) => ({ id: m.id, k: m.kind, x: m.x, z: m.z, ry: m.ry, hp: m.hp })),
       gem: this.gem, clock: { time: this.time, night: this.night }, inv: p.inv, survived: this.survived, relic: this.relic,
@@ -272,6 +300,7 @@ class Room {
   }
 
   removePlayer(p, toHub) {
+    unlinkGrab(p, this);
     if (!this.players.delete(p.id)) return;
     p.skill = null;
     if (this.gem.carrier === p.id) this.dropGem(p.x, p.z, null);
@@ -367,6 +396,8 @@ class Room {
 
   startDay() {
     for (const m of [...this.monsters.values()]) this.killMonster(m, true);
+    for (const r of this.pickups.values()) r.taken = false;   // le bois et les cailloux au sol réapparaissent
+    this.broadcast({ type: 'pickReset' });
     for (const p of this.players.values()) if (p.oneShot && p.oneShot <= this.night) { p.oneShot = 0; this.broadcast({ type: 'power', id: p.id, night: 0 }); }
     if (this.night > 0) {
       this.survived = this.night;
@@ -396,6 +427,15 @@ class Room {
   }
 
   // ---------------- Ressources ----------------
+  pickup(p, id) {
+    const r = this.pickups.get(String(id));
+    if (!r || r.taken || p.dead || Math.hypot(p.x - r.x, p.z - r.z) > W.PICKUP_REACH + 0.6) return;
+    r.taken = true;
+    const kind = r.k === 's' ? 'wood' : 'stone';
+    this.inv[kind] += 1;
+    this.broadcast({ type: 'pickTaken', id: r.id });
+    this.sendInv(p, { [kind]: 1 }, { x: r.x, z: r.z, k: r.k === 's' ? 't' : 'r', pick: 1 });
+  }
   hitResource(p, id) {
     const r = this.resources.get(String(id));
     if (!r || p.dead) return;
@@ -638,6 +678,7 @@ class Room {
     if (p.hp <= 0) {
       p.dead = true;
       p.skill = null;   // l'effet de la compétence s'arrête à la mort
+      unlinkGrab(p, this);
       if (this.gem.carrier === p.id) this.dropGem(p.x, p.z, null);
       this.broadcast({ type: 'pDie', id: p.id });
       this.sys(`💀 ${p.name} est tombé au combat`, 'warn');
@@ -1090,6 +1131,7 @@ let nextPlayerId = 1;
 wss.on('connection', (ws) => {
   const p = { id: nextPlayerId++, ws, name: 'Aventurier', where: null, room: null, party: null, x: 0, y: 0, z: 0, ry: 0, inv: { wood: 0, stone: 0 }, hp: 100 };
   let lastChat = 0;
+  send(ws, { type: 'online', n: wss.clients.size });
 
   ws.on('message', (raw) => {
     try { handle(raw); } catch (err) { console.error('Erreur message', err); }
@@ -1245,6 +1287,7 @@ wss.on('connection', (ws) => {
           hub.broadcast({ type: 'punch', from: p.id, to: t.id, dir: Math.atan2(t.x - p.x, t.z - p.z), stun: W.PUNCH.stun });
           break;
         }
+        case 'grab': case 'throw': case 'escape': grabMsg(p, d, hub); break;
         case 'hubDash': hub.broadcast({ type: 'act', id: p.id, k: 'dash', dir: 0 }, p); break;
         case 'hubJump2': hub.broadcast({ type: 'act', id: p.id, k: 'jump2' }, p); break;
         case 'chat': {
@@ -1330,6 +1373,8 @@ wss.on('connection', (ws) => {
       case 'repair': R.repair(p, d.id); break;
       case 'lootTake': R.takeLoot(p, d.id); break;
       case 'punch': R.punch(p, d.id); break;
+      case 'grab': case 'throw': case 'escape': grabMsg(p, d, R); break;
+      case 'pickup': R.pickup(p, d.id); break;
       case 'gemPick': R.pickGem(p); break;
       case 'relicPick': R.pickRelic(p); break;
       case 'gemDrop': R.dropGem(d.x, d.z, d.y, p); break;

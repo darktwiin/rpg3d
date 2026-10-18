@@ -5,7 +5,7 @@ import { plankTexture, stoneTexture, shingleTexture } from './buildings.js';
 import { Particles } from './nature.js';
 import { noise3 } from './world.js';
 import { decorateVillage, Blacksmith, LINES_ARMORY, LINES_SANCTUM } from './villageDecor.js';
-import { buildMedieval } from './villageMedieval.js';
+import { buildMedieval, roadDist } from './villageMedieval.js';
 import { KK, prop } from './models.js';
 
 export const VILLAGE_RADIUS = 32.6;   // on reste dans les remparts (grilles aux portes)
@@ -200,7 +200,7 @@ export class Village {
     const dSouth = Math.abs(x) + Math.max(0, -z) * 10;
     const dNorth = Math.abs(x) + Math.max(0, z) * 10;
     const ring = Math.abs(Math.hypot(x, z) - 20);
-    return Math.min(dSouth, dNorth, ring);
+    return Math.min(dSouth, dNorth, ring, roadDist(x, z));   // + routes hors remparts
   }
 
   // ---------------- Portail ----------------

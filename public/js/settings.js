@@ -3,11 +3,11 @@
 export const ACTIONS = [
   ['forward', 'Avancer'], ['back', 'Reculer'], ['left', 'Gauche'], ['right', 'Droite'],
   ['jump', 'Sauter'], ['run', 'Courir'], ['interact', 'Interagir / Joyau'], ['skill', 'Compétence de classe'], ['talents', 'Talents de classe'], ['build', 'Menu construction'], ['demolish', 'Déconstruire'],
-  ['map', 'Carte'], ['chat', 'Chat'], ['repair', 'Réparer (construction)'], ['punch', 'Coup de poing (allié)'], ['inventory', 'Inventaire / héros'],
+  ['map', 'Carte'], ['chat', 'Chat'], ['repair', 'Réparer (construction)'], ['punch', 'Coup de poing (allié)'], ['grab', 'Attraper un allié'], ['inventory', 'Inventaire / héros'],
 ];
 export const DEFAULT_KEYS = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', run: 'ShiftLeft',
-  interact: 'KeyE', skill: 'KeyQ', talents: 'KeyC', build: 'KeyB', demolish: 'KeyF', map: 'KeyM', chat: 'Enter', repair: 'KeyR', punch: 'KeyG', inventory: 'KeyI',
+  interact: 'KeyE', skill: 'KeyQ', talents: 'KeyC', build: 'KeyB', demolish: 'KeyF', map: 'KeyM', chat: 'Enter', repair: 'KeyR', punch: 'KeyG', grab: 'KeyF', inventory: 'KeyI',
 };
 const DEFAULTS = { master: 20, music: 60, amb: 70, sfx: 80, sens: 100, quality: 'high', keys: { ...DEFAULT_KEYS } };
 
@@ -26,6 +26,8 @@ export const settings = (() => {
   if ((out.kv || 0) < 4) { out.keys.interact = 'KeyF'; out.keys.skill = 'KeyE'; out.kv = 4; }
   // v0.1.9 : compétence sur A (touche physique Q en QWERTY), interagir revient sur E, talents sur C
   if ((out.kv || 0) < 5) { out.keys.interact = 'KeyE'; out.keys.skill = 'KeyQ'; out.keys.talents = 'KeyC'; out.kv = 5; }
+  // v0.2.2 : attraper un allié sur F
+  if ((out.kv || 0) < 6) { out.keys.grab = 'KeyF'; out.kv = 6; }
   const legacyQ = lsGet('rpg3d_quality');
   if (!s.quality && legacyQ) out.quality = legacyQ;
   return out;

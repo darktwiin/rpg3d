@@ -582,7 +582,7 @@ export class AudioEngine {
     }
     let out = this.spatial(pos, fn.range || 9, fn.verb ?? 0.25);
     if (!out) return;
-    if (BONE_SFX.has(name)) { const g = this.gain(1.5); g.connect(out); out = g; }
+    if (BONE_SFX.has(name)) { const g = this.gain(3.5); g.connect(out); out = g; }   // os des squelettes : sinon couverts par la musique
     fn.call(this, this.ctx.currentTime + 0.01, out);
   }
 
@@ -1130,7 +1130,7 @@ export class AudioEngine {
       self.noise(t, dur, flt);
       g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + dur * 0.5); g.gain.linearRampToValueAtTime(0.0001, t + dur);
     };
-    S.monsterGrowl = function (t, out) { rattle(t, out, 7, 0.35, 0.09, 0.9); hollow(t, out, rnd(0.8, 1.2), rnd(380, 520), 0.07); };
+    S.monsterGrowl = function (t, out) { rattle(t, out, 7, 0.35, 0.09, 0.9); hollow(t, out, rnd(0.8, 1.2), rnd(380, 520), 0.16); };
     S.monsterGrowl.range = 11; S.monsterGrowl.verb = 0.3;
     S.monsterAttack = function (t, out) { rattle(t, out, 3, 0.1, 0.1); whoosh(t + 0.35, out, 0.3, 0.18); clack(t + 0.55, out, 0.12, 0.8); };
     S.monsterAttack.range = 12; S.monsterAttack.verb = 0.25;

@@ -1,9 +1,10 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.2.1**
+Version actuelle : **ver.0.2.2**
 
 ## Comptes
+La création d'un compte demande d'accepter les **conditions d'utilisation** (bouton sur l'écran titre ; version enregistrée avec le compte) et un mot de passe d'au moins 6 caractères. Le bouton **Crédits** liste les artistes des modèles 3D.
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
 (éclats, compétences, niveau du héros) est sauvegardée sur le serveur dans `data/accounts.json` et
 `data/profiles.json` (mots de passe hachés avec scrypt). Le navigateur garde la session : la fois suivante,
@@ -35,7 +36,7 @@ de recharge réduite pour une compétence « une fois par nuit ») ; ronds pairs
 | Guerrier | Taunt ultime (1×/nuit, 10 s : tous les monstres viennent vers lui, -50 % de dégâts reçus) | Dernier rempart (1×/nuit, 5 s d'invulnérabilité) |
 | Barbare | Rage (5 s : +60 % de vitesse, attaque ×2, recharge 20 s) | Soif de sang (5 s : 50 % de vol de vie, recharge 20 s) |
 | Mage | Élémentaire (E alterne feu / glace, 1 s entre deux : la glace frappe ×1,25 une seule cible et ralentit toute la zone 2 s) | Blink (téléportation de ~10 m vers l'avant, recharge 10 s) |
-| Voleuse | Sentinelle (orbe qui tire seule à 10 m, à la cadence de l'arc, 40 % des dégâts ; E : cadence ×2 pendant 5 s, 1×/nuit) | Dead Eye (1×/nuit : vue à la 1re personne 5 s, survole jusqu'à 10 cibles, puis flèches enflammées à 3× les dégâts) |
+| Voleuse | Sentinelle (orbe qui tire seule à 10 m, à la cadence de l'arc, 40 % des dégâts ; E : cadence ×2 pendant 5 s, 1×/nuit) | Dead Eye (recharge 1 min : vue à la 1re personne 5 s, survole jusqu'à 10 cibles, puis flèches enflammées à 3× les dégâts) |
 
 ## Le village (lobby)
 On arrive au village, où l'on voit les autres joueurs.
@@ -91,7 +92,13 @@ Chaque apparence a son style de combat :
 | I | Héros et inventaire |
 | R | Réparer la construction visée (mode construction) |
 | G | Coup de poing à un allié tout proche (il est assommé 2 s et roule par terre) |
+| F | Attraper un allié tout proche ; clic maintenu = jauge, relâcher = le lancer (Espace ou F pour se dégager) |
+| Tab (en partie) | Choisir une cible : sa vie s'affiche en haut ; l'arc et le bâton tirent dessus sans viser |
 | Échap | Ferme le menu ouvert / quitte la construction / pause |
+
+## Ramassage au sol
+Des **bouts de bois** et des **petits cailloux** traînent au sol : **E** pour les ramasser (1 bois ou 1 pierre chacun).
+Ils réapparaissent à chaque nouveau jour. Les gros rochers se cassent toujours à la pioche, les buissons se coupent à la hache.
 
 ## Constructions
 L'inventaire (bois, pierre, brindilles) est commun à tout le groupe. Les buissons donnent des brindilles.
