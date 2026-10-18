@@ -293,7 +293,7 @@ class Room {
       resources: [...this.resources.values()],
       pickups: [...this.pickups.values()],
       buildings: [...this.buildings.values()],
-      monsters: [...this.monsters.values()].map((m) => ({ id: m.id, k: m.kind, x: m.x, z: m.z, ry: m.ry, hp: m.hp })),
+      monsters: [...this.monsters.values()].map((m) => ({ id: m.id, k: m.kind, x: m.x, z: m.z, ry: m.ry, hp: m.hp, max: m.max })),
       gem: this.gem, clock: { time: this.time, night: this.night }, inv: p.inv, survived: this.survived, relic: this.relic,
       power: [...this.players.values()].filter((o) => o.oneShot).map((o) => [o.id, o.oneShot]),
     });
@@ -699,7 +699,7 @@ class Room {
     // Colosses : 6% de la vague à partir de la nuit 8 (au moins 1)
     if (n >= W.TANK_NIGHT && s.tank < Math.max(1, Math.floor((s.total + 1) * 0.06))) return 'tank';
     // Cracheurs : 2% de la vague à partir de la nuit 5 (au moins 1)
-    if (n >= 5 && s.spitter < Math.max(1, Math.floor((s.total + 1) * 0.02))) return 'spitter';
+    if (n >= W.SPITTER_NIGHT && s.spitter < Math.max(1, Math.floor((s.total + 1) * 0.02))) return 'spitter';
     // Griffus : 5% de la vague à partir de la nuit 2 (au moins 1)
     if (n >= 2 && s.runner < Math.max(1, Math.floor((s.total + 1) * 0.05))) return 'runner';
     return 'brute';
@@ -721,9 +721,10 @@ class Room {
     const T = W.MONSTERS[kind];
     this.nightSpawned.total++;
     if (kind !== 'brute') this.nightSpawned[kind]++;
-    const m = { id: 'm' + this.mN++, kind, T, x, z, ry: 0, hp: T.hp, cd: 2, hitAt: 0, atk: null, aggro: null, wake: 1.6, dead: false, slow: 0 };
+    const sc = W.monsterScale(this.night);
+    const m = { id: 'm' + this.mN++, kind, T, x, z, ry: 0, hp: Math.round(T.hp * sc.hp), max: Math.round(T.hp * sc.hp), spd: sc.speed, cd: 2, hitAt: 0, atk: null, aggro: null, wake: 1.6, dead: false, slow: 0 };
     this.monsters.set(m.id, m);
-    this.broadcast({ type: 'mSpawn', m: { id: m.id, k: kind, x, z, ry: 0, hp: m.hp } });
+    this.broadcast({ type: 'mSpawn', m: { id: m.id, k: kind, x, z, ry: 0, hp: m.hp, max: m.max } });
     return m;
   }
   killMonster(m, burn) {
@@ -851,7 +852,8 @@ class Room {
     de.done = true;
     const dmg = W.classOf(p.skin).dmg * p.mods.dmg * W.DEADEYE.mul;
     const hit = [];
-    for (const id of [...new Set(ids.map(String))].slice(0, W.DEADEYE.max)) {
+    const maxT = W.classSkill(p.prof.ctree, p.skin, W.levelOf(p.prof.xp || 0))?.targets || W.DEADEYE.max;
+    for (const id of [...new Set(ids.map(String))].slice(0, maxT)) {
       const t = this.monsters.get(id);
       if (!t || t.dead || Math.hypot(t.x - p.x, t.z - p.z) > W.DEADEYE.range) continue;
       hit.push(t.id);
@@ -1030,7 +1032,7 @@ class Room {
           if (m.cd <= 0) this.monsterAttack(m, tk, now);
           m.ry = Math.atan2(dx, dz);
         } else if (dist > 0.01) {
-          let sp = T.speed * (W.isWater(m.x, m.z) ? 0.55 : 1) * fk;
+          let sp = T.speed * (m.spd || 1) * (W.isWater(m.x, m.z) ? 0.55 : 1) * fk;
           if (m.slow > 0) { sp *= 1 - m.slow; m.slow = Math.max(0, m.slow - dt * 2); }
           const nx = m.x + dx / dist * sp * dt, nz = m.z + dz / dist * sp * dt;
           let blocking = null;

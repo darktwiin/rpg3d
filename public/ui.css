@@ -489,3 +489,5 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 .panel .x:hover, .x:hover { filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.6)) brightness(1.15); }
 .panel .x:active, .x:active { background-image: url(ui/fx/close_down.png); transform: translateY(1px); }
 .panel-title { filter: none; }   /* une ombre (filter) ferait du titre la référence de position de la croix */
+/* fenêtres avec défilement : tout ce qui dépasse du bord est rogné → croix juste à l'intérieur du coin */
+.options-panel .x, .craft-panel .x, .skills-panel .x, .keys-panel .x, .recap-panel .x, .hero-panel .x, .board-panel .x, .launch-panel .x { top: 0; right: 0; }
