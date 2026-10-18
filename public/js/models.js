@@ -10,7 +10,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 export const KK = 0.78;
 
 const PIRATE = ['Wood', 'Rocks', 'Gem_Blue', 'Gem_Green', 'Gem_Pink'];
-export const CHARACTERS = ['Knight', 'Barbarian', 'Mage', 'Ranger', 'Rogue',
+export const CHARACTERS = ['Knight', 'Barbarian', 'Mage', 'Ranger', 'Rogue', 'Rogue_Hooded',
   'Skeleton_Minion', 'Skeleton_Rogue', 'Skeleton_Mage', 'Skeleton_Warrior'];
 const ANIMS = ['Rig_Medium_General', 'Rig_Medium_MovementBasic', 'Rig_Medium_CombatMelee', 'Rig_Medium_CombatRanged',
   'Rig_Medium_Tools', 'Rig_Medium_Special', 'Rig_Medium_Simulation', 'Rig_Medium_MovementAdvanced'];

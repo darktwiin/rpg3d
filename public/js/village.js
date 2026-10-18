@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { plankTexture, stoneTexture, shingleTexture } from './buildings.js';
 import { Particles } from './nature.js';
 import { noise3 } from './world.js';
-import { decorateVillage, Blacksmith } from './villageDecor.js';
+import { decorateVillage, Blacksmith, LINES_ARMORY, LINES_SANCTUM } from './villageDecor.js';
 import { buildMedieval } from './villageMedieval.js';
 import { KK } from './models.js';
 
@@ -26,6 +26,8 @@ export const SPOTS = {
   portal: { x: 0, z: 0, r: 4.2 },
   forge: { x: -15, z: 3, r: 4.2 },
   board: { x: 15, z: 3, r: 4.2 },
+  armory: { x: -11, z: -11.5, r: 4.2 },    // Barbare : changement de classe
+  sanctum: { x: 11, z: -11.5, r: 4.2 },    // Gardien de maîtrise (Rogue encapuchonné) : compétences
 };
 export const SPAWN = { x: 0, z: 9 };
 
@@ -155,6 +157,7 @@ export class Village {
 
     this.buildPortal(M);
     this.buildForge(M);
+    this.buildWorkshops(M);
     this.buildBoard(M);
     buildMedieval(this, villageHeight);   // maisons, quartier extérieur, château, grilles
     this.buildLanterns(M);
@@ -162,12 +165,18 @@ export class Village {
     // décor KayKit (remparts, bannières, tonneaux, étals…) et le forgeron
     decorateVillage(this, SPOTS, villageHeight);
     this.smith = new Blacksmith(this, new THREE.Vector3(1.1, 0.25, -0.75), 0);   // derrière l'enclume
+    this.npcs = [
+      new Blacksmith(this, new THREE.Vector3(0, 0.25, -1.2), 0, { group: this.armoryGroup, model: 'Barbarian', tool: 't_axe', lines: LINES_ARMORY }),
+      new Blacksmith(this, new THREE.Vector3(0, 0.25, -1.2), 0, { group: this.sanctumGroup, model: 'Rogue_Hooded', tool: null, lines: LINES_SANCTUM }),
+    ];
 
     // Panneaux au-dessus des lieux
     const sign = (t, x, y, z, col) => { const s = textSprite(t, col, 0.8); s.position.set(x, y, z); this.root.add(s); };
     sign('Portail', 0, 5.4, 0, '#d8b8ff');
     sign('Forge', SPOTS.forge.x, 5.6, SPOTS.forge.z, '#ffb070');
     sign('Classement', SPOTS.board.x, 5.6, SPOTS.board.z, '#f0c96a');
+    sign('Salle d’armes', SPOTS.armory.x, 5.6, SPOTS.armory.z, '#ff9070');
+    sign('Gardien de maîtrise', SPOTS.sanctum.x, 5.6, SPOTS.sanctum.z, '#c0a8ff');
   }
 
   pathDist(x, z) {
@@ -219,17 +228,44 @@ export class Village {
   }
 
   // ---------------- Forge ----------------
-  buildForge(M) {
-    const { x, z } = SPOTS.forge;
+  // Abri ouvert vers la place (sol, 4 poteaux, toit, mur du fond) : forge et ateliers des PNJ
+  stallShell(M, spot, ry, roofMat = M.shingles) {
     const g = new THREE.Group();
-    g.position.set(x, 0, z);
-    g.rotation.y = Math.PI / 2;   // ouverte vers la place
+    g.position.set(spot.x, 0, spot.z);
+    g.rotation.y = ry;
     this.root.add(g);
     this.add(g, new THREE.BoxGeometry(6, 0.25, 4.6), M.stone, 0, 0.12, -0.6);
     for (const [px, pz] of [[-2.8, 1.4], [2.8, 1.4], [-2.8, -2.6], [2.8, -2.6]]) this.add(g, new THREE.CylinderGeometry(0.15, 0.17, 3.4, 8), M.log, px, 1.7, pz);
-    const roof = this.add(g, new THREE.BoxGeometry(6.6, 0.16, 5.2), M.shingles, 0, 3.55, -0.6);
+    const roof = this.add(g, new THREE.BoxGeometry(6.6, 0.16, 5.2), roofMat, 0, 3.55, -0.6);
     roof.rotation.x = -0.18;
     this.add(g, new THREE.BoxGeometry(6.2, 2.4, 0.3), M.planksDark, 0, 1.45, -2.75);
+    g.updateMatrixWorld(true);
+    for (const [px, pz] of [[-2.8, 1.4], [2.8, 1.4], [-2.8, -2.6], [2.8, -2.6]]) {
+      const w = g.localToWorld(new THREE.Vector3(px, 0, pz));
+      this.colliders.push({ x: w.x, z: w.z, r: 0.25 });
+    }
+    return g;
+  }
+  // Ateliers des deux PNJ : même abri que la forge, identité propre (couleur du toit, lumière)
+  buildWorkshops(M) {
+    const face = (s) => Math.atan2(-s.x, -s.z);   // ouverts vers le portail
+    const mk = (spot, col, roofCol) => {
+      const g = this.stallShell(M, spot, face(spot), new THREE.MeshStandardMaterial({ color: roofCol, roughness: 0.9 }));
+      const l = new THREE.PointLight(col, 4, 8, 1.5);
+      l.position.set(0, 2.6, -1.2);
+      g.add(l);
+      for (let i = -3; i <= 3; i++) { const w = g.localToWorld(new THREE.Vector3(i, 0, -2.75)); this.colliders.push({ x: w.x, z: w.z, r: 0.4 }); }
+      const c = g.localToWorld(new THREE.Vector3(0, 0, -0.6));
+      this.platforms.push({ x: c.x, z: c.z, r: 2.6, h: 0.25 });
+      return g;
+    };
+    this.armoryGroup = mk(SPOTS.armory, 0xff5030, '#8a2a20');    // salle d'armes : rouge
+    this.sanctumGroup = mk(SPOTS.sanctum, 0x8a6aff, '#3a3060');  // sanctuaire : violet
+  }
+
+  buildForge(M) {
+    const { x, z } = SPOTS.forge;
+    const g = this.stallShell(M, SPOTS.forge, Math.PI / 2);   // ouverte vers la place
     // fourneau
     this.add(g, new THREE.BoxGeometry(2, 1.8, 1.5), M.stone, -1.6, 0.9, -1.8);
     const mouth = this.add(g, new THREE.BoxGeometry(0.9, 0.6, 0.1), M.fire, -1.6, 0.8, -1.03);
@@ -245,10 +281,6 @@ export class Village {
     this.anvilPos = g.localToWorld(new THREE.Vector3(1.1, 0.9, 0));
     this.forgeGroup = g;
     this.colliders.push({ x: x - 1.8, z: z + 1.6, r: 1.4 });
-    for (const [px, pz] of [[-2.8, 1.4], [2.8, 1.4], [-2.8, -2.6], [2.8, -2.6]]) {
-      const w = g.localToWorld(new THREE.Vector3(px, 0, pz));
-      this.colliders.push({ x: w.x, z: w.z, r: 0.25 });
-    }
     // mur du fond
     for (let i = -3; i <= 3; i++) { const w = g.localToWorld(new THREE.Vector3(i, 0, -2.75)); this.colliders.push({ x: w.x, z: w.z, r: 0.4 }); }
     this.platforms.push({ x: x - 0.6, z, r: 3.2, h: 0.25, box: { hx: 2.3, hz: 3 } });
@@ -468,6 +500,7 @@ export class Village {
       this.fx.spawn({ geo: this.fx.box, mat: this.pMat ||= new THREE.MeshBasicMaterial({ color: 0xd2b0ff }), pos: new THREE.Vector3(Math.cos(a) * 2.2, 0.6, Math.sin(a) * 2.2), vel: new THREE.Vector3(-Math.cos(a) * 0.4, 1.2 + Math.random(), -Math.sin(a) * 0.4), size: 0.04, life: 2, gravity: -0.2, drag: 0.3, spin: 4 });
     }
     this.smith.update(dt, focus);
+    for (const n of this.npcs) n.update(dt, focus);
     this.fx.update(dt, new THREE.Vector3(1, 0, 0.3));
   }
 

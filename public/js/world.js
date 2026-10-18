@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.1.5';
+export const VERSION = '0.1.6';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -125,7 +125,7 @@ export const isWallType = (t) => t === 'wall' || t === 'door' || t === 'stonewal
 export const SPIKE_DPS = 14;
 export const PATH_SPEED = 1.15;  // +15 % de vitesse sur les dalles de chemin
 
-// ---------- Compétences (achetées à la forge avec les éclats) ----------
+// ---------- Compétences (achetées au Gardien de maîtrise avec les éclats) ----------
 // col/row : position dans l'arbre ; req : compétences nécessaires avant
 export const SKILL_TREES = [
   { id: 'build', name: 'Constructeur', icon: '🔨', color: '#e0a54a' },
@@ -513,6 +513,12 @@ const STAT_BASE = { weapon: 4, ring: 2.5, chest: 8, hat: 5, boots: 2 };   // % d
 const RARITY_MUL = [1, 1.6, 2.4, 3.5, 5, 7];
 export const INV_MAX = 60;
 export const CLASS_CHANGE_COST = 3;
+// Forge : fusion de 5 objets identiques (même emplacement, classe et rareté) → rareté supérieure (70 %),
+// fonte d'objets en férite (ressource future pour fabriquer de l'équipement)
+export const FUSE_COUNT = 5;
+export const FUSE_CHANCE = 0.7;
+export const FERITE = [1, 2, 4, 8, 16, 32];   // férite par objet fondu, selon la rareté
+export const fuseKey = (it) => `${it.slot}|${it.cls || ''}|${it.r}`;
 export const SKILL_RESET_COST = 3;
 export function makeItem(slot, cls, r, night, rnd = Math.random) {
   const S = SLOT_BY_ID[slot];

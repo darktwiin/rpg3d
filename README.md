@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.1.5**
+Version actuelle : **ver.0.1.6**
 
 ## Comptes
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
@@ -11,7 +11,8 @@ un clic sur « Entrer au village » suffit. On peut aussi jouer en invité (prog
 en créant un compte depuis ce navigateur, la progression d'invité est reprise.
 
 ## Héros, équipement et inventaire (touche I)
-- La classe est choisie à la création du héros ; ensuite on la change au village depuis l'inventaire pour **3 éclats**.
+- La classe est choisie à la création du héros ; ensuite on la change au village auprès du **Barbare** (salle d'armes) pour **3 éclats**
+  (sans jamais passer en négatif : à 0 ou 1 éclat, on peut quand même changer). Le niveau du héros repart à 1, les compétences restent.
 - Les monstres lâchent un **coffre** dans 1 % des cas (on le ramasse en marchant dessus). L'objet va dans l'inventaire du compte.
 - Emplacements : chapeau (vie), tenue (vie : plastron, peau de bête, robe ou gilet selon la classe), arme (dégâts, selon la classe),
   anneau (dégâts), bottes (vitesse de déplacement).
@@ -25,10 +26,12 @@ Les monstres tués et les nuits survécues donnent de l'**expérience**. Chaque 
 
 ## Le village (lobby)
 On arrive au village, où l'on voit les autres joueurs.
-- **Forge** : acheter des compétences avec les éclats (Constructeur, Récolteur, Combattant, Mobilité) ; « Réinitialiser l'arbre » rend tous les éclats dépensés, moins 3
+- **Gardien de maîtrise** (sanctuaire violet) : acheter des compétences avec les éclats (Constructeur, Récolteur, Combattant, Mobilité) ; « Réinitialiser l'arbre » rend tous les éclats dépensés, moins 3
+- **Forge** : **fusionner** 5 objets identiques (même type, classe et rareté) en un objet de la rareté supérieure (70 % de réussite, sinon ils fondent) ; **fondre** des objets en **férite** (1, 2, 4, 8, 16, 32 selon la rareté), ressource qui servira à fabriquer de l'équipement
+- **Barbare** (salle d'armes rouge) : changer de classe
 - **Piédestal** : classement des meilleures parties (solo, duo, trio, équipe de 4)
 - **Portail** : lancer la partie (seul, ou avec son groupe)
-- Inviter un joueur : s'approcher de lui et appuyer sur **E**, ou **Tab** pour la liste
+- Inviter un joueur : s'approcher de lui et appuyer sur **F**, ou **Tab** pour la liste
 
 Les éclats se gagnent à chaque nuit survécue (1, 2, 3, 6, 10, 19…). Profils et classement sont
 enregistrés sur le serveur dans le dossier `data/` (ignoré par git).
@@ -48,7 +51,7 @@ Chaque apparence a son style de combat :
 - Les monstres apparaissent loin du Joyau (70 à 90 m) : on a le temps d'aller à leur rencontre.
 - Le nombre de monstres augmente à chaque nuit et avec le nombre de joueurs. Un monstre qui poursuit un joueur pendant 8 s sans réussir à le toucher abandonne et fonce vers le Joyau jusqu'à sa mort.
 - Si le Joyau est détruit, la partie recommence. Au lever du soleil, les monstres brûlent.
-- Le Joyau peut être porté (touche **E**) **10 secondes** au maximum, puis il tombe et doit se reposer 10 secondes.
+- Le Joyau peut être porté (touche **F**) **10 secondes** au maximum, puis il tombe et doit se reposer 10 secondes.
 - Après une défaite, on revient tout de suite au village avec un panneau qui explique comment devenir plus fort.
 
 ## Lieux spéciaux
@@ -66,8 +69,9 @@ Chaque apparence a son style de combat :
 | Clic gauche | Attaque de la classe / hache (arbre) / pioche (rocher) |
 | Clic droit (maintenu) | Parade au bouclier (Guerrier) |
 | B | Fenêtre de construction (choisir une pièce) |
-| F | Déconstruire (dans le menu de construction) |
-| E | Prendre / poser le Joyau |
+| F (en construction) | Déconstruire |
+| E | Compétence de classe (bientôt) |
+| F | Interagir (forge, PNJ, portail, inviter) / prendre ou poser le Joyau |
 | M | Carte |
 | Entrée | Chat |
 | I | Héros et inventaire |

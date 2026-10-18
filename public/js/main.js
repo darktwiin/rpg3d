@@ -289,7 +289,7 @@ addEventListener('keydown', (e) => {
   if (inGame() && game.build.on && e.code === K.repair) repairPiece();
   if (e.code === K.punch) punchAlly();
   if (e.code === K.inventory) { openHero(); return; }
-  if (e.code === K.interact) interact();
+  if (e.code === K.interact && !(inGame() && game.build.on && e.code === K.demolish)) interact();
   if (game.build.on && /^Digit[1-9]$/.test(e.code)) selectPiece(+e.code.slice(5) - 1);
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -468,6 +468,7 @@ function connect() {
 
 const handlers = {
   toast: (d) => toast(d.text),
+  fuseResult: (d) => { audio.play(d.ok ? 'levelUp' : 'buildBreak'); if (d.ok && heroPage) heroPage.sel = d.id; },
   authErr: (d) => {
     $('title-error').textContent = d.text; audio.play('ui');
     if (/Session/.test(d.text)) { try { localStorage.removeItem('rpg3d_account'); } catch {} renderLogin(); }
@@ -485,7 +486,7 @@ const handlers = {
   },
   profile: (d) => {
     const before = profile.shards;
-    Object.assign(profile, { token: d.token, shards: d.shards, skills: d.skills, best: d.best, xp: d.xp || 0, account: d.account || null, items: d.items || [], equip: d.equip || {} });
+    Object.assign(profile, { token: d.token, shards: d.shards, skills: d.skills, best: d.best, xp: d.xp || 0, account: d.account || null, items: d.items || [], equip: d.equip || {}, ferite: d.ferite || 0 });
     lsSet('rpg3d_token', d.token);
     if (d.account) lsSet('rpg3d_account', d.account);
     if (d.skin && d.skin !== me.skin && me.rig) ensureMyRig(me.color, me.name, d.skin);
@@ -816,7 +817,7 @@ function enterHub(d) {
   setMode(null);
   updateHelp(); renderParty();
   if (first) { showBanner('Le village', 'Forge · Classement · Portail', 3500); lockMouse(); }
-  else { fade(); showBanner('Retour au village', profile.shards ? `Tu as ${profile.shards} ◆ éclats à dépenser à la forge` : '', 3500); }
+  else { fade(); showBanner('Retour au village', profile.shards ? `Tu as ${profile.shards} ◆ éclats à dépenser auprès du Gardien de maîtrise` : '', 3500); }
 }
 
 function enterGame(d) {
@@ -1105,7 +1106,9 @@ $('btn-launch').onclick = () => {
 function hubInteraction() {
   const near = (s) => Math.hypot(me.pos.x - s.x, me.pos.z - s.z) < s.r;
   if (near(SPOTS.portal)) return { kind: 'portal', label: 'Entrer dans le portail' };
-  if (near(SPOTS.forge)) return { kind: 'forge', label: 'Forge : compétences' };
+  if (near(SPOTS.forge)) return { kind: 'forge', label: 'Forge : fusion et fonte' };
+  if (near(SPOTS.armory)) return { kind: 'armory', label: 'Barbare : changer de classe' };
+  if (near(SPOTS.sanctum)) return { kind: 'sanctum', label: 'Gardien de maîtrise : compétences' };
   if (near(SPOTS.board)) return { kind: 'board', label: 'Voir le classement' };
   let best = null, bd = 2.6;
   for (const o of others.values()) {
@@ -1426,7 +1429,7 @@ function toggleBuild() { if (game.build.on) stopBuild(); }
 function selectPiece(i) {
   const type = W.PIECE_ORDER[i];
   if (!type) return;
-  if (!game.god.free && !W.pieceUnlocked(type, mods)) { toast('À débloquer à la forge du village'); return; }
+  if (!game.god.free && !W.pieceUnlocked(type, mods)) { toast('À débloquer auprès du Gardien de maîtrise'); return; }
   game.build.piece = i; renderBuildBar(); audio.play('ui');
 }
 const _ray = new THREE.Vector3(), _rayPos = new THREE.Vector3();
@@ -1465,10 +1468,11 @@ function placePiece() {
   if (me.rig.attack('hammer')) send({ type: 'act', k: 'hammer' });
 }
 // Page du héros / inventaire (touche I)
-function openHero() {
+function openHero(mode = null) {   // mode : null (touche I) | 'forge' (fusion, fonte) | 'class' (changement de classe)
   if (!playing() || me.dead) return;
   heroPage ||= new HeroPage({ profile, me, getMods: () => mods, send, audio, inHub, setMode, toast });
-  heroPage.open();
+  heroPage.open(mode);
+  if (mode === 'forge') audio.play('anvil', village.anvilPos);
   audio.play('ui');
 }
 let buildingAimed = null;
@@ -1502,7 +1506,7 @@ function demolishPiece() {
   if (b) { send({ type: 'demolish', id: b.id }); if (me.rig.attack('hammer')) send({ type: 'act', k: 'hammer' }); }
 }
 
-// ===================== Interaction (touche E) =====================
+// ===================== Interaction (touche F) =====================
 function interact() {
   if (me.dead) return;
   if (inHub()) {
@@ -1510,7 +1514,9 @@ function interact() {
     if (!it) return;
     audio.play('ui');
     if (it.kind === 'portal') openLaunch();
-    else if (it.kind === 'forge') openSkills();
+    else if (it.kind === 'forge') openHero('forge');
+    else if (it.kind === 'armory') openHero('class');
+    else if (it.kind === 'sanctum') openSkills();
     else if (it.kind === 'board') openBoard();
     else if (it.kind === 'invite') send({ type: 'invite', id: it.id });
     return;
