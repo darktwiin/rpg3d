@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.1.4**
+Version actuelle : **ver.0.1.5**
 
 ## Comptes
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression

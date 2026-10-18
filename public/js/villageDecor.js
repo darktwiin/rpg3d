@@ -52,6 +52,15 @@ export function decorateVillage(v, SPOTS, villageHeight) {
     return o;
   };
   const coll = (x, z, r) => v.colliders.push({ x, z, r });
+  // accroche une bannière sous une traverse d'après sa boîte englobante : centrée sur (sx,sz),
+  // collée contre la face de normale (nx,nz), haut à topY
+  const hang = (name, s, ry, sx, sz, nx, nz, topY) => {
+    const o = put(name, 0, 0, ry, s, 0);
+    o.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(o), size = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+    const off = (Math.abs(nx) * size.x + Math.abs(nz) * size.z) / 2;
+    o.position.set(sx + nx * off - c.x, topY - b.max.y, sz + nz * off - c.z);
+  };
 
   // ---------------- Remparts de pierre ----------------
   const WALL_R = 34, segW = 4 * KK;
@@ -71,11 +80,13 @@ export function decorateVillage(v, SPOTS, villageHeight) {
   for (const sz of [1, -1]) {
     for (const sx of [-1, 1]) {
       const x = sx * 4.6, z = sz * Math.sqrt(WALL_R * WALL_R - 4.6 * 4.6);
-      put('d_pillar_decorated', x, z, sz > 0 ? Math.PI : 0, 0.9);
+      const pil = put('d_pillar_decorated', x, z, sz > 0 ? Math.PI : 0, 0.9);
       coll(x, z, 1.0);
       const tx = x - sx * 1.1, tz = z - sz * 1.2;
       put('d_torch_lit', tx, tz, 0, 1.4, villageHeight(tx, tz) + 0.4 * KK * 1.4);
-      put(sx > 0 ? 'd_banner_shield_red' : 'd_banner_shield_blue', x, z - sz * 0.55, sz > 0 ? Math.PI : 0, 0.8, 0.9);
+      // contre la face du pilier tournée vers la place, sous le haut du pilier
+      const pb = new THREE.Box3().setFromObject(pil);
+      hang(sx > 0 ? 'd_banner_shield_red' : 'd_banner_shield_blue', 0.8, sz > 0 ? Math.PI : 0, x, sz > 0 ? pb.min.z : pb.max.z, 0, -sz, pb.max.y - 0.4);
     }
   }
 
@@ -120,7 +131,7 @@ export function decorateVillage(v, SPOTS, villageHeight) {
     const x = B.x - 0.4, z = B.z + sz * 2.4;
     v.add(tmp, new THREE.CylinderGeometry(0.06, 0.08, 3.6, 8), v.M.log, x, 1.8, z);
     v.add(tmp, new THREE.BoxGeometry(0.1, 0.1, 1.4), v.M.log, x + 0.13, 3.55, z);
-    put(sz > 0 ? 'd_banner_patternA_yellow' : 'd_banner_patternA_red', x + 0.17, z, -Math.PI / 2, 0.75, 3.6 - 3.73 * KK * 0.75);
+    hang(sz > 0 ? 'd_banner_patternA_yellow' : 'd_banner_patternA_red', 0.75, -Math.PI / 2, x + 0.18, z, 1, 0, 3.5);   // sous la traverse (bas à 3,5)
     coll(x, z, 0.25);
   }
 
@@ -133,7 +144,7 @@ export function decorateVillage(v, SPOTS, villageHeight) {
     v.add(tmp, new THREE.CylinderGeometry(0.07, 0.09, 4.2, 8), v.M.log, x, 2.1, z);
     // traverse accrochée contre le mât, côté place, et la bannière juste dessous
     v.add(tmp, new THREE.BoxGeometry(0.1, 0.1, 1.3), v.M.log, x - Math.cos(a) * 0.14, 4.1, z - Math.sin(a) * 0.14).rotation.y = -a;
-    put(cols[i], x - Math.cos(a) * 0.18, z - Math.sin(a) * 0.18, -a - Math.PI / 2, 0.7, 4.12 - 3.73 * KK * 0.7);
+    hang(cols[i], 0.7, -a - Math.PI / 2, x - Math.cos(a) * 0.2, z - Math.sin(a) * 0.2, -Math.cos(a), -Math.sin(a), 4.05);   // sous la traverse (bas à 4,05)
     coll(x, z, 0.25);
   }
 

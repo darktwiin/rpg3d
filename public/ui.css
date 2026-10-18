@@ -271,3 +271,28 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 
 /* Version */
 #version { color: #fff4dccc; }
+
+/* ======================= v0.1.5 : barre de vie au centre, messages en bas ======================= */
+/* Vie du joueur : au centre en bas, agrandie (verte, orange < 50 %, rouge < 20 %) */
+#hp { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); width: 380px; max-width: calc(100vw - 28px); box-sizing: border-box; }
+#hp .hp-label { font-size: 15px; text-align: center; }
+#hp > .bar:first-of-type { height: 18px; }
+#hp-fill { background: linear-gradient(180deg, #9ee070, #4e9a32); }
+#hp.mid #hp-fill, #gem-hp.mid #gem-hp-fill { background: linear-gradient(180deg, #ffc060, #e07a20); }
+#hp.low #hp-fill, #gem-hp.low #gem-hp-fill { background: linear-gradient(180deg, #ff6a5a, #c02a2a); }
+/* Vie perdue : reste en rouge clair puis fond en 0,5 s */
+.bar { position: relative; }
+.bar .ghost { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #ffb4a0; transition: width .5s ease-out .12s; }
+.bar .ghost + .fill { position: relative; transition: width .08s; }
+/* Petit tremblement à chaque coup */
+.bar.shake { animation: barShake .3s; }
+@keyframes barShake { 20% { transform: translate(-3px, 1px); } 40% { transform: translate(3px, -1px); } 60% { transform: translate(-2px, 0); } 80% { transform: translate(2px, 1px); } }
+/* Messages d'interaction et popups : en bas, au-dessus de la barre de vie (plus au milieu de l'écran) */
+#prompt { top: auto; bottom: 128px; }
+#popups { top: auto; bottom: 172px; }
+/* En construction : la barre de construction passe au-dessus de la barre de vie, les messages au-dessus d'elle */
+#buildbar { bottom: 122px; }
+#ui.building #prompt { bottom: 290px; }
+#ui.building #popups { bottom: 330px; }
+/* Icône de ressource qui vole vers le compteur */
+.hud-fly { position: fixed; z-index: 30; width: 22px; height: 22px; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.6)); }

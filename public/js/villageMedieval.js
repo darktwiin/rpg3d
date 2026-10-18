@@ -108,6 +108,58 @@ export function buildMedieval(v, villageHeight) {
     put(name, x, z, rnd() * 6, name === 'v_cart' ? 2.3 : 4, villageHeight(x, z) - 0.05);
   }
 
+  // ---------------- Hameaux supplémentaires sur les collines (placement déterministe) ----------------
+  // [angle depuis +x, distance au centre] : petits groupes de 2 à 4 maisons + un peu de décor
+  const hamlets = [
+    [-0.55, 44], [-0.2, 58], [0.35, 44], [0.55, 64], [0.9, 52], [-0.9, 62], [0.1, 82], [-0.5, 84],
+    [2.64, 44], [2.9, 66], [3.5, 50], [2.4, 58], [3.3, 78], [-2.3, 70],
+    [1.25, 48], [1.9, 50], [-1.3, 48], [-1.85, 52], [1.3, 75], [1.85, 78],
+  ];
+  const houseNames = ['v_house_b', 'v_house_c', 'v_house_b', 'v_house_c', 'v_inn', 'v_barracks', 'v_stable'];
+  const houseScale = { v_inn: 2.2, v_stable: 2.3, v_barracks: 2.5 };
+  const decoNames = [['v_cart', 2.3, 1.0], ['v_well', 2.3, 1.0], ['v_stand_a', 2.4, 1.0], ['v_barrel', 4, 0.45], ['v_crate', 4, 0.45], ['v_hay', 4, 0.5], ['v_bags', 4, 0.5], ['v_bench', 2.6, 0.5], ['v_fence', 3, 0]];
+  let hr = 777;
+  const hrnd = () => { hr = (hr * 16807) % 2147483647; return (hr - 1) / 2147483646; };   // graine propre : ne décale pas le reste
+  // libre = hors chemin (|x| < 8), hors château, hors remparts, et sans chevaucher un bâtiment déjà posé
+  const free = (x, z, r) => Math.abs(x) > 8 + r * 0.5 && Math.hypot(x, z + 76) > 28 + r && Math.hypot(x, z) > 42 && Math.hypot(x, z) < 92
+    && !v.noTree.some((n) => Math.hypot(n.x - x, n.z - z) < n.r + r - 2);
+  hamlets.forEach(([a, R], gi) => {
+    const gx = Math.cos(a) * R, gz = Math.sin(a) * R;
+    const faceBase = gi % 2 ? Math.atan2(-gx, 0) : Math.atan2(-gx, -gz);   // vers le chemin ou vers le centre
+    const count = 2 + (gi % 3);
+    const placed = [];
+    for (let k = 0; k < count; k++) {
+      const name = houseNames[Math.floor(hrnd() * houseNames.length)];
+      const s = (houseScale[name] ?? 2.4) * (0.9 + hrnd() * 0.2), er = name === 'v_house_b' || name === 'v_house_c' ? 5 : 6.5;
+      for (let t = 0; t < 12; t++) {
+        const ang = hrnd() * Math.PI * 2, d = k === 0 && t < 3 ? t * 2 : 7 + t * 0.7 + hrnd() * 3;
+        const x = gx + Math.cos(ang) * d, z = gz + Math.sin(ang) * d;
+        if (!free(x, z, er)) continue;
+        const p = put(name, x, z, faceBase + (hrnd() - 0.5) * 0.52, s);   // ±15°
+        rectColl(x + p.cx, z + p.cz, p.w * 0.92, p.d * 0.92);
+        v.noTree.push({ x, z, r: Math.max(p.w, p.d) / 2 + 2 });
+        placed.push([x, z]);
+        break;
+      }
+    }
+    if (!placed.length) return;
+    // décor entre les maisons du groupe
+    const nd = 2 + (gi % 2);
+    for (let k = 0; k < nd; k++) {
+      const [name, s, cr] = decoNames[Math.floor(hrnd() * decoNames.length)];
+      const [px, pz] = placed[k % placed.length];
+      for (let t = 0; t < 6; t++) {
+        const ang = hrnd() * Math.PI * 2, d = 4.5 + t * 0.8;
+        const x = px + Math.cos(ang) * d, z = pz + Math.sin(ang) * d;
+        if (!free(x, z, 1.5)) continue;
+        put(name, x, z, hrnd() * 6.28, s * (0.9 + hrnd() * 0.2));
+        if (cr) v.colliders.push({ x, z, r: cr });
+        v.noTree.push({ x, z, r: 1.5 });
+        break;
+      }
+    }
+  });
+
   // ---------------- Château au nord ----------------
   buildCastle(v, tmp, 0, -76, villageHeight, put);
   v.noTree.push({ x: 0, z: -76, r: 24 });

@@ -766,6 +766,13 @@ export class AudioEngine {
       o.frequency.exponentialRampToValueAtTime(1500, t + 0.08);
       self.env(g, t, 0.08, 0.005, 0.12);
     }; S.pickup.verb = 0.1;
+    // « pop » très discret quand une ressource arrive dans la réserve
+    S.pop = function (t, out) {
+      const g = self.gain(0, out);
+      const o = self.osc('sine', 620, t, 0.07, g);
+      o.frequency.exponentialRampToValueAtTime(1100, t + 0.04);
+      self.env(g, t, 0.05, 0.003, 0.06);
+    };
     S.playerHurt = function (t, out) {
       const g = self.gain(0, out);
       const o = self.osc('sawtooth', 170, t, 0.22, self.filter('lowpass', 900, 3, g));

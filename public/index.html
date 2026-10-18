@@ -71,7 +71,7 @@
         </div>
         <div id="gem-hp">
           <div class="gem-row"><span class="gem-icon">◆</span> Joyau <span id="gem-hp-text">600</span></div>
-          <div class="bar"><div id="gem-hp-fill" class="fill"></div></div>
+          <div class="bar"><div class="ghost"></div><div id="gem-hp-fill" class="fill"></div></div>
         </div>
       </div>
       <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas><div id="minimap-n">N</div></div>
@@ -83,12 +83,12 @@
           <div class="res"><span class="ico stone"></span><b id="inv-stone">0</b> Pierre</div>
           <div class="res"><span class="ico twig"></span><b id="inv-twig">0</b> Brindilles</div>
         </div>
-        <div id="hp">
-          <div class="hp-label"><span class="lvl" title="Niveau du héros">Niv. <b class="hero-lvl">1</b></span> ❤ <span id="hp-text">100</span></div>
-          <div class="bar"><div id="hp-fill" class="fill"></div></div>
-          <div id="stam" class="bar" title="Endurance (courir, dash, double saut)"><div id="stam-fill" class="fill"></div></div>
-          <div class="bar xpbar" title="Expérience du héros"><div class="fill xp-fill"></div></div>
-        </div>
+      </div>
+      <div id="hp">
+        <div class="hp-label"><span class="lvl" title="Niveau du héros">Niv. <b class="hero-lvl">1</b></span> ❤ <span id="hp-text">100</span></div>
+        <div class="bar"><div class="ghost"></div><div id="hp-fill" class="fill"></div></div>
+        <div id="stam" class="bar" title="Endurance (courir, dash, double saut)"><div id="stam-fill" class="fill"></div></div>
+        <div class="bar xpbar" title="Expérience du héros"><div class="fill xp-fill"></div></div>
       </div>
       <div id="power" hidden></div>
       <div id="buildbar" hidden>
@@ -316,7 +316,7 @@
   </div>
 
   <div id="fade"></div>
-  <div id="version">ver.0.1.4</div>
+  <div id="version">ver.0.1.5</div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

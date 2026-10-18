@@ -854,6 +854,7 @@ function enterGame(d) {
   updatePowerHud();
   for (const f of flyers) worldRoot.remove(f.mesh);
   flyers.length = 0;
+  flyGen++;   // les icônes encore en vol vers le HUD ne comptent plus
   flyPending.wood = flyPending.stone = flyPending.twig = 0;
   serverInv = { ...d.inv };
   me.inv = { ...d.inv };
@@ -1143,16 +1144,28 @@ function updateHeroHud() {
   $('hero-xp').textContent = `${profile.xp - a} / ${b - a} XP`;
   $('hero-acc').textContent = profile.account ? `Compte : ${profile.account}` : 'Invité (progression sur ce navigateur)';
 }
+// Barre de vie : la vie perdue reste en rouge clair (.ghost) puis fond en 0,5 s (transition CSS),
+// la barre tremble à chaque coup, orange sous 50 %, rouge sous 20 %.
+const barFrac = {};
+function setBar(id, frac) {
+  frac = clamp(frac, 0, 1);
+  const el = $(id), bar = el.querySelector('.bar');
+  el.querySelector('.fill').style.width = frac * 100 + '%';
+  el.querySelector('.ghost').style.width = frac * 100 + '%';
+  el.classList.toggle('mid', frac < 0.5 && frac >= 0.2);
+  el.classList.toggle('low', frac < 0.2);
+  if (barFrac[id] != null && frac < barFrac[id] - 1e-4) { bar.classList.remove('shake'); void bar.offsetWidth; bar.classList.add('shake'); }
+  barFrac[id] = frac;
+}
 function updateHp() {
   $('hp-text').textContent = Math.max(0, Math.round(me.hp)) + ' / ' + me.maxHp;
-  $('hp-fill').style.width = clamp(me.hp / me.maxHp * 100, 0, 100) + '%';
+  setBar('hp', me.hp / me.maxHp);
   me.rig?.setHp(me.hp / me.maxHp);
 }
 function updateGemHud() {
   const hp = Math.max(0, gem.state.hp);
   $('gem-hp-text').textContent = Math.round(hp) + ' / ' + W.GEM_HP;
-  $('gem-hp-fill').style.width = (hp / W.GEM_HP * 100) + '%';
-  $('gem-hp').classList.toggle('low', hp < W.GEM_HP * 0.3);
+  setBar('gem-hp', hp / W.GEM_HP);
 }
 function updateStatus() {
   const n = others.size + 1;
@@ -1277,16 +1290,41 @@ function updateFlyers(dt) {
     if (k >= 1) {
       worldRoot.remove(f.mesh);
       flyers.splice(i, 1);
-      audio.play('collect');
-      flyPending[f.k] = Math.max(0, flyPending[f.k] - f.amt);
-      syncInv();
-      if (f.last) {
-        popup(`+${f.total} ${W.RES_NAMES[f.k]}`, RES_COL[f.k]);
-        const el = $('inv-' + f.k).parentElement;
-        el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
-      }
+      flyToHud(f);
     }
   }
+}
+// Arrivée près du joueur : une petite icône part de l'écran vers le compteur du HUD,
+// en arc (monte puis plonge), en 0,55 s ; le compteur ne s'incrémente qu'à son arrivée.
+const HUD_FLY_MS = 550;
+let lastPop = 0, flyGen = 0;
+function flyToHud(f) {
+  const gen = flyGen;
+  const v = f.mesh.position.clone().project(camera);
+  const x = (v.x + 1) / 2 * innerWidth, y = (1 - v.y) / 2 * innerHeight;
+  const dst = $('inv-' + f.k).parentElement.querySelector('.ico').getBoundingClientRect();
+  const dx = dst.left + dst.width / 2 - x, dy = dst.top + dst.height / 2 - y;
+  const el = document.createElement('span');
+  el.className = 'ico hud-fly ' + f.k;
+  el.style.left = x + 'px'; el.style.top = y + 'px';
+  $('ui').append(el);
+  el.animate([
+    { transform: 'translate(-50%, -50%) scale(1.5)', opacity: 0.6 },
+    { transform: `translate(calc(${dx * 0.35}px - 50%), calc(${dy * 0.35 - 70}px - 50%)) scale(1.3)`, opacity: 1, offset: 0.35 },
+    { transform: `translate(calc(${dx}px - 50%), calc(${dy}px - 50%)) scale(0.8)`, opacity: 1 },
+  ], { duration: HUD_FLY_MS, easing: 'ease-in', fill: 'forwards' });
+  // setTimeout plutôt qu'onfinish : se déclenche aussi onglet masqué, sinon flyPending resterait bloqué
+  setTimeout(() => {
+    el.remove();
+    if (gen !== flyGen) return;
+    const now = performance.now();
+    if (now - lastPop > 70) { lastPop = now; audio.play('pop'); }
+    flyPending[f.k] = Math.max(0, flyPending[f.k] - f.amt);
+    syncInv();
+    const res = $('inv-' + f.k).parentElement;
+    res.classList.remove('bump'); void res.offsetWidth; res.classList.add('bump');
+    if (f.last) popup(`+${f.total} ${W.RES_NAMES[f.k]}`, RES_COL[f.k]);
+  }, HUD_FLY_MS);
 }
 
 // ===================== Construction =====================
