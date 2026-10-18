@@ -288,9 +288,10 @@ addEventListener('keydown', (e) => {
   if (game.mode) return;
   // dash : double appui sur Courir (un seul appui = courir)
   if (e.code === K.run && !e.repeat) { const t = performance.now(); if (t - lastRunTap < 300) { tryDash(); lastRunTap = 0; } else lastRunTap = t; }
-  if (inGame() && e.code === K.build) openCraft();
+  if (inGame() && e.code === K.build) { if (game.repair) toggleRepair(); openCraft(); }
   if (inGame() && game.build.on && e.code === K.demolish) demolishPiece();
   if (inGame() && game.build.on && e.code === K.repair) repairPiece();
+  else if (inGame() && e.code === K.repair && !me.dead) toggleRepair();
   if (e.code === K.punch) punchAlly();
   if (e.code === K.grab && !(inGame() && game.build.on)) grabAlly();
   if (me.carriedBy && e.code === K.jump) send({ type: 'escape' });
@@ -930,6 +931,7 @@ function enterGame(d) {
   flyers.length = 0;
   flyGen++;   // les icônes encore en vol vers le HUD ne comptent plus
   skillUse = { night: -1, readyAt: 0 };
+  game.repair = false;
   me.carryingId = null; me.carriedBy = null; throwK = 0;
   flyPending.wood = flyPending.stone = flyPending.twig = 0;
   serverInv = { ...d.inv };
@@ -1148,6 +1150,7 @@ function renderClassTree() {
     const k = W.nodeKind(n);
     if (k === 'skill') return `${d.name} — ${d.desc}`;
     const b = (n - 1) / 2;   // améliorations cumulées à ce rond
+    if (k === 'boost' && d.boost === 'targets') return `Niveau ${n} : +1 cible maximum → ${W.DEADEYE.max + b} cibles`;
     if (k === 'boost') return d.boost === 'cd' && !d.once
       ? `Niveau ${n} : -${W.BOOST_STEP} s de recharge → ${Math.max(1, d.cd - b * W.BOOST_STEP)} s`
       : `Niveau ${n} : +${W.BOOST_STEP} s de durée → ${d.dur + b * W.BOOST_STEP} s`;
@@ -1666,8 +1669,36 @@ function aimPoint() {
   if (d > W.BUILD_RANGE) { _rayPos.x = me.pos.x + dx / d * W.BUILD_RANGE; _rayPos.z = me.pos.z + dz / d * W.BUILD_RANGE; }
   return _rayPos;
 }
+// Portée des tours : cercles au sol, seulement en mode construction (tours posées + tour en cours de placement)
+const rangeRings = new THREE.Group();
+const ringGeo = new THREE.RingGeometry(0.97, 1, 72).rotateX(-Math.PI / 2);
+worldRoot.add(rangeRings);
+function updateRangeRings() {
+  rangeRings.visible = inGame() && game.build.on && !game.mode;
+  if (!rangeRings.visible) return;
+  const list = [...buildings.map.values()].filter((b) => b.type === 'tower' || b.type === 'frost');
+  const p = game.build.plan;
+  if (p && (p.type === 'tower' || p.type === 'frost')) list.push({ ...p, ghost: true });
+  while (rangeRings.children.length < list.length) rangeRings.add(new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })));
+  rangeRings.children.forEach((m, i) => {
+    const b = list[i];
+    m.visible = !!b;
+    if (!b) return;
+    m.scale.setScalar(b.type === 'tower' ? W.TOWER.range : W.FROST.range);
+    m.position.set(b.x, heightAt(b.x, b.z) + 0.12, b.z);
+    m.material.color.set(b.type === 'frost' ? 0x7fd8ff : 0xffd060);
+    m.material.opacity = b.ghost ? 0.85 : 0.5;
+  });
+}
 function updateBuild() {
   buildingAimed = null;
+  updateRangeRings();
+  if (game.repair && !game.build.on && !game.mode) {
+    const pk = buildings.pick(aimPoint());
+    buildingAimed = pk && pk.state === 'done' && pk.hp < pk.max ? pk : null;
+    buildings.showGhost(null); buildings.showGrid(0, 0, false); game.build.plan = null;
+    return;
+  }
   if (!game.build.on || game.mode) { buildings.showGhost(null); buildings.showGrid(0, 0, false); game.build.plan = null; return; }
   const type = W.PIECE_ORDER[game.build.piece];
   const aim = aimPoint();
@@ -1696,6 +1727,15 @@ function openHero(mode = null) {   // mode : null (touche I) | 'forge' (fusion, 
   audio.play('ui');
 }
 let buildingAimed = null;
+// Mode réparation (R) : le marteau sort, un clic répare la construction abîmée visée (avec une part des ressources)
+let lastRepairT = 0;
+function toggleRepair() {
+  game.repair = !game.repair;
+  if (!me.rig) return;
+  me.rig.setTool(game.repair ? 'hammer' : me.rig.weapon);
+  audio.play(game.repair ? 'hammerTap' : 'ui', me.pos);
+  popup(game.repair ? '🔨 Mode réparation' : 'Fin de la réparation', '#ffe08a');
+}
 function repairPiece() {
   const b = buildings.pick(aimPoint());
   if (!b || b.hp >= b.max) { toast('Vise une construction abîmée pour la réparer'); return; }
@@ -1776,6 +1816,7 @@ function interact() {
 let currentTarget = null, currentMonster = null;
 let lastAtk = 0;
 function tryAttack() {
+  if (game.repair && inGame()) { if (me.dead) return; const t = performance.now(); if (t - lastRepairT > 450) { lastRepairT = t; repairPiece(); } return; }
   if (!me.rig || me.rig.attacking || me.dead || me.rig.blocking || me.carryingId || me.carriedBy || (inGame() && gem.state.carrier === me.id)) return;
   const cls = me.rig.cls;
   const now = performance.now() / 1000;
@@ -1908,7 +1949,7 @@ function flyArrow(from, mon, size, fire) {
 // Dead Eye : focus à la première personne, on survole jusqu'à 10 cibles, puis les flèches partent
 let deadeye = null;
 function startDeadeye(dur) {
-  deadeye = { until: performance.now() + dur * 1000, marks: new Set() };
+  deadeye = { until: performance.now() + dur * 1000, marks: new Set(), max: W.classSkill(profile.ctree, me.skin, W.levelOf(profile.xp))?.targets || W.DEADEYE.max };
   if (me.rig) me.rig.root.visible = false;
   canvas.style.filter = 'sepia(0.55) saturate(1.5) contrast(1.1)';
   $('ui').classList.add('deadeye');
@@ -1917,7 +1958,7 @@ function updateDeadeye() {
   if (!deadeye) return;
   if (performance.now() > deadeye.until || me.dead) { endDeadeye(); return; }
   const m = monsters.findAlongAim(me.pos, camera, W.DEADEYE.range);
-  if (m && !deadeye.marks.has(m.id) && deadeye.marks.size < W.DEADEYE.max) {
+  if (m && !deadeye.marks.has(m.id) && deadeye.marks.size < deadeye.max) {
     deadeye.marks.add(m.id); m.rig.marked = true;
     audio.play('ui');
   }
@@ -2146,6 +2187,7 @@ function updatePlayer(dt) {
   if (me.stunT > 0) me.stunT -= dt;
   const stunned = me.stunT > 0;
   const canMove = !me.dead && !stunned && !me.carriedBy && (!game.mode || game.mode === 'map');
+  const ox = me.pos.x, oz = me.pos.z;   // position avant ce pas (falaises)
   if (stunned && me.knockV > 0) {
     // glissade après le coup de poing
     me.pos.x += Math.sin(me.knockDir) * me.knockV * dt; me.pos.z += Math.cos(me.knockDir) * me.knockV * dt;
@@ -2210,6 +2252,9 @@ function updatePlayer(dt) {
     buildings.collide(me.pos, PLAYER_RADIUS);
     me.pos.x = clamp(me.pos.x, -WORLD_LIMIT, WORLD_LIMIT);
     me.pos.z = clamp(me.pos.z, -WORLD_LIMIT, WORLD_LIMIT);
+    // falaise : on ne gravit pas une pente trop raide (même en sautant), sauf sur une construction (escalier, plancher)
+    const run = Math.hypot(me.pos.x - ox, me.pos.z - oz), t1 = heightAt(me.pos.x, me.pos.z);
+    if (run > 1e-4 && (t1 - heightAt(ox, oz)) / run > W.MAX_CLIMB && groundH(me.pos.x, me.pos.z, me.pos.y) <= t1 + 0.05) { me.pos.x = ox; me.pos.z = oz; }
   }
 
   const groundY = groundH(me.pos.x, me.pos.z, me.pos.y);
@@ -2242,7 +2287,7 @@ function updatePlayer(dt) {
 
   // Outil en main selon ce qu'on vise
   if (!rig.attacking) {
-    if (game.build.on) rig.setTool('hammer');
+    if (game.build.on || game.repair) rig.setTool('hammer');
     else if (currentMonster) rig.setTool(rig.weapon);
     else if (currentTarget) rig.setTool(currentTarget.kind === 'tree' ? 'axe' : currentTarget.kind === 'rock' ? 'pick' : rig.weapon);
     else rig.setTool(rig.weapon);
@@ -2298,10 +2343,11 @@ function updatePlayer(dt) {
     const rest = Math.ceil(((game.gemReady || 0) - performance.now()) / 1000);
     pr.style.display = 'block'; pr.innerHTML = rest > 0 ? `Le Joyau se repose… <span class="gem-timer">${rest} s</span>` : `<kbd>${K}</kbd> Prendre le Joyau`;
   }
-  else if (!me.dead && game.build.on && buildingAimed && buildingAimed.hp < buildingAimed.max) {
+  else if (!me.dead && (game.build.on || game.repair) && buildingAimed && buildingAimed.hp < buildingAimed.max) {
     const c = W.repairCost(buildingAimed, mods);
-    pr.style.display = 'block'; pr.innerHTML = `<kbd>${keyLabel(settings.keys.repair)}</kbd> Réparer ${W.PIECES[buildingAimed.type].name} (${Math.round(buildingAimed.hp)}/${buildingAimed.max}) · ${game.god.free ? 'gratuit' : costHtml(c) || 'gratuit'}`;
+    pr.style.display = 'block'; pr.innerHTML = `<kbd>${game.repair ? 'Clic' : keyLabel(settings.keys.repair)}</kbd> Réparer ${W.PIECES[buildingAimed.type].name} (${Math.round(buildingAimed.hp)}/${buildingAimed.max}) · ${game.god.free ? 'gratuit' : costHtml(c) || 'gratuit'}`;
   }
+  else if (!me.dead && game.repair) { pr.style.display = 'block'; pr.innerHTML = `🔨 Mode réparation : vise une construction abîmée · <kbd>${keyLabel(settings.keys.repair)}</kbd> pour quitter`; }
   else pr.style.display = 'none';
 
   if (me.dead) {

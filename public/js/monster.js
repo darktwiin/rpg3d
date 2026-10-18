@@ -346,7 +346,7 @@ export class Monsters {
     rig.root.rotation.y = d.ry || 0;
     if (quiet) rig.spawnT = 5;
     this.scene.add(rig.root);
-    const max = MONSTERS[kind].hp;
+    const max = d.max || MONSTERS[kind].hp;   // la vie max grandit avec les nuits (envoyée par le serveur)
     const m = { id: d.id, kind, rig, tx: d.x, tz: d.z, ry: d.ry || 0, st: 0, hp: d.hp ?? max, max, dead: false, lastX: d.x, lastZ: d.z };
     rig.setHp(m.hp / max);
     this.map.set(d.id, m);

@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.3.1';
+export const VERSION = '0.3.2';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -34,7 +34,10 @@ export const MONSTERS = {
   // Colosse : guerrier en armure avec hache et bouclier, à partir de la nuit 8
   tank: { name: 'Colosse', hp: 160, speed: 2.7, dmgP: 26, dmgGem: 40, dmgB: 70, reach: 2.0, cd: 2.1, hitAt: 0.6, scale: 1.38, radius: 0.75 },
 };
-export const TANK_NIGHT = 8;
+export const TANK_NIGHT = 5;     // Colosse (squelette guerrier) à partir de la nuit 5
+export const SPITTER_NIGHT = 3;  // mage squelette à partir de la nuit 3
+// Les monstres se renforcent à chaque nuit : +10 % de vie et +2 % de vitesse par nuit après la première
+export const monsterScale = (night) => { const k = Math.max(0, night - 1); return { hp: 1 + 0.1 * k, speed: 1 + 0.02 * k }; };
 // Joyau : on ne peut le porter que 10 s, puis il faut attendre 10 s avant de le reprendre
 export const GEM_CARRY = 10, GEM_REST = 10;
 // Déconstruire rend la moitié des matériaux ; réparer coûte la moitié du prix × la part de vie perdue
@@ -73,6 +76,7 @@ export function nightTarget(night, players, k = 0) {
   return Math.round(1.2 * (10 + 6 * (night - 1)) * (1 + Math.min(1, Math.max(0, k))) * Math.pow(1.2, Math.max(0, players - 1)) * (night === 1 ? 0.7 : 1));
 }
 export const GRAB = { reach: 2.2, charge: 1.2, maxV: 20, maxUp: 11 };   // attraper un allié : portée, temps de charge du lancer (s), vitesses max
+export const MAX_CLIMB = 1.6;   // pente max gravissable (≈ 58°) : bloque la falaise (≈ 3), laisse les berges (≤ 1,3)
 export const CHASE_GIVEUP = 8;   // secondes de poursuite sans toucher le joueur avant d'abandonner
 export const SPAWN_MIN = 68, SPAWN_MAX = 88;   // distance d'apparition autour du Joyau
 
@@ -121,7 +125,7 @@ export const PIECES = {
   frost: { name: 'Tour de givre', cost: { wood: 3, stone: 5 }, hp: 500, tower: true, skill: 'c_frost' },
 };
 export const PIECE_ORDER = ['floor', 'base', 'wall', 'window', 'door', 'stairs', 'roof', 'path', 'stonewall', 'spikes', 'tower', 'frost'];
-export const TOWER = { range: 15, rate: 0.33, dmg: 1, heavyDmg: 3 };
+export const TOWER = { range: 12, rate: 0.33 / 0.8, dmg: 0.9, heavyDmg: 2.7 };   // v0.3.2 : portée -20 %, cadence -20 %, dégâts -10 %
 export const FROST = { range: 8, slow: 0.45, pulse: 1 };
 export const isWallType = (t) => t === 'wall' || t === 'door' || t === 'stonewall' || t === 'window';
 export const SPIKE_DPS = 14;
@@ -550,7 +554,7 @@ export const CLASS_SKILLS = {
   ],
   Rogue: [
     { id: 'sentinel', name: 'Sentinelle', icon: '🔮', once: true, dur: 5, boost: 'dur', desc: 'Une orbe tourne autour de toi et tire sur les monstres à moins de 10 m. Une fois par nuit : sa cadence double pendant 5 s.' },
-    { id: 'deadeye', name: 'Dead Eye', icon: '🎯', cd: 60, dur: 5, boost: 'dur', desc: 'Recharge 1 min : vue à la première personne, vise jusqu’à 10 cibles pendant 5 s (ou rappuie sur E), puis des flèches enflammées les frappent à 3× les dégâts.' },
+    { id: 'deadeye', name: 'Dead Eye', icon: '🎯', cd: 60, dur: 5, boost: 'targets', desc: 'Recharge 1 min : vue à la première personne, vise jusqu’à 10 cibles pendant 5 s (ou rappuie sur E), puis des flèches enflammées les frappent à 3× les dégâts.' },
   ],
 };
 export const CLASS_STATS = {
@@ -573,8 +577,9 @@ export function classSkill(ctree, cls, level) {
   if (!def) return null;
   const n = Math.max(0, classPoints(level).skill - 1);
   const dur = (def.dur || 0) + (def.boost === 'dur' ? n * BOOST_STEP : 0);
+  const targets = DEADEYE.max + (def.boost === 'targets' ? n : 0);   // Dead Eye : +1 cible par amélioration
   const cd = def.once ? 0 : Math.max(1, (def.cd || 0) - (def.boost === 'cd' ? n * BOOST_STEP : 0));
-  return { def, dur, cd, boosts: n };
+  return { def, dur, cd, boosts: n, targets };
 }
 // Caractéristiques des talents : nodes pairs atteints de la branche choisie
 export function applyClassTree(mods, ctree, cls, level) {

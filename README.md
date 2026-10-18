@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.3.1**
+Version actuelle : **ver.0.3.2**
 
 ## Comptes
 La création d'un compte demande d'accepter les **conditions d'utilisation** (bouton sur l'écran titre ; version enregistrée avec le compte) et un mot de passe d'au moins 6 caractères. Le bouton **Crédits** liste les artistes des modèles 3D.
@@ -36,7 +36,7 @@ de recharge réduite pour une compétence « une fois par nuit ») ; ronds pairs
 | Guerrier | Taunt ultime (1×/nuit, 10 s : tous les monstres viennent vers lui, -50 % de dégâts reçus) | Dernier rempart (1×/nuit, 5 s d'invulnérabilité) |
 | Barbare | Rage (5 s : +60 % de vitesse, attaque ×2, recharge 20 s) | Soif de sang (5 s : 50 % de vol de vie, recharge 20 s) |
 | Mage | Élémentaire (E alterne feu / glace, 1 s entre deux : la glace frappe ×1,25 une seule cible et ralentit toute la zone 2 s) | Blink (téléportation de ~10 m vers l'avant, recharge 10 s) |
-| Voleuse | Sentinelle (orbe qui tire seule à 10 m, à la cadence de l'arc, 40 % des dégâts ; E : cadence ×2 pendant 5 s, 1×/nuit) | Dead Eye (recharge 1 min : vue à la 1re personne 5 s, survole jusqu'à 10 cibles, puis flèches enflammées à 3× les dégâts) |
+| Voleuse | Sentinelle (orbe qui tire seule à 10 m, à la cadence de l'arc, 40 % des dégâts ; E : cadence ×2 pendant 5 s, 1×/nuit) | Dead Eye (recharge 1 min, +1 cible max par amélioration : vue à la 1re personne 5 s, survole jusqu'à 10 cibles, puis flèches enflammées à 3× les dégâts) |
 
 ## Le village (lobby)
 On arrive au village, où l'on voit les autres joueurs.
@@ -61,7 +61,7 @@ Chaque apparence a son style de combat :
 
 ## Le principe
 - **Le jour** (4 min) : récolte du bois (arbres) et de la pierre (rochers), construis des défenses.
-- **La nuit** (2 min) : des monstres arrivent en continu pour détruire **le Joyau** (squelettes de base, squelettes encapuchonnés rapides dès la nuit 2, mages squelettes dès la nuit 5, Colosses en armure dès la nuit 8). Ils attaquent les joueurs sur leur route et cassent les murs qui les bloquent.
+- **La nuit** (2 min) : des monstres arrivent en continu pour détruire **le Joyau** (squelettes de base, squelettes encapuchonnés rapides dès la nuit 2, mages squelettes dès la nuit 3, Colosses en armure dès la nuit 5). Chaque nuit, les monstres ont +10 % de vie et +2 % de vitesse. Ils attaquent les joueurs sur leur route et cassent les murs qui les bloquent.
 - Les monstres apparaissent loin du Joyau (70 à 90 m) : on a le temps d'aller à leur rencontre.
 - Le nombre de monstres augmente à chaque nuit et avec le nombre de joueurs. Un monstre qui poursuit un joueur pendant 8 s sans réussir à le toucher abandonne et fonce vers le Joyau jusqu'à sa mort.
 - Si le Joyau est détruit, la partie recommence. Au lever du soleil, les monstres brûlent.
@@ -90,7 +90,7 @@ Chaque apparence a son style de combat :
 | M | Carte |
 | Entrée | Chat |
 | I | Héros et inventaire |
-| R | Réparer la construction visée (mode construction) |
+| R | Mode réparation : le marteau sort, un clic répare la construction abîmée visée (en construction : répare la pièce visée) |
 | G | Coup de poing à un allié tout proche (il est assommé 2 s et roule par terre) |
 | F | Attraper un allié tout proche ; clic maintenu = jauge, relâcher = le lancer (Espace ou F pour se dégager) |
 | Tab (en partie) | Choisir une cible : sa vie s'affiche en haut ; l'arc et le bâton tirent dessus sans viser |

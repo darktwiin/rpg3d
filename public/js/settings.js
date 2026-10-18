@@ -3,7 +3,7 @@
 export const ACTIONS = [
   ['forward', 'Avancer'], ['back', 'Reculer'], ['left', 'Gauche'], ['right', 'Droite'],
   ['jump', 'Sauter'], ['run', 'Courir'], ['interact', 'Interagir / Joyau'], ['skill', 'Compétence de classe'], ['talents', 'Talents de classe'], ['build', 'Menu construction'], ['demolish', 'Déconstruire'],
-  ['map', 'Carte'], ['chat', 'Chat'], ['repair', 'Réparer (construction)'], ['punch', 'Coup de poing (allié)'], ['grab', 'Attraper un allié'], ['inventory', 'Inventaire / héros'],
+  ['map', 'Carte'], ['chat', 'Chat'], ['repair', 'Mode réparation'], ['punch', 'Coup de poing (allié)'], ['grab', 'Attraper un allié'], ['inventory', 'Inventaire / héros'],
 ];
 export const DEFAULT_KEYS = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', run: 'ShiftLeft',
