@@ -46,6 +46,7 @@ export class HeroPage {
     this.sel = null;
     // l'info-bulle doit être hors du panneau (son ombre portée change le repère des éléments « fixed »)
     document.body.append($('item-tip'));
+    $('hero-talents-btn').onclick = () => ctx.openTalents();
     $('hero-class-btn').onclick = () => { $('hero-classes').hidden = !$('hero-classes').hidden; ctx.audio.play('ui'); this.renderClasses(); };
     for (const el of document.querySelectorAll('#heropanel .slot')) {
       el.onclick = () => { const s = el.dataset.slot; if (this.ctx.profile.equip?.[s]) { ctx.send({ type: 'unequip', slot: s }); ctx.audio.play('ui'); } };

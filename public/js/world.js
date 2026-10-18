@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.1.8';
+export const VERSION = '0.1.9';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;

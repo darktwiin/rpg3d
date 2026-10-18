@@ -6,7 +6,7 @@ import { Particles } from './nature.js';
 import { noise3 } from './world.js';
 import { decorateVillage, Blacksmith, LINES_ARMORY, LINES_SANCTUM } from './villageDecor.js';
 import { buildMedieval } from './villageMedieval.js';
-import { KK } from './models.js';
+import { KK, prop } from './models.js';
 
 export const VILLAGE_RADIUS = 32.6;   // on reste dans les remparts (grilles aux portes)
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -41,18 +41,33 @@ function canvasTex(w, h, draw, repeat) {
   t.anisotropy = 4;
   return t;
 }
+// Tomettes en terre cuite (place du portail) : une seule grande texture posée sans répétition,
+// chaque carreau a sa teinte, ses taches et ses joints irréguliers → aucun motif reconnaissable
 function cobbleTexture() {
-  return canvasTex(512, 512, (ctx, w) => {
-    ctx.fillStyle = '#4c4842'; ctx.fillRect(0, 0, w, w);
-    for (let i = 0; i < 420; i++) {
-      const x = Math.random() * w, y = Math.random() * w, r = 10 + Math.random() * 14;
-      const g = 110 + Math.random() * 50;
-      ctx.fillStyle = `rgb(${g + 8},${g + 2},${g - 8})`;
-      ctx.beginPath(); ctx.ellipse(x, y, r, r * (0.7 + Math.random() * 0.3), Math.random() * 3, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.07)';
-      ctx.beginPath(); ctx.ellipse(x - 2, y - 3, r * 0.6, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+  return canvasTex(2048, 2048, (ctx, w) => {
+    ctx.fillStyle = '#7d6a5c'; ctx.fillRect(0, 0, w, w);   // joints
+    const n = 30, c = w / n;
+    for (let gy = 0; gy < n; gy++) for (let gx = 0; gx < n; gx++) {
+      // carreaux légèrement de travers et de tailles inégales, rangées décalées par endroits
+      const off = (gy % 2) * (Math.random() < 0.3 ? c * 0.5 : 0);
+      const x = gx * c + off + (Math.random() - 0.5) * 3, y = gy * c + (Math.random() - 0.5) * 3;
+      const sw = c - 3 - Math.random() * 3, sh = c - 3 - Math.random() * 3;
+      const h = 12 + Math.random() * 16, l = 52 + Math.random() * 16, sat = 18 + Math.random() * 20;
+      ctx.save();
+      ctx.translate(x + sw / 2, y + sh / 2); ctx.rotate((Math.random() - 0.5) * 0.05);
+      ctx.fillStyle = `hsl(${h},${sat}%,${l}%)`;
+      ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
+      // usure : taches claires et sombres, petits trous
+      for (let k = 0; k < 14; k++) {
+        ctx.fillStyle = Math.random() < 0.5 ? `rgba(240,225,205,${Math.random() * 0.18})` : `rgba(90,60,40,${Math.random() * 0.12})`;
+        ctx.beginPath(); ctx.ellipse((Math.random() - 0.5) * sw, (Math.random() - 0.5) * sh, 2 + Math.random() * sw * 0.35, 2 + Math.random() * sh * 0.25, Math.random() * 3, 0, Math.PI * 2); ctx.fill();
+      }
+      for (let k = Math.random() * 6 | 0; k > 0; k--) { ctx.fillStyle = 'rgba(40,20,10,0.5)'; ctx.beginPath(); ctx.arc((Math.random() - 0.5) * sw * 0.8, (Math.random() - 0.5) * sh * 0.8, 0.8 + Math.random() * 1.5, 0, Math.PI * 2); ctx.fill(); }
+      // bords un peu plus sombres
+      ctx.strokeStyle = 'rgba(50,25,12,0.35)'; ctx.lineWidth = 1.5; ctx.strokeRect(-sw / 2, -sh / 2, sw, sh);
+      ctx.restore();
     }
-  }, [6, 6]);
+  }, [1, 1]);
 }
 function textSprite(text, color = '#f0c96a', scale = 1) {
   const c = document.createElement('canvas');
@@ -394,13 +409,19 @@ export class Village {
       return new THREE.CanvasTexture(c);
     })();
     this.glows = [];
-    for (let i = 0; i < 10; i++) {
-      const a = i / 10 * Math.PI * 2 + 0.31, r = 11;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      this.add(this.root, new THREE.CylinderGeometry(0.06, 0.08, 2.4, 6), M.iron, x, 1.2, z);
-      this.add(this.root, new THREE.BoxGeometry(0.3, 0.35, 0.3), M.window, x, 2.5, z);
+    // angles (degrés) choisis pour éviter la forge, le classement, la salle d'armes et le sanctuaire
+    for (const deg of [30, 78, 102, 150, 258, 282]) {
+      const a = deg * Math.PI / 180, r = 21.8;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r, y = villageHeight(x, z);
+      this.add(this.root, new THREE.CylinderGeometry(0.07, 0.1, 2.8, 8), M.log, x, y + 1.4, z);
+      // potence tournée vers le chemin, la lanterne pend dessous
+      const ix = -Math.cos(a), iz = -Math.sin(a);
+      this.add(this.root, new THREE.BoxGeometry(0.08, 0.08, 0.7), M.log, x + ix * 0.3, y + 2.75, z + iz * 0.3).rotation.y = Math.atan2(ix, iz);
+      const lan = prop('t_lantern', KK * 1.2);
+      lan.position.set(x + ix * 0.55, y + 2.05, z + iz * 0.55);
+      this.root.add(lan);
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-      s.position.set(x, 2.5, z); s.scale.setScalar(1.6);
+      s.position.set(x + ix * 0.55, y + 2.3, z + iz * 0.55); s.scale.setScalar(1.8);
       this.root.add(s);
       this.glows.push(s);
       this.colliders.push({ x, z, r: 0.2 });

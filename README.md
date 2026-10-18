@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.1.8**
+Version actuelle : **ver.0.1.9**
 
 ## Comptes
 Sur l'écran titre : **Créer un compte** (pseudo + mot de passe) ou **Se connecter**. La progression
@@ -24,8 +24,8 @@ en créant un compte depuis ce navigateur, la progression d'invité est reprise.
 Les monstres tués et les nuits survécues donnent de l'**expérience**. Chaque niveau donne +2 PV et +1 % de dégâts
 (d'autres améliorations du héros viendront s'y ajouter).
 
-## Arbre de classe et compétence active (touche E)
-Au **Gardien de maîtrise**, onglet de ta classe : chaque niveau du héros donne 1 point. Niveaux impairs : la compétence
+## Talents de classe et compétence active (touche A)
+Touche **C** (ou bouton dans l'inventaire) : consultables partout, modifiables seulement au village. Chaque niveau du héros donne 1 point. Niveaux impairs : la compétence
 (le 1er point choisit la voie, les suivants ajoutent +0,5 s de durée ou -0,5 s de recharge — jamais de recharge réduite
 pour une compétence « une fois par nuit »). Niveaux pairs : une caractéristique au choix (+10 PV, +1 % de dégâts,
 +2 % de vitesse d'attaque). La voie et les caractéristiques se replacent gratuitement.
@@ -43,7 +43,7 @@ On arrive au village, où l'on voit les autres joueurs.
 - **Barbare** (salle d'armes rouge) : changer de classe
 - **Piédestal** : classement des meilleures parties (solo, duo, trio, équipe de 4)
 - **Portail** : lancer la partie (seul, ou avec son groupe)
-- Inviter un joueur : s'approcher de lui et appuyer sur **F**, ou **Tab** pour la liste
+- Inviter un joueur : s'approcher de lui et appuyer sur **E**, ou **Tab** pour la liste
 
 Les éclats se gagnent à chaque nuit survécue (1, 2, 3, 6, 10, 19…). Profils et classement sont
 enregistrés sur le serveur dans le dossier `data/` (ignoré par git).
@@ -63,7 +63,7 @@ Chaque apparence a son style de combat :
 - Les monstres apparaissent loin du Joyau (70 à 90 m) : on a le temps d'aller à leur rencontre.
 - Le nombre de monstres augmente à chaque nuit et avec le nombre de joueurs. Un monstre qui poursuit un joueur pendant 8 s sans réussir à le toucher abandonne et fonce vers le Joyau jusqu'à sa mort.
 - Si le Joyau est détruit, la partie recommence. Au lever du soleil, les monstres brûlent.
-- Le Joyau peut être porté (touche **F**) **10 secondes** au maximum, puis il tombe et doit se reposer 10 secondes.
+- Le Joyau peut être porté (touche **E**) **10 secondes** au maximum, puis il tombe et doit se reposer 10 secondes.
 - Après une défaite, on revient tout de suite au village avec un panneau qui explique comment devenir plus fort.
 
 ## Lieux spéciaux
@@ -82,8 +82,9 @@ Chaque apparence a son style de combat :
 | Clic droit (maintenu) | Parade au bouclier (Guerrier) |
 | B | Fenêtre de construction (choisir une pièce) |
 | F (en construction) | Déconstruire |
-| E | Compétence de classe (choisie au Gardien de maîtrise) |
-| F | Interagir (forge, PNJ, portail, inviter) / prendre ou poser le Joyau |
+| A | Compétence de classe |
+| C | Talents de classe (consultables partout, modifiables au village) |
+| E | Interagir (forge, PNJ, portail, inviter) / prendre ou poser le Joyau |
 | M | Carte |
 | Entrée | Chat |
 | I | Héros et inventaire |

@@ -322,3 +322,10 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 .ctree-stats > div { width: 100%; font-weight: 700; }
 @media (max-width: 640px) { .ctree-paths { grid-template-columns: 1fr; } }
 #ui.building #skill { display: none; }
+
+/* ======================= v0.1.9 : panneau des talents de classe ======================= */
+.talents-panel { width: 720px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); overflow-y: auto; box-sizing: border-box; }
+.ctree.locked .ctree-path, .ctree.locked .ctree-stats .btn { cursor: default; }
+.ctree-path:disabled { opacity: .6; }
+.ctree-path.on:disabled { opacity: 1; }
+#hero-talents-btn { margin-bottom: 6px; }

@@ -785,7 +785,7 @@ class Room {
   useSkill(p) {
     if (p.dead) return;
     const sk = W.classSkill(p.prof.ctree, p.skin, W.levelOf(p.prof.xp || 0));
-    if (!sk) return send(p.ws, { type: 'toast', text: 'Choisis d’abord ta compétence auprès du Gardien de maîtrise.' });
+    if (!sk) return send(p.ws, { type: 'toast', text: 'Choisis d’abord ta compétence dans les talents de classe (touche C, au village).' });
     const now = Date.now();
     // « une fois par nuit » : propre à cette partie (une nouvelle partie repart à la nuit 0)
     if (sk.def.once ? p.skillRoom === this && p.skillNight === this.night : now < (p.skillReady || 0)) return;
