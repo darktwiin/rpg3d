@@ -286,7 +286,8 @@ addEventListener('keydown', (e) => {
   if (inGame() && e.code === 'Tab' && !game.mode) { cycleTarget(); return; }
   if (inGame() && e.code === K.map) { toggleMap(false); return; }
   if (game.mode) return;
-  if (e.code === K.run) tryDash();
+  // dash : double appui sur Courir (un seul appui = courir)
+  if (e.code === K.run && !e.repeat) { const t = performance.now(); if (t - lastRunTap < 300) { tryDash(); lastRunTap = 0; } else lastRunTap = t; }
   if (inGame() && e.code === K.build) openCraft();
   if (inGame() && game.build.on && e.code === K.demolish) demolishPiece();
   if (inGame() && game.build.on && e.code === K.repair) repairPiece();
@@ -1259,7 +1260,7 @@ function setPickup(id, on) {
   if (!mesh) return;
   r.on = on;
   _pe.set(r.k === 's' ? Math.PI / 2 : 0, r.ry, 0); _pq.setFromEuler(_pe);   // le bout de bois est couché au sol
-  _pp.set(r.x, terrainH(r.x, r.z) + (r.k === 's' ? 0.12 : 0.08), r.z);
+  _pp.set(r.x, heightAt(r.x, r.z) + (r.k === 's' ? 0.12 : 0.08), r.z);
   _pm.compose(_pp, _pq, _ps.setScalar(on ? r.sc : 0));
   mesh.setMatrixAt(r.i, _pm); mesh.instanceMatrix.needsUpdate = true;
 }
@@ -2104,6 +2105,7 @@ function useStam(n) {
   me.stamIdle = 0;
   if (me.stam <= 0) me.tired = true;   // à bout de souffle : il faut récupérer un peu
 }
+let lastRunTap = 0;
 function tryDash() {
   if (!mods.dash || me.dead || me.dash || !me.rig || me.rig.attacking || (inGame() && gem.state.carrier === me.id)) return;
   if (me.stam < mods.dashCost) { flashStam(); return; }

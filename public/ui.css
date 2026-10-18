@@ -375,3 +375,6 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; back
 .credits-body h4 { margin: 10px 0 2px; }
 .credits-body ul { padding-left: 18px; }
 .credits-body li { margin-bottom: 6px; }
+/* v0.2.3 : sous la boussole, le temps restant tenait sur 2 lignes et passait sous la barre */
+#clock, #gem-hp { width: 230px; }
+.clock-row, .gem-row { white-space: nowrap; }

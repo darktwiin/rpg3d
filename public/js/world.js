@@ -4,7 +4,7 @@
 // IMPORTANT : heightAt() doit rester identique à terrainHeight() dans terrain.js (GLSL).
 // ============================================================================
 
-export const VERSION = '0.2.2';
+export const VERSION = '0.2.3';
 
 // ---------- Monde ----------
 export const WORLD_LIMIT = 140;
@@ -117,7 +117,7 @@ export const PIECES = {
   door: { name: 'Porte', cost: { wood: 3, stone: 0 }, hp: 350, blocks: true },
   stonewall: { name: 'Mur de pierre', cost: { wood: 0, stone: 4 }, hp: 1000, blocks: true, skill: 'c_stone' },
   spikes: { name: 'Pieux', cost: { wood: 2, stone: 1 }, hp: 200, skill: 'c_spikes' },
-  tower: { name: 'Tour d’archer', cost: { wood: 5, stone: 3 }, hp: 500, tower: true, skill: 'c_tower' },
+  tower: { name: 'Tour d’archer', cost: { wood: 5, stone: 3 }, hp: 500, tower: true },   // pour tous : défense de base dès la 1re nuit
   frost: { name: 'Tour de givre', cost: { wood: 3, stone: 5 }, hp: 500, tower: true, skill: 'c_frost' },
 };
 export const PIECE_ORDER = ['floor', 'base', 'wall', 'window', 'door', 'stairs', 'roof', 'path', 'stonewall', 'spikes', 'tower', 'frost'];
@@ -141,10 +141,9 @@ export const SKILLS = [
   { id: 'c_speed', tree: 'build', row: 1, col: 0, name: 'Bâtisseur rapide', desc: 'Construction 40% plus rapide', cost: 3, req: ['c_hp1'] },
   { id: 'c_hp2', tree: 'build', row: 1, col: 1, name: 'Bois renforcé', desc: 'Constructions +50% de vie', cost: 5, req: ['c_hp1'] },
   { id: 'c_cost', tree: 'build', row: 1, col: 2, name: 'Économe', desc: 'Constructions 25% moins chères', cost: 5, req: ['c_hp1'] },
-  { id: 'c_tower', tree: 'build', row: 2, col: 0, name: 'Tour d’archer', desc: 'Débloque la tour d’archer (1 dégât par flèche, tir rapide)', cost: 6, req: ['c_speed'] },
   { id: 'c_stone', tree: 'build', row: 2, col: 1, name: 'Maçonnerie', desc: 'Débloque le mur de pierre (très solide)', cost: 8, req: ['c_hp2'] },
   { id: 'c_repair', tree: 'build', row: 2, col: 2, name: 'Entretien', desc: 'Les constructions se réparent toutes seules le jour', cost: 8, req: ['c_cost'] },
-  { id: 'c_frost', tree: 'build', row: 3, col: 0, name: 'Tour de givre', desc: 'Débloque la tour de givre : ralentit déplacement et attaques des monstres', cost: 12, req: ['c_tower'] },
+  { id: 'c_frost', tree: 'build', row: 3, col: 0, name: 'Tour de givre', desc: 'Débloque la tour de givre : ralentit déplacement et attaques des monstres', cost: 12, req: ['c_speed'] },
   { id: 'c_hp3', tree: 'build', row: 3, col: 1, name: 'Fortifications', desc: 'Constructions +100% de vie', cost: 14, req: ['c_stone'] },
   { id: 'c_spikes', tree: 'build', row: 3, col: 2, name: 'Pièges à pieux', desc: 'Débloque les pieux : blessent et ralentissent les monstres', cost: 12, req: ['c_repair'] },
   { id: 'c_arrows', tree: 'build', row: 4, col: 0, name: 'Flèches lourdes', desc: 'Les tours d’archer font 3 dégâts', cost: 18, req: ['c_frost'] },
@@ -184,7 +183,7 @@ export const SKILLS = [
   { id: 'm_speed', tree: 'move', row: 4, col: 2, name: 'Vent du nord', desc: '+10% de vitesse de déplacement', cost: 18, req: ['m_stam2'] },
 ];
 // Compétences retirées dans une mise à jour (remboursées automatiquement)
-export const OLD_SKILLS = { c_stairs: 3, c_door: 5, g_carry_old: 0 };
+export const OLD_SKILLS = { c_stairs: 3, c_door: 5, g_carry_old: 0, c_tower: 6 };   // c_tower : tour d'archer libre depuis la 0.2.3
 export const SKILL_BY_ID = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
 
 // Endurance : courir, dash, double saut

@@ -1,7 +1,7 @@
 # Nuit Blanche — survie multijoueur
 
 Jeu de survie et de construction en 3D à la 3ème personne, jouable dans le navigateur, de 1 à 4 joueurs.
-Version actuelle : **ver.0.2.2**
+Version actuelle : **ver.0.2.3**
 
 ## Comptes
 La création d'un compte demande d'accepter les **conditions d'utilisation** (bouton sur l'écran titre ; version enregistrée avec le compte) et un mot de passe d'au moins 6 caractères. Le bouton **Crédits** liste les artistes des modèles 3D.
@@ -78,7 +78,7 @@ Chaque apparence a son style de combat :
 |---|---|
 | ZQSD / flèches | Se déplacer |
 | Maj (maintenu) | Courir (use l'endurance, barre verte) |
-| Maj (appui) | Dash — compétence Mobilité |
+| Maj (double appui) | Dash — compétence Mobilité |
 | Espace | Sauter (2ᵉ appui en l'air : double saut ; maintenu : planer — compétences Mobilité) |
 | Clic gauche | Attaque de la classe / hache (arbre) / pioche (rocher) |
 | Clic droit (maintenu) | Parade au bouclier (Guerrier) |
@@ -115,7 +115,7 @@ L'inventaire (bois, pierre, brindilles) est commun à tout le groupe. Les buisso
 | Dalle de chemin (+15 % de vitesse dessus) | 1 pierre |
 | Mur de pierre* | 4 pierre |
 | Pieux* | 2 bois + 1 pierre |
-| Tour d'archer* | 5 bois + 3 pierre |
+| Tour d'archer | 5 bois + 3 pierre |
 | Tour de givre* | 3 bois + 5 pierre |
 
 \* à débloquer à la forge (arbre Constructeur)
